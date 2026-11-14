@@ -1,6 +1,6 @@
 # Sortie: One work line per chat turn
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
@@ -11,10 +11,12 @@ In a web chat, a turn shows one collapsible work line and one final reply, inste
 Multi-tool turns bury the answer: every pass adds a narration bubble, a "Tool activity" group and sometimes a "Thinking" disclosure, and only the last bubble is the reply.
 
 ### Success Criteria
-- [ ] A turn with tool calls shows exactly one work line and one reply bubble, live and after a reload.
-- [ ] Expanding the work line shows every pass's narration, thinking and tool calls, in order.
-- [ ] A stopped, errored or step-limited turn loses no text the model wrote.
-- [ ] Copy reply copies only the final reply.
+- [x] A turn with tool calls shows exactly one work line and one reply bubble, live and after a reload.
+- [x] Expanding the work line shows every pass's narration, thinking and tool calls, in order. *(Narration and tool calls were walked at the HAT. Thinking in the group is met by tests only: no model that thinks was available to walk it.)*
+- [x] A stopped, errored or step-limited turn loses no text the model wrote.
+- [x] Copy reply copies only the final reply.
+
+*(Assessed at the debrief, 2026-11-14; see [the debrief](flight-debrief.md), "Charter Criteria" and "Not proven".)*
 
 ### Constraints
 - Browser-only: no server, stored-history or prompt change.
