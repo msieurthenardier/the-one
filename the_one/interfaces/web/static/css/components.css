@@ -3033,6 +3033,17 @@
   .ui-turn-work-lead { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; color: var(--accent); }
   .ui-turn-work-lead svg { width: 14px; height: 14px; transition: transform var(--motion-fast) var(--ease-tactile); }
   .ui-turn-work-details[open] > .ui-turn-work-toggle .ui-turn-work-lead svg { transform: rotate(90deg); }
+  /* The working indicator is drawn, not typed: three boxes that pulse in sequence, so no font
+     fallback can move it. The slot sets no font-size or line-height of its own. */
+  .ui-turn-work-spin { display: inline-flex; align-items: center; gap: 3px; flex: none; height: 14px; font-size: 0; line-height: 0; }
+  .ui-turn-work-dot { display: block; flex: none; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); animation: ui-turn-work-pulse 1.2s ease-in-out infinite; }
+  .ui-turn-work-dot:nth-child(2) { animation-delay: 0.2s; }
+  .ui-turn-work-dot:nth-child(3) { animation-delay: 0.4s; }
+  .ui-turn-work-spin[data-stopped] .ui-turn-work-dot { animation: none; opacity: 0.4; }
+  @keyframes ui-turn-work-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-turn-work-dot, .ui-turn-work-spin[data-stopped] .ui-turn-work-dot { animation: none; opacity: 0.7; }
+  }
   .ui-turn-work-count { font-weight: 400; color: var(--fg-tertiary); font-variant-numeric: tabular-nums; }
   .ui-turn-work-now { font-family: var(--font-family-mono); font-weight: 400; color: var(--fg-tertiary); }
   .ui-turn-work-chip { display: inline-block; }

@@ -30,12 +30,19 @@
   //   - setActivity and setPreview show only while 'working' and are cleared on leaving it.
   //   - setPreview shows the END of the text (the last 400 characters, whitespace collapsed)
   //     in at most two lines, overflow cut at the top; text only, never markup.
-  //   - stopDots() swaps the spinner for a static ellipsis without changing the state (the
-  //     Stop click); fresh dots start when the group next ENTERS 'working' from another state
-  //     (setState to the state it is already in changes nothing).
+  //   - stopDots() freezes the three dots at a steady dim opacity (data-stopped on the slot,
+  //     read by CSS) without changing the state (the Stop click); it clears when the group
+  //     next ENTERS 'working' from another state (setState to the state it is already in
+  //     changes nothing).
   //   - add('tool', node) | add('thinking', string) | add('narration', string|node) returns
   //     {el, kind, setContent(content), remove()}; both are safe to repeat.
-  //   - destroy() stops the dots timer; it never removes the node and is safe to repeat.
+  //   - destroy() hides the slot; it never removes the node and is safe to repeat.
+  //
+  // The summary line starts with the chevron (span.ui-turn-work-lead, in every state, rotated
+  // when the details is open); while 'working' the indicator (span.ui-turn-work-spin, hidden
+  // otherwise) follows it, then the label. The indicator is three CSS-drawn dots
+  // (span.ui-turn-work-dot) that pulse in sequence: boxes, not a font glyph, so it is identical
+  // in every browser and centred exactly. The control creates no timer.
   //
   // Accessible name of the summary (aria-label): the state's label, then ", N tool call(s)"
   // or ", thinking" when the count text shows one, then ", operator only" when the chip
@@ -52,17 +59,18 @@
     var toolCalls = 0;
     var operatorOnly = false;
     var gone = false;
-    var dots = null;
     var thinkingItems = 0;
 
     var lead = util.el('span', { className: 'ui-turn-work-lead', 'aria-hidden': 'true' });
+    var spin = util.el('span', { className: 'ui-turn-work-spin', 'aria-hidden': 'true' });
+    spin.hidden = true;
     var labelEl = util.el('span', { className: 'ui-turn-work-label' });
     var countEl = util.el('span', { className: 'ui-turn-work-count', 'aria-hidden': 'true' });
     var nowEl = util.el('span', { className: 'ui-turn-work-now', 'aria-hidden': 'true' });
     var chipEl = util.el('span', { className: 'ui-turn-work-chip' });
     chipEl.hidden = true;
     var summary = util.el('summary', { className: 'ui-turn-work-toggle' },
-      [lead, labelEl, countEl, nowEl, chipEl]);
+      [lead, spin, labelEl, countEl, nowEl, chipEl]);
     var body = util.el('div', { className: 'ui-turn-work-body' });
     var details = util.el('details', { className: 'ui-turn-work-details' }, [summary, body]);
     var preview = util.el('div', { className: 'ui-turn-work-preview', 'aria-hidden': 'true' });
@@ -87,22 +95,14 @@
       summary.setAttribute('aria-label', name);
     }
 
-    function stopTimer() {
-      if (dots) {
-        dots.destroy();
-        dots = null;
-      }
-    }
-
     function showLead() {
-      stopTimer();
-      lead.textContent = '';
-      if (state === 'working' && !gone) {
-        dots = App.ui.thinking.dots();
-        lead.appendChild(dots.el);
-      } else {
-        lead.appendChild(util.icon('chevron-right'));
+      spin.removeAttribute('data-stopped');
+      spin.hidden = true;
+      if (!lead.firstChild) lead.appendChild(util.icon('chevron-right'));
+      if (!spin.firstChild) {
+        for (var i = 0; i < 3; i++) spin.appendChild(util.el('span', { className: 'ui-turn-work-dot' }));
       }
+      if (state === 'working' && !gone) spin.hidden = false;
     }
 
     function clearLive() {
@@ -169,10 +169,8 @@
         refresh();
       },
       stopDots: function () {
-        if (state !== 'working' || !dots) return;
-        stopTimer();
-        lead.textContent = '';
-        lead.appendChild(util.el('span', { className: 'ui-thinking-dots', text: ' …' }));
+        if (state !== 'working') return;
+        spin.setAttribute('data-stopped', 'true');
       },
       add: function (kind, content) {
         if (KINDS.indexOf(kind) === -1) throw new Error('App.ui.turnWork: unknown kind "' + kind + '"');
@@ -201,7 +199,7 @@
       isEmpty: function () { return body.children.length === 0; },
       destroy: function () {
         gone = true;
-        stopTimer();
+        spin.hidden = true;
       }
     };
 

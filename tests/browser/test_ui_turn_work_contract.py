@@ -15,10 +15,9 @@ from playwright.sync_api import Page
 pytestmark = pytest.mark.browser
 
 COUNT_JS = """() => {
-  window.__live = new Set();
-  const si = window.setInterval.bind(window), ci = window.clearInterval.bind(window);
-  window.setInterval = (fn, ms) => { const id = si(fn, ms); window.__live.add(id); return id; };
-  window.clearInterval = (id) => { window.__live.delete(id); ci(id); };
+  window.__made = 0;
+  const si = window.setInterval.bind(window);
+  window.setInterval = (fn, ms) => { window.__made += 1; return si(fn, ms); };
 }"""
 
 STATES = {
@@ -61,8 +60,17 @@ def _count(page: Page) -> str:
     return page.evaluate("() => __t.el.querySelector('.ui-turn-work-count').textContent")
 
 
-def _live(page: Page) -> int:
-    return page.evaluate("() => __live.size")
+def _made(page: Page) -> int:
+    """How many intervals anything has created since the harness loaded (the control: none)."""
+    return page.evaluate("() => __made")
+
+
+DOTS = "() => Array.from(__t.el.querySelectorAll('.ui-turn-work-spin .ui-turn-work-dot'))"
+ANIM = (
+    DOTS + ".map(d => { const s = getComputedStyle(d); "
+    "return [s.animationName, s.animationPlayState, s.opacity]; })"
+)
+RUNNING = ["ui-turn-work-pulse", "running"]
 
 
 def test_structure_details_closed_and_the_root_attributes(engine_page: Page) -> None:
@@ -137,58 +145,137 @@ def test_details_toggles_by_keyboard_and_stays_closed_by_default_in_every_state(
     page.evaluate("() => __t.destroy()")
 
 
-def test_the_dots_run_only_while_working_and_leaving_stops_the_timer(engine_page: Page) -> None:
+def test_three_css_dots_animate_only_while_working(engine_page: Page) -> None:
     page = engine_page
     _load(page)
     _mount(page)
-    assert (
-        page.evaluate("() => __t.el.querySelector('.ui-turn-work-lead .ui-thinking-dots') !== null")
-        is True
-    )
-    assert page.evaluate("() => __t.el.querySelector('.ui-turn-work-lead svg') === null") is True
-    assert _live(page) == 1
+    chevron = "() => __t.el.querySelector('.ui-turn-work-lead svg') !== null"
+    hidden = "() => __t.el.querySelector('.ui-turn-work-spin').hidden"
+    assert page.evaluate(chevron) is True  # the chevron shows while working too
+    assert page.evaluate(hidden) is False
+    anim = page.evaluate(ANIM)
+    assert len(anim) == 3
+    assert all(a[:2] == RUNNING for a in anim), anim
+    # The glyph spinner is gone: the control draws boxes, never text.
+    assert page.evaluate("() => __t.el.querySelector('.ui-thinking-dots') === null") is True
+    assert page.evaluate("() => __t.el.querySelector('.ui-turn-work-spin').textContent") == ""
     for state in ("done", "stopped", "error", "step-limit", "sign-in"):
         page.evaluate("() => __t.setState('working')")
-        assert _live(page) == 1
+        assert page.evaluate(hidden) is False
         page.evaluate("(s) => __t.setState(s)", state)
-        assert _live(page) == 0
-        assert (
-            page.evaluate("() => __t.el.querySelector('.ui-turn-work-lead svg') !== null") is True
-        )
-        assert page.evaluate("() => __t.el.querySelector('.ui-thinking-dots') === null") is True
-    # A resumed sign-in: fresh dots replace the chevron.
+        assert page.evaluate(hidden) is True
+        assert page.evaluate(chevron) is True
+    # A resumed sign-in: the dots run again.
     page.evaluate("() => __t.setState('working')")
-    assert _live(page) == 1
-    assert page.evaluate("() => __t.el.querySelector('.ui-turn-work-lead svg') === null") is True
+    assert page.evaluate(hidden) is False
+    assert all(a[:2] == RUNNING for a in page.evaluate(ANIM))
+    assert _made(page) == 0
 
 
-def test_stop_dots_keeps_the_state_destroy_stops_and_resume_restarts(engine_page: Page) -> None:
+def test_summary_order_is_chevron_spinner_label_and_both_are_aria_hidden(
+    engine_page: Page,
+) -> None:
+    page = engine_page
+    _load(page)
+    _mount(page)
+    order = (
+        "() => Array.from(__t.el.querySelector('summary').children).map(c => c.className)"
+        ".filter(c => /lead|spin|label/.test(c))"
+    )
+    assert page.evaluate(order) == [
+        "ui-turn-work-lead",
+        "ui-turn-work-spin",
+        "ui-turn-work-label",
+    ]
+    for sel in (".ui-turn-work-lead", ".ui-turn-work-spin"):
+        assert (
+            page.evaluate(f"() => __t.el.querySelector('{sel}').getAttribute('aria-hidden')")
+            == "true"
+        )
+    assert page.evaluate("() => __t.el.querySelector('.ui-turn-work-spin').hidden") is False
+    page.evaluate("() => __t.setState('done')")
+    assert page.evaluate("() => __t.el.querySelector('.ui-turn-work-spin').hidden") is True
+
+
+def test_chevron_rotates_when_open_while_working(engine_page: Page) -> None:
+    page = engine_page
+    _load(page, reduced=True)
+    _mount(page)
+    js = "() => getComputedStyle(__t.el.querySelector('.ui-turn-work-lead svg')).transform"
+    assert page.evaluate(js) == "none"
+    page.evaluate("() => { __t.el.querySelector('details').open = true; }")
+    assert page.evaluate(js) != "none"
+
+
+def test_dots_are_vertically_centred_on_the_label_and_chevron(engine_page: Page) -> None:
+    page = engine_page
+    _load(page)
+    _mount(page, width=600)
+    page.evaluate("() => { __t.setToolCalls(2); __t.setActivity('read_file'); }")
+    g = page.evaluate(
+        """() => {
+          const box = el => el.getBoundingClientRect();
+          const mid = el => { const r = box(el); return r.top + r.height / 2; };
+          const q = sel => __t.el.querySelector(sel);
+          const dots = Array.from(__t.el.querySelectorAll('.ui-turn-work-dot'));
+          return {
+            label: mid(q('.ui-turn-work-label')),
+            chevron: mid(q('.ui-turn-work-lead svg')),
+            dotMids: dots.map(mid),
+            dotLefts: dots.map(d => box(d).left),
+            dotRights: dots.map(d => box(d).right),
+            sizes: dots.map(d => [box(d).width, box(d).height]),
+            chevRight: box(q('.ui-turn-work-lead')).right,
+            spinLeft: box(q('.ui-turn-work-spin')).left,
+            spinRight: box(q('.ui-turn-work-spin')).right,
+            labelLeft: box(q('.ui-turn-work-label')).left,
+          };
+        }"""
+    )
+    assert len(g["dotMids"]) == 3
+    for m in g["dotMids"]:
+        assert abs(m - g["label"]) <= 1, g
+        assert abs(m - g["chevron"]) <= 1, g
+    assert all(s == [4, 4] for s in g["sizes"]), g
+    gaps = [g["dotLefts"][i + 1] - g["dotRights"][i] for i in range(2)]
+    assert abs(gaps[0] - gaps[1]) <= 1 and abs(gaps[0] - 3) <= 1, g
+    before = g["spinLeft"] - g["chevRight"]
+    after = g["labelLeft"] - g["spinRight"]
+    assert abs(before - after) <= 1, g
+
+
+def test_stop_dots_freezes_them_visible_destroy_is_safe_and_resume_restarts(
+    engine_page: Page,
+) -> None:
     page = engine_page
     _load(page)
     _mount(page)
     page.evaluate("() => __t.stopDots()")
-    assert _live(page) == 0
     assert page.evaluate("() => __t.el.getAttribute('data-state')") == "working"
-    assert (
-        page.evaluate("() => __t.el.querySelector('.ui-turn-work-lead').textContent.trim()") == "…"
-    )
+    assert page.evaluate("() => __t.el.querySelector('.ui-turn-work-spin').hidden") is False
+    anim = page.evaluate(ANIM)
+    assert len(anim) == 3
+    assert all(a[0] == "none" and float(a[2]) > 0 for a in anim), anim
+    assert page.evaluate("() => __t.el.querySelector('.ui-turn-work-lead svg') !== null") is True
     page.evaluate("() => __t.stopDots()")  # repeating is harmless
     page.evaluate("() => { __t.setState('done'); __t.setState('working'); }")
-    assert _live(page) == 1
+    assert all(a[:2] == RUNNING for a in page.evaluate(ANIM))
     page.evaluate("() => { __t.destroy(); __t.destroy(); }")
-    assert _live(page) == 0
     page.evaluate("() => { __t.setState('done'); __t.setState('working'); __t.setPreview('x'); }")
-    assert _live(page) == 0  # no timer restarted after destroy
+    assert page.evaluate("() => __t.el.querySelector('.ui-turn-work-spin').hidden") is True
+    assert _made(page) == 0  # no timer at any point
 
 
-def test_reduced_motion_runs_no_interval(engine_page: Page) -> None:
+def test_reduced_motion_shows_steady_dots_and_runs_no_interval(engine_page: Page) -> None:
     page = engine_page
     _load(page, reduced=True)
     _mount(page)
-    assert _live(page) == 0
+    assert page.evaluate("() => __t.el.querySelector('.ui-turn-work-spin').hidden") is False
+    anim = page.evaluate(ANIM)
+    assert len(anim) == 3
+    assert all(a[0] == "none" and float(a[2]) > 0.5 for a in anim), anim
     page.clock.run_for(500)
-    assert _live(page) == 0
-    assert page.evaluate("() => __t.el.querySelector('.ui-thinking-dots').textContent") == " …"
+    assert _made(page) == 0
 
 
 def test_reduced_motion_zeroes_the_chevron_transition(engine_page: Page) -> None:

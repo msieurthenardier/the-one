@@ -94,9 +94,10 @@ def test_a_done_after_a_stop_click_still_lands_the_reply_and_the_line_reads_work
     page.locator(STOP).click()
     # The click only stops the dots: the state changes on frames alone.
     page.wait_for_function(
-        "() => document.querySelector('[data-testid=\"turn-work\"] .ui-turn-work-lead')"
-        ".textContent.trim() === '…'"
+        "() => document.querySelector('[data-testid=\"turn-work\"] .ui-turn-work-spin')"
+        ".getAttribute('data-stopped') === 'true'"
     )
+    assert _chats.turn_dots_stopped(group)
     assert _chats.turn_state(group) == "working"
     expect(_chats.replies(page)).to_have_count(0)
     # The turn had already finished: `done` (and no `cancelled`) arrives.

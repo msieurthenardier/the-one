@@ -1,6 +1,6 @@
 # Sortie: One work line per chat turn
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -273,7 +273,7 @@ Verified in the working tree at `7d6ab953`.
 - [x] Leg 2: live and replay render the new shape; the listed lanes pass. (With leg 3, `turn-work-tests`, after the split.)
 - [x] Legs 4 and 5 (the cleanup and the docs, after the splits): the deletion greps are recorded; the UI guards and the listed lanes pass; specs and docs updated.
 - [x] Full gate: unit tier and 19 of 20 lanes green on 2026-11-14; the `agents` lane failed once on a known test race (squawk 0359) and passed 186 of 186 when re-run alone. The host was not quiet (start load 1.70), so no lane budget was re-read from this run.
-- [ ] HAT walked and signed off.
+- [x] HAT walked and signed off (2026-11-14). Two fixes came out of it: the chevron shows in every state, and the working indicator is three CSS-drawn dots (DD1's `App.ui.thinking.dots()` was replaced, because a font glyph could not be aligned across browsers). Not walked: the sign-in pause, thinking in the group, the desktop webview.
 
 ### Adaptation Criteria
 
@@ -296,7 +296,7 @@ Verified in the working tree at `7d6ab953`.
 - [x] `turn-work-tests` - the remaining flow tests and the rewrite of the tests that assert on a streaming bubble. Split from `turn-work-in-chat` at its design review (2026-11-13): the whole was too much for one Developer pass. The lanes are expected red between these two legs, with the failing tests listed in the flight log; nothing is committed until the flight review.
 - [x] `turn-work-cleanup` - the deletions with their recorded greps, the retired testids, catalogue rows and lane pins. Split from leg 2 at the Architect's request: deleting library code is the hard-to-reverse step and gets its own checkpoint.
 - [x] `turn-work-docs` - the capture surfaces, the behavior specs and the docs. Split from `turn-work-cleanup` at its design review (2026-11-13), again for size.
-- [ ] `hat-and-alignment` *(optional, operator chose yes)* - a guided walk on a dev instance:
+- [x] `hat-and-alignment` *(optional, operator chose yes)* - a guided walk on a dev instance:
   1. [idle] → [working]: send a multi-tool prompt. One "Working" line, the count rising, the tool name, the moving preview; no bubble yet; no error line.
   2. [working] → [done]: the reply lands whole; the line reads "Work · N tool calls"; exactly one reply bubble; Copy copies the reply only.
   3. [done] → [expanded]: narration, thinking and tool rows in order; collapse again. Also open the group while a turn runs: the newest narration shows as plain source until the next text arrives (DD4). Is that acceptable?
@@ -313,10 +313,10 @@ Verified in the working tree at `7d6ab953`.
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - In a web chat, a multi-tool turn shows one work line and one reply, live and after a reload (criteria 1 and 2: the flow tests and HAT steps 1-4).

@@ -200,13 +200,18 @@ def turn_name(group: Locator) -> str | None:
 
 
 def turn_dots_stopped(group: Locator) -> bool:
-    """True when the running line's dots have been replaced by the static ellipsis (the Stop
-    click does this without changing the group's state)."""
+    """True when the running line's three dots are frozen (visible, no animation running): the
+    Stop click does this without changing the group's state."""
     return bool(
         group.evaluate(
             """el => {
-              const lead = el.querySelector('.ui-turn-work-lead');
-              return !!lead && lead.textContent.trim() === '…';
+              const spin = el.querySelector('.ui-turn-work-spin');
+              if (!spin || spin.hidden) return false;
+              const dots = Array.from(spin.querySelectorAll('.ui-turn-work-dot'));
+              return dots.length === 3 && dots.every(d => {
+                const s = getComputedStyle(d);
+                return s.animationName === 'none' && parseFloat(s.opacity) > 0;
+              });
             }"""
         )
     )

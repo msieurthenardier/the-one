@@ -68,6 +68,8 @@ Ready. The charter and the flight spec were agreed with the operator on 2026-11-
 - **Closing gate result** (2026-11-14): unit tier **10137 passed, 15 skipped** (271 s; the expected skip count under netns; `test_parallel_exit_codes` passed). Browser `--parallel 3`: `PARALLEL_RESULT rc=1 total=2031s lanes=20 failed=agents`. **19 of 20 lanes green**, none over budget (not a budget reading: start load 1.70, 3.8 at the end).
   - The one failure is again `test_flow_agents_focus_after.py::test_form_is_clean_and_shows_the_stored_model_while_loading` (`AssertionError: ['mock-default']`). Triage, as the leg 4 note required: it is **not** a regression from this flight. The test waits on the model select's value, which is already the stored model while the list loads, then reads the options at once; on a busy host the list has not landed. It passed 3 of 3 alone after the gate, and the same failure is in the logs of sorties 08 and 09. This flight's only change in that tab is the new-agent form's default step count, which the test does not touch (it edits a stored agent). Logged as **squawk 0359** (deferred). The `agents` lane is being re-run alone for a clean record before the commit.
 - **`agents` lane re-run alone: 186 passed** (437 s). With that, every lane has passed on the final tree. Leg statuses set to `completed`, the five autonomous legs checked off in the flight artifact, and a Developer spawned to make the flight's one commit (crew file: the Developer commits). The HAT follows the commit and the draft PR.
+- **Committed: `122158bf`** "sortie/16: one work line per chat turn" (73 files, 4901 insertions, 2463 deletions; the pre-commit hook passed). Pushed; **draft PR #371** opened with the five autonomous legs checked and the HAT open.
+- **HAT leg started** (`legs/06-hat-and-alignment.md`, interactive). A scratch instance is up on port 8487 with its own data directory (`~/the-one-hat-sortie16/data`, confirmed from the process's own environment; the default data directory is `~/.local/share/the-one` and is untouched), started from a scratch working directory, in dev mode with the stub endpoint. Seeded through the API with a local Ollama provider, four agents (Researcher, Quick, Step limit, Plain) and a stub connector. Waiting for the operator at step 1.
 - **Squawks logged mid-flight** (deferred, not fixed here): **0359** (the test race above) and **0360** (the stale "Tool activity" comment in `app.py`).
 - **Not a squawk: the second-window send.** It fails the squawk gate's third criterion (it changes in-flight state handling in the chat). It is a small sortie, or a leg of the next chat flight: a window that receives another window's `user` frame should hold its own sends until `done`. Recorded here for the debrief.
 - **For the debrief**: the first code review confirmed `previewFor` by reading it ("`previewFor` hides open chart and widget sources"). The leaks were found only because a second reviewer was asked whether tests had been weakened, and a restored test then failed. A "must never appear" property needs a continuous or exhaustive test, not a sample, and a reviewer's "confirmed by reading" on such a property is weak evidence.
@@ -427,3 +429,87 @@ Counts: turn_work_states 16 passed; turn_work 13; widgets 21; charts 26; ruff ch
 
 Counts: turn_work_states 16 passed; turn_work 13; widgets 21; charts and the static/ruff checks: see the report.
 Final counts: charts 26 passed; static guards (ui_guards, token_definitions, ui_ownership, nav_helper, run_tests_lanes) 161 passed; ruff check and format clean.
+
+### HAT walk (2026-11-14, operator on the instance at port 8487)
+
+**Step 1, [idle] → [working] (Researcher, `gpt-oss:20b`): passes, with two look-and-feel fixes.**
+- Operator: the spinner is not vertically aligned with the words (screenshot: the glyph is a tall column of dots sitting off the label's line).
+- Operator: "there should be a chevron when its working so the operator knows it can be expanded"; today the chevron shows only when the turn is done.
+- Flight Director's call: both are look-and-feel **fixes** on one surface (the control), not features. The chevron-while-working reverses a detail of the approved mockup (dots in place of the chevron) at the operator's own request. A Developer (Sonnet) is on both, with a geometry test for the alignment and a fresh capture to look at ("HAT fix 1").
+- Everything else in step 1 as expected ("passes otherwise").
+- **An agent error, not from this flight.** The turn ended with `Ollama returned 500 … error parsing tool call`: `gpt-oss:20b` wrote prose in front of its tool-call JSON and Ollama's own parser rejected it. The app showed it as an agent error; a second prompt got the result. Not investigated further here. Related, and found while answering the operator: the app drops reasoning from Ollama models (the gap sortie 13, `ollama-wire-fidelity`, is chartered to close), so the Researcher agent cannot show thinking; the Flight Director had told the operator it would, and corrected that. Thinking at step 8 needs a Claude provider.
+
+**Step 2, [working] → [done]: passes** (operator: "step 2 passes"). One reply bubble, "Work · N tool calls", Copy copies the reply only; the errored turn shows its error line and notice with no reply.
+
+**Step 3, [done] → [expanded] → [collapsed], and a group opened while it runs: passes** (operator: "pass, acceptable"). Judgement item 3 answered: the newest narration showing as plain text until the next text arrives is **acceptable**.
+
+### HAT fix 1 (2026-11-14): chevron while working, spinner alignment
+
+**What changed.** `App.ui.turnWork` summary is now `lead` (the chevron, present in every state, rotates when open), then a new `span.ui-turn-work-spin` (aria-hidden, `hidden` outside `working`, holds the braille dots or, after `stopDots()`, the static ellipsis), then the label. The summary's `aria-label` rule and the handle API are unchanged. CSS: `.ui-turn-work-spin` is a fixed 14px-high inline-flex centred box; `.ui-turn-work-spin .ui-thinking-dots` is `display: block`, `line-height: 1`, `font-size: var(--font-size-body-sm)` (the label's size; the leading space of the frames collapses at the start of the block, so gaps are the line's even 8px). `App.ui.thinking.dots` and the "Loading model" line are untouched. Helper `_chats.turn_dots_stopped` and `test_flow_chat_turn_work_states.py` now read `.ui-turn-work-spin`. Docs: control header comment, inventory row (new owned class `ui-turn-work-spin`), `agents.md` "Turn work group".
+
+**Tests** (`test_ui_turn_work_contract.py`, both engines, 32 pass, up from 24): chevron present in every state including working; spinner only while working; order lead, spin, label with both aria-hidden; chevron rotates when open while working; geometry test (box centres of spinner, dots and chevron within 2px of the label's, plus dots font size equals the label's and spinner/dots box at most 16px tall).
+
+**Falsification.** Alignment CSS removed: the geometry test fails in both engines (dots font 14px vs 12px) - yes. Note a first version of the test with only centre checks PASSED without the CSS (box centres cannot see a tall glyph line), so the size assertions were added. Chevron hidden in working: 4 tests fail per engine (dots, rotate, geometry, stop-dots) - yes. Both restored by editing.
+
+**Captures** (`chat-turn-working--dark|light--1280`): chevron shows before the spinner; the capture runs with reduced motion so the spinner slot shows the static ellipsis, which sits on the text baseline as an ellipsis does; spacing chevron, ellipsis, label reads even. The animated braille frame itself was not seen in a capture (covered by the geometry assertions only).
+
+**Gates.** turn-work contract 32 pass; contracts-chat 330 pass; static guards 428 pass; ruff check and format clean; chats-transcript and test-unit results below if noted.
+
+**Step 4, [done] → [reloaded]: passes** (operator: "step 4 passes"). On the reload the operator saw the in-progress HAT fix 1: the chevron now shows while working, **the spinner is still misaligned**. The Developer had not reported yet at that point, so this is an observation of a half-finished fix, to be re-checked by the operator once the Developer signals.
+
+**Step 5, [working] → [stopped]: passes** (operator: "step 5 passes").
+
+**Step 6, [working] → [step limit] → Continue: passes** (operator: "step 6 passes").
+
+**Step 7, [working] → [sign-in] → [working]: skipped by the operator** ("skip to step 8"). No OAuth MCP server was set up on the HAT instance. The path rests on the automated tests (the pause, the resume, a join on a paused turn, a join during a resume) and the review's walk. Judgement item 6 (the "Resuming…" line's place) is therefore unanswered; carried to the debrief.
+
+**Step 8, other shapes:**
+- **A, a plain reply (the Plain mock): passes.** The work line goes when the reply lands.
+- **B, a chart and a widget (a seeded "Visuals" mock that streams one of each over about four seconds): passes.** The preview read "Drawing a chart" and "Building a widget", no source showed, and both drew when the reply landed. The operator raised nothing about the preview staying on the phrase to the end (judgement item 4).
+- **C, thinking only: not walked.** The operator's only available Claude model does not support adaptive thinking, and the app shows no reasoning from Ollama models (sortie 13's gap). The thinking item, "Work · thinking" and the thinking-above-narration order therefore rest on the contract and flow tests alone (scripted frames and seeded history); **no one has seen them with a real model's thinking.** Carried to the debrief.
+
+Final gate results: chats-transcript 152 pass; `make test-unit` (netns) 10137 passed, 15 skipped; static guards 428 pass; ruff clean.
+
+**HAT fix 1: Flight Director's notes.** The Developer signalled `[HANDOFF:review-needed]`: the chevron is in every state, the spinner sits in its own slot after it; contract file 32 passed in both engines, `contracts-chat` 330, `chats-transcript` 152, unit tier 10137 passed and 15 skipped; both new assertions falsified. The Developer said plainly that its captures ran under reduced motion, so it never saw the animated braille frame, and that its first alignment assertion (box centres) could not see the problem and had to be replaced by size assertions.
+- The Flight Director therefore rendered the working line with the animated frame in Chromium (the disk harness, 4x scale, both themes) and looked at it: chevron, spinner, "Working · 2 tool calls read_file" on one line; the box centres of chevron, spinner and label are equal (38, 38, 38). By eye the braille glyph's ink sits about 1 to 2 CSS pixels below the label's cap-height centre, because the glyph's fourth dot row hangs below the baseline. The harness has no Geist font and the operator's Windows browser draws the glyph from a different system font, so **the operator's own look is the verdict**; asked to reload and re-check.
+- The operator's earlier "dots are still misaligned" was seen mid-fix, before the spinner CSS landed.
+
+**Found at step 8c, outside this flight (operator: "needs to be logged").** Extended thinking is a provider-level switch, so turning it on breaks every model on that provider that does not support adaptive thinking (a 400 on every turn; the HAT instance's log has it). Logged as **squawk 0361** and marked `escalated`: it needs a design decision (where the setting lives, what to do for a model that cannot think) and changes a shared configuration shape, so it is a sortie, not a squawk. Not part of sortie 16.
+
+**Spinner re-check after HAT fix 1: still wrong** (operator: "the spinner dots still aren't aligned, it actually looks like the problem is that the working line is too high"). Flight Director's diagnosis: the spinner is a braille text glyph, and the app's font has no braille, so each browser and OS draws it from a different fallback font; centring its box cannot fix where that font puts the ink, which is why HAT fix 1's geometry test passed while the operator's Windows browser still showed it off the line. **HAT fix 2** (Developer, Sonnet): draw the indicator in CSS as three small pulsing dots, the indicator the operator approved in the mockup, so no font is involved and a box-centre test is a true test. Still a look-and-feel fix on one surface. It reverses flight DD1's "uses `App.ui.thinking.dots()`", which was the Flight Director's substitution for the mockup's dots, not the operator's choice.
+
+**Step 9A, a connector chat (a stub connector message to the Quick agent, injected by the Flight Director; the agent replied to the peer in about 10 s): passes** (operator: "pass"). Seen as a finished turn on opening the chat, not live.
+
+**Step 9B, two windows on one chat: passes** (operator: "part b passes also"). The watching window showed the same single group and single reply. The known pre-existing second-window send (judgement item 7) was not exercised.
+
+**Step 10, both themes: passes** (operator: "both themes look good"). **The desktop webview: not walked**, by the operator's choice.
+
+**HAT walk status.** Steps 1 to 6, 8A, 8B, 9A, 9B and 10 pass. Step 7 (sign-in) skipped and step 8C (thinking only) not possible, both recorded above. Open: the operator's last look at the work line's indicator once HAT fix 2 (the CSS-drawn dots) is finished and tested; then the sign-off.
+
+**The indicator, after HAT fix 2: accepted by the operator** ("dots look good … the fix is in"), seen on their Windows browser while the Developer was still running its tests. Judgement items 1 (the indicator) and 2 (the preview follows the latest text; no objection raised across steps 1 to 9) are answered. The fix still has to finish its gates and be reviewed before it is committed.
+
+### HAT fix 2 (2026-11-14): CSS-drawn dots
+
+**What changed.** The work line's indicator (`span.ui-turn-work-spin`, after the chevron, shown only while `working`) now holds three empty `span.ui-turn-work-dot` boxes (4px, round, `--accent`, 3px gap) that pulse in sequence (`ui-turn-work-pulse`, 1.2s, opacity 0.25 to 1, delays 0.2s and 0.4s). `App.ui.turnWork` no longer calls `App.ui.thinking.dots` and creates no timer at all (no `setInterval`); `thinking.js` is untouched. `stopDots()` sets `data-stopped` on the slot and CSS freezes the dots at 0.4 opacity; entering `working` again clears it; `destroy()` just hides the slot and is safe to repeat. Under `prefers-reduced-motion: reduce` the animation is off and the dots sit at 0.7 (same explicit-media idiom as the list-pane activity ring). Docs: control header comment, inventory rows (Thinking and Turn work group; new owned class `ui-turn-work-dot`), `agents.md` and `CLAUDE.md`.
+
+**Why a glyph could not be aligned.** The braille frames are text; Geist has no braille glyphs, so each browser/OS draws them from a different fallback font with its own metrics, and the fourth dot row hangs below the baseline. HAT fix 1 could only centre the glyph's box, not where a fallback font puts its ink. Boxes drawn by CSS have no font, so a box-centre check is a true check.
+
+**Tests** (`test_ui_turn_work_contract.py`, both engines, 32 pass): three dots each with the running `ui-turn-work-pulse` animation while working, slot hidden outside it, chevron present; after `stopDots()` dots visible with `animation-name: none`; reduced motion: no animation, dots visible, opacity above 0.5; an interval counter (wrapping `setInterval`) stays 0 through create, state changes, `stopDots` and `destroy`; geometry: each dot's vertical centre within 1px of the label's and the chevron's, dots 4x4, even 3px spacing, chevron-to-slot gap equals slot-to-label gap (within 1px). `_chats.turn_dots_stopped` and the states flow test read the frozen-dots state.
+
+**Falsification.** (a) A 3px `margin-top` on the dots: the alignment test failed in Chromium and WebKit - yes. (b) Reduced-motion rule removed: the reduced-motion test failed in both engines - yes. Both restored by editing.
+
+**What I saw** (Chromium, disk harness, 4x, animated, dark and light; WebKit cannot launch outside the test runner here, so WebKit rests on the contract test): the three dots sit exactly on the centre line of "Working" and the chevron (measured centres 38, 38, 38 and 38/38/38 for the dots), evenly spaced, with the pulse visible as graded opacity across the three. The gap chevron-to-dots and dots-to-word read the same.
+
+**Gates.** turn-work contract 32 pass; `contracts-chat` 330 pass; `chats-transcript` 152 pass; static guards 428 pass; `make test-unit` (netns) 10137 passed, 15 skipped; ruff check and format clean.
+
+**Review of the HAT fixes (2026-11-14).**
+- **Reviewer** (Haiku: the HAT diff is one control's indicator and chevron, with no security-sensitive surface): `[HANDOFF:confirmed]`, no blocking issue. Ran the guards (428 passed), the control's contract file in both engines (32 passed) and the states flow file (16 passed). Confirmed no timer is left in the control, the chat module is unchanged, and the assertions cannot pass on an empty selection. Non-blocking: the test helper `turn_dots_stopped` infers "stopped" from the animation being off, which would also be true under reduced motion; the flow test asserts `data-stopped` directly, so nothing is affected today. Left as it is; noted for the next change to that helper.
+- **Accessibility Reviewer** (Sonnet): `[HANDOFF:confirmed]`, from the diff and computed contrast (it did not run the tests). The pulse is under one cycle per second on three 4 px dots, ends with the turn or on Stop, and is off under reduced motion; the dots are `aria-hidden` and the label carries the state; `--accent` is about 7:1 on the page at full opacity in both themes. Non-blocking, not taken: a `forced-colors` rule so the dots survive Windows high-contrast mode (the label still says "Working"); offered to the operator.
+- The lanes that use the shared chat helpers but were not run by the fix Developers (`chats-widgets`, `chats`, `shared`) are being run before the HAT commit.
+
+**HAT closed (2026-11-14).**
+- Lanes run before the HAT commit, on top of the fix Developers' runs: `chats-widgets` 32 passed, `chats` 176 passed, `shared` 364 passed.
+- **Operator sign-off: "signed off"**, given after the Flight Director listed what stays unproven: the sign-in pause (step 7, skipped), thinking in the work group (step 8C, no model available), the desktop webview (not walked), and the dots in Windows high-contrast mode (not fixed).
+- Judgement items 5, 6 and 7 have no answer from the operator (the cases were not exercised); they go to the debrief.
+- Leg 6 `completed`; the flight artifact's HAT leg and checkpoint checked; **flight status `landed`**. One commit for the HAT (the two fixes, the leg record, squawk 0361, this log), then the PR goes from draft to ready and the HAT instance is stopped by its recorded PID. `[COMPLETE:flight]` follows the commit.
+- Documentation check (Phase 3): the HAT fixes updated the control's row in `docs/ui-control-inventory.md`, `the_one/agents.md` "Turn work group (sortie 16)" and the transcript sentence in `CLAUDE.md`; no new command, endpoint or setting was introduced by the flight.
