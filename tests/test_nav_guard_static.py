@@ -32,7 +32,8 @@ def test_confirm_dialog_called_only_by_nav_notes_clear_all_and_routine_delete():
     # Notes section's Clear all is a blocking "this can't be undone" decision, not a leave
     # guard. routines-tab.js (M33 F4 L03): a routine's Delete asks "Delete {name}?" first.
     # tools-editor.js (sortie 07 L05, DD8): "Saving narrows N agents" before a Settings save.
-    # tools-page.js (squawk 0322): "Turning on {tool} affects N agents" before an enabling tile toggle.
+    # tools-page.js (squawk 0322): "Turning on {tool} affects N agents" before an enabling
+    # tile toggle.
     assert callers <= {"notes-section.js", "routines-tab.js", "tools-editor.js", "tools-page.js"}
     # nav.js reaches it through a lazily-resolved local, never a literal call site.
     assert "window.App.confirmDialog" in (JS / "nav.js").read_text()
