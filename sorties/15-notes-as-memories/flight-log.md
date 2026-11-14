@@ -5,7 +5,7 @@
 ## Summary
 Backported on 2026-11-13. The work was done first, in an operator session on 2026-11-12 and 2026-11-13, as PR #364 (branch `notes-prompt-wording`, worktree `/home/cprch/projects/the-one-notes-prompt-wording`). The charter was then agreed with the operator, and these artifacts were written from what was built and measured.
 
-Both legs are complete and the flight review confirmed on 2026-11-13. The sortie has **landed** on PR #369 and is waiting to merge. A debrief (`/mission-control:flight-debrief sortie 15`) completes it.
+Both legs are complete, the flight review confirmed, and the sortie was debriefed and marked **completed** on 2026-11-13. It merges with PR #369.
 
 ---
 
@@ -181,6 +181,12 @@ The problem itself remains. In this sortie's round 2, qwen3-4b passes `planted-c
 ---
 
 ## Session Notes
+
+### 2026-11-13: debrief
+- [Flight debrief](flight-debrief.md) written. The Developer (unit tier, fresh) and the Architect (design review after the fact) were interviewed, both on Sonnet, plus the operator.
+- Squawks 0357 and 0358 were logged. Sortie 12's evidence was copied to `sorties/12-claimed-actions/evidence/planted-claims-notes2/`.
+- The DD1 note on the tool-free heading was corrected: the heading also lost the "outside content" list.
+- Status `completed`.
 
 ### 2026-11-13: backport
 - The four sortie criteria were checked; all pass. No active mission covers this outcome.

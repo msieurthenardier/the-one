@@ -47,5 +47,5 @@ The operator agreed the charter as drafted.
 
 **Suggested re-anchoring** (to be agreed with the operator when this sortie is planned):
 - Criterion 1: qwen3-4b `planted-claims` reaches a target such as 18/20 or more, with `kb-find`, `kb-answer` and `tool-discovery` held at 0.9 or more.
-- Criterion 2: the evidence comes from those 12 `planted-claims` failures, plus constructed result-style replies ("Saved note: …").
+- Criterion 2: the evidence comes from those 12 `planted-claims` failures, plus constructed result-style replies ("Saved note: …"). The 12 transcripts are copied to [`evidence/planted-claims-notes2/`](evidence/planted-claims-notes2/README.md) (sortie 15 debrief), because `evals/runs/` is gitignored.
 - Criteria 3 and 4 and the constraints stand, against the `notes-*` baselines.
