@@ -96,7 +96,11 @@ async def conn(isolated_db):
     return c
 
 
-async def _agent(responses: list[Message], *extra_tools: Tool) -> Agent:
+async def _agent(
+    responses: list[Message], *extra_tools: Tool, strict_history: bool = True
+) -> Agent:
+    """``strict_history=False`` opts out of FakeLLM's tool-call/result pairing check
+    (squawk 0218) for the tests that script a repeated id or an orphaned result on purpose."""
     reg = ToolRegistry()
     for t in extra_tools:
         reg.register(t)
@@ -106,7 +110,9 @@ async def _agent(responses: list[Message], *extra_tools: Tool) -> Agent:
     )
     for t in notes:
         reg.register(t)
-    agent = Agent(llm=FakeLLM(responses), tools=reg, system_prompt="sys")
+    agent = Agent(
+        llm=FakeLLM(responses, strict_history=strict_history), tools=reg, system_prompt="sys"
+    )
     for t in notes:
         t.bind_agent(agent)  # type: ignore[attr-defined]
     return agent
@@ -224,7 +230,8 @@ async def test_ids_repeating_across_turns_are_flagged(conn) -> None:
             _done(),
             _asst(_call("c1", "save_note", text="second")),
             _done(),
-        ]
+        ],
+        strict_history=False,  # the repeated id is the point of the test
     )
     await _turn(agent, "t1")
     await _turn(agent, "t2")
@@ -243,7 +250,8 @@ async def test_ollama_bare_name_ids_identical_every_turn_are_flagged(conn) -> No
             _done(),
             _asst(_call("save_note_0", "save_note", text="second")),
             _done(),
-        ]
+        ],
+        strict_history=False,  # Ollama reuses a bare-name id every turn
     )
     for i in range(3):
         await _turn(agent, f"t{i}")
@@ -255,7 +263,10 @@ async def test_ollama_bare_name_ids_identical_every_turn_are_flagged(conn) -> No
 async def test_orphaned_tool_result_is_flagged_unknown_tool(conn) -> None:
     from the_one.llm.base import ToolResult
 
-    agent = await _agent([_asst(_call("c9", "save_note", text="after orphan")), _done()])
+    agent = await _agent(
+        [_asst(_call("c9", "save_note", text="after orphan")), _done()],
+        strict_history=False,  # the orphaned result is the point of the test
+    )
     # DD-C2 clears tool_calls from restored history; leave an orphaned result.
     agent.messages.append(Message.user("old"))
     agent.messages.append(Message.tool(ToolResult(tool_call_id="gone", content="mystery")))

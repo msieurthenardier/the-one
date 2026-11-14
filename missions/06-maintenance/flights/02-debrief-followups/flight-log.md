@@ -229,16 +229,16 @@ Flight scaffolded 2026-05-04 as Mission 06's second flight. Captures the 6 actio
 
 **Steps executed:**
 1. Operator generated new admin password via `openssl rand -base64 30 | tr -d '/+=' | head -c 32`. Value never logged or transmitted to Flight Director. ✓
-2. Operator updated `/home/cprch/projects/concourse-local/.env` `CONCOURSE_ADMIN_PASS` to new value (gitignored). ✓
+2. Operator updated `~/projects/concourse-local/.env` `CONCOURSE_ADMIN_PASS` to new value (gitignored). ✓
 3. Operator recreated `concourse-local-web` container via `docker compose up -d web`. ✓
 4. Operator waited for ATC ready via `until curl -sf http://localhost:8080/api/v1/info ...`. ✓
 5. Operator verified new pass authenticates via `fly -t local login -u admin -p '<NEW>'` — succeeded. ✓
 6. Operator verified old pass rejected via `fly -t test-old-admin login -u admin -p 'ZTul...'` — failed with auth error as expected. ✓
-7. Flight Director ran epipen audit: `grep -rE "ZTul|CONCOURSE_ADMIN_PASS|admin.*password|fly.*-u admin" /home/cprch/projects/epipen/` returned **zero matches**. epipen does not reference the admin credential in any tracked file — the admin pass is operator-direct (used only via interactive `fly login`), so no epipen-side update needed. ✓
+7. Flight Director ran epipen audit: `grep -rE "ZTul|CONCOURSE_ADMIN_PASS|admin.*password|fly.*-u admin" ~/projects/epipen/` returned **zero matches**. epipen does not reference the admin credential in any tracked file — the admin pass is operator-direct (used only via interactive `fly login`), so no epipen-side update needed. ✓
 8. Confirmed: NO git-history rewrite. Old password remains in `the-one`'s git history at `594d2c4`; rotation eliminates practical risk on this private single-dev repo with localhost-only Concourse. ✓
 
 **Files touched:**
-- `/home/cprch/projects/concourse-local/.env` — out-of-tree, gitignored, no commit possible from `the-one`'s working tree
+- `~/projects/concourse-local/.env` — out-of-tree, gitignored, no commit possible from `the-one`'s working tree
 - *(no `the-one` source files touched — this leg produces zero committed code changes)*
 
 **Verification outcomes:**

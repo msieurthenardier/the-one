@@ -44,7 +44,7 @@ Build both Linux packages inside one pinned build container (DD2), and give the 
   - the hosted workflow (leg 9).
 
   The build still takes the version as an argument.
-- **Git worktree caveat:** this checkout is a git worktree whose `.git` file points into `/home/cprch/projects/the-one/.git/worktrees/…`, which is Mission 31's checkout. Never mount or touch that path. So `stage.py` (which runs `git rev-parse`) and `uv export` run on the host, outside the container. The container receives the staged copy, the closure file and `packaging/` only. This deliberately replaces DD2's `safe.directory` note: record it in the flight log as a deviation. On the GitHub runner, staging runs on the runner the same way (leg 9).
+- **Git worktree caveat:** this checkout is a git worktree whose `.git` file points into `~/projects/the-one/.git/worktrees/…`, which is Mission 31's checkout. Never mount or touch that path. So `stage.py` (which runs `git rev-parse`) and `uv export` run on the host, outside the container. The container receives the staged copy, the closure file and `packaging/` only. This deliberately replaces DD2's `safe.directory` note: record it in the flight log as a deviation. On the GitHub runner, staging runs on the runner the same way (leg 9).
 
 ## Inputs
 - `packaging/linux/{the-one.spec,rthook_host_gtk.py,excludes.txt,build.sh,AppRun,control.in,gleepglorp-ai.desktop.in}` (Flight 1's prototype)
@@ -139,7 +139,7 @@ Build both Linux packages inside one pinned build container (DD2), and give the 
   - `shellcheck` (from `$HOME/the-one-m32-build/tools/shellcheck-0.10.0/`) passes on every changed shell script.
   - This leg's changes are confined to `packaging/linux/`, `packaging/spike/` and this flight's log. Leg 2 is editing `the_one/` and `tests/` concurrently in the same worktree, so check with `git status --porcelain -- packaging/ missions/`, not a whole-tree diff.
   - No instance used port 8484 or 8485.
-  - The operator's data dir `/home/cprch/.local/share/the-one` has the same newest mtime before and after.
+  - The operator's data dir `~/.local/share/the-one` has the same newest mtime before and after.
   - Only `m32-*` containers were created, and none is left running.
 
 ## Verification Steps
@@ -231,7 +231,7 @@ Checked at `980415e`:
 - `packaging/linux/excludes.txt`: includes `libgirepository-*.so*` (and, per the cycle-1 design review, `libayatana-*`/`libdbusmenu-*`). Re-check at leg start.
 - `packaging/spike/check.sh`: hard-codes `-v /mnt/wslg/.X11-unix:/tmp/.X11-unix` for `baseline`. Verified.
 - `packaging/spike/score.py::score_maps`: `host = [h for h in hits if h.startswith("/usr/lib/")]`. Verified.
-- `.git` of this worktree: `gitdir: /home/cprch/projects/the-one/.git/worktrees/m32-installers`. Verified (the reason staging stays on the host).
+- `.git` of this worktree: `gitdir: ~/projects/the-one/.git/worktrees/m32-installers`. Verified (the reason staging stays on the host).
 
 ---
 

@@ -24,8 +24,8 @@ Install `bubblewrap` in the dev container, grant it the precise privilege combo 
 
 What exists before this leg runs:
 - Branch `flight/03-sandbox-adapter-and-bubblewrap` checked out (created in flight prep; see flight log "Flight transition" entry).
-- `Dockerfile` at the repo root (`/home/cprch/projects/the-one/Dockerfile`) installs `git`, `ca-certificates`, `curl` via a single `apt-get install` line, base image `python:3.11-slim`. No `bubblewrap` package.
-- `docker-compose.yml` at the repo root (`/home/cprch/projects/the-one/docker-compose.yml`) defines the `the-one` service with `build: .`, dev bind-mounts, `THE_ONE_*` env vars; no `cap_add` or `security_opt` keys.
+- `Dockerfile` at the repo root (`~/projects/the-one/Dockerfile`) installs `git`, `ca-certificates`, `curl` via a single `apt-get install` line, base image `python:3.11-slim`. No `bubblewrap` package.
+- `docker-compose.yml` at the repo root (`~/projects/the-one/docker-compose.yml`) defines the `the-one` service with `build: .`, dev bind-mounts, `THE_ONE_*` env vars; no `cap_add` or `security_opt` keys.
 - `Makefile` provides `make rebuild` which runs `docker compose build the-one` + `docker compose up -d the-one` + a `verify-serving` healthcheck.
 - A running container `the-one` may already be up; `make rebuild` is the canonical rebuild path.
 - F2 has landed: `MCPClient`, `connect_stdio`, `MCPClientError` hierarchy all present in `the_one/mcp/`. None of these are touched in this leg.
@@ -68,7 +68,7 @@ Run each command inside the dev container after `make rebuild`. Capture output v
 
 ```bash
 # --- Pre-checks: rebuild the container with the new privilege model in place ---
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 git status --short
 # Expect: no modifications under the_one/, tests/, scripts/, pyproject.toml, Makefile.
 # Expected modifications: Dockerfile, docker-compose.yml, flight artifacts.
@@ -197,11 +197,11 @@ If ANY assertion fails or produces unexpected output:
 
 ## Files Affected
 
-- `/home/cprch/projects/the-one/Dockerfile` — add `bubblewrap` to the apt install package list.
-- `/home/cprch/projects/the-one/docker-compose.yml` — add `cap_add: [SYS_ADMIN]` and `security_opt: [seccomp:unconfined]` to the `the-one` service block.
-- `/home/cprch/projects/the-one/missions/07-mcp-integration/flights/03-sandbox-adapter-and-bubblewrap/flight-log.md` — append `### L1a CI Compat Probe and Privilege Model` subsection under `## Leg Progress` with probe output + privilege-model rationale + diagnostic recipe.
-- `/home/cprch/projects/the-one/missions/07-mcp-integration/flights/03-sandbox-adapter-and-bubblewrap/flight.md` — tick the leg checkbox under `### Legs` after completion.
-- `/home/cprch/projects/the-one/missions/07-mcp-integration/flights/03-sandbox-adapter-and-bubblewrap/legs/01a-ci-compat-probe-and-privilege-model.md` — flip `Status:` from `planning` → `ready` (after design review) → `completed` (post-probe).
+- `~/projects/the-one/Dockerfile` — add `bubblewrap` to the apt install package list.
+- `~/projects/the-one/docker-compose.yml` — add `cap_add: [SYS_ADMIN]` and `security_opt: [seccomp:unconfined]` to the `the-one` service block.
+- `~/projects/the-one/missions/07-mcp-integration/flights/03-sandbox-adapter-and-bubblewrap/flight-log.md` — append `### L1a CI Compat Probe and Privilege Model` subsection under `## Leg Progress` with probe output + privilege-model rationale + diagnostic recipe.
+- `~/projects/the-one/missions/07-mcp-integration/flights/03-sandbox-adapter-and-bubblewrap/flight.md` — tick the leg checkbox under `### Legs` after completion.
+- `~/projects/the-one/missions/07-mcp-integration/flights/03-sandbox-adapter-and-bubblewrap/legs/01a-ci-compat-probe-and-privilege-model.md` — flip `Status:` from `planning` → `ready` (after design review) → `completed` (post-probe).
 
 **Explicitly NOT modified by this leg**: `the_one/` source, `tests/`, `pyproject.toml`, `scripts/entrypoint.sh`, `Makefile`, `CLAUDE.md`, `the_one/agents.md`, `.flightops/`. Any of those changes belong to L1b or later legs.
 

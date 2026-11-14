@@ -98,7 +98,7 @@ What exists after this leg completes:
 Run from the repo root after applying the diff. Capture each command's exit code; any non-zero is a fail.
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # --- 1. Diff scope check: only the four allowed source files plus flight artifacts ---
 git status --porcelain

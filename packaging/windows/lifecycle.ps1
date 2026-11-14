@@ -350,9 +350,9 @@ function Test-RowL7 {
     if (-not $pidN) { Set-Row 'L7' 'FAIL' 'precondition: N is not running'; return }
     $pat = @{
         'quit-call'    = @{ Src = 'inno'; Re = 'setup quit-call: ExecAsOriginalUser' }
-        'poll-present' = @{ Src = 'inno'; Re = 'setup quit-poll: present' }
-        'poll-gone'    = @{ Src = 'inno'; Re = 'setup quit-poll: gone' }
-        'nothing-left' = @{ Src = 'inno'; Re = 'setup quit-poll: nothing left' }
+        'check-present' = @{ Src = 'inno'; Re = 'setup quit-check: present' }
+        'check-gone'    = @{ Src = 'inno'; Re = 'setup quit-check: gone' }
+        'nothing-left'  = @{ Src = 'inno'; Re = 'setup quit-check: nothing left' }
         'killrunning'  = @{ Src = 'inno'; Re = 'setup quit-killrunning: calling' }
         'first-copy'   = @{ Src = 'inno'; Re = 'Dest filename:' }
         'drain'        = @{ Src = 'app'; Re = "Finished server process \[$pidN\]" }
@@ -362,10 +362,10 @@ function Test-RowL7 {
     $ev = $r.Events
     $order = ($ev.GetEnumerator() | Sort-Object Value | ForEach-Object { "$($_.Name)@$($_.Value)ms" }) -join ' < '
     Add-Info 'L7' "N+1=$VersionNext exit code $($r.ExitCode) timedOut=$($r.TimedOut); observed order (+-250 ms): $order"
-    $lines = Get-KeyLines $r.InnoText 'quit-call|quit-poll|quit-killrunning|Dest filename:|taskkill'
+    $lines = Get-KeyLines $r.InnoText 'quit-call|quit-check|quit-killrunning|Dest filename:|taskkill'
     Save-Text 'L7-inno-key-lines.txt' ($lines -join "`r`n")
     Save-Text 'L7-app-log-new-bytes.txt' $r.AppText
-    $seq = @('setup quit-call: ExecAsOriginalUser', 'setup quit-poll: present', 'setup quit-poll: gone', 'setup quit-poll: nothing left', 'setup quit-killrunning: calling', 'Dest filename:')
+    $seq = @('setup quit-call: ExecAsOriginalUser', 'setup quit-check: present', 'setup quit-check: gone', 'setup quit-check: nothing left','setup quit-killrunning: calling', 'Dest filename:')
     $ord = Test-LogOrder $r.InnoText $seq
     if (-not $ord.Ok) { $fails.Add("the /LOG sequence quit, present, gone, nothing left, KillRunning, first copy failed: $($ord.Why)") }
     if (-not $ev.ContainsKey('drain')) { $fails.Add("no 'Finished server process [$pidN]' line in the new app-log bytes: N was not drained") }
@@ -516,8 +516,8 @@ function Test-RowL11 {
         $text = Get-Content -LiteralPath $setupLog.FullName -Raw -ErrorAction SilentlyContinue
         if ($null -eq $text) { $text = '' }
         Add-Info 'L11' "setup log $($setupLog.Name) ($($setupLog.Length) bytes)"
-        Save-Text 'L11-setup-log-key-lines.txt' ((Get-KeyLines $text 'quit-call|quit-poll|quit-killrunning|Dest filename:|taskkill') -join "`r`n")
-        $ord = Test-LogOrder $text @('setup quit-call:', 'setup quit-poll: nothing left', 'setup quit-killrunning: calling', 'Dest filename:')
+        Save-Text 'L11-setup-log-key-lines.txt' ((Get-KeyLines $text 'quit-call|quit-check|quit-killrunning|Dest filename:|taskkill') -join "`r`n")
+        $ord = Test-LogOrder $text @('setup quit-call:', 'setup quit-check: nothing left','setup quit-killrunning: calling', 'Dest filename:')
         if (-not $ord.Ok) { $fails.Add("the Setup log sequence quit, nothing left, KillRunning, first copy failed: $($ord.Why)") }
     }
 
@@ -561,12 +561,12 @@ function Test-RowL9 {
     Save-Evidence 'after-uninstall'
     $innoText = ''
     try { $innoText = [string](Get-Content -LiteralPath $logPath -Raw -ErrorAction Stop) } catch { $innoText = '' }
-    $lines = Get-KeyLines $innoText 'quit-call|quit-poll|quit-killrunning|taskkill|Log closed'
+    $lines = Get-KeyLines $innoText 'quit-call|quit-check|quit-killrunning|taskkill|Log closed'
     Save-Text 'L9-inno-key-lines.txt' ($lines -join "`r`n")
     $appText = (Read-NewBytes $script:AppLog $appOff).Text
     Save-Text 'L9-app-log-new-bytes.txt' $appText
     Add-Info 'L9' "uninstaller pid $($p.Id) has exited=$($p.HasExited); /LOG final line seen=$logClosed; key lines (first 14 of $($lines.Count)): $(($lines | Select-Object -First 14) -join ' || ')"
-    $seq = @('uninstall quit-call: Exec ', 'uninstall quit-poll: present', 'uninstall quit-poll: gone', 'uninstall quit-poll: nothing left', 'uninstall quit-killrunning: calling')
+    $seq = @('uninstall quit-call: Exec ', 'uninstall quit-check: present', 'uninstall quit-check: gone', 'uninstall quit-check: nothing left', 'uninstall quit-killrunning: calling')
     $ord = Test-LogOrder $innoText $seq
     if (-not $ord.Ok) { $fails.Add("the uninstall /LOG quit sequence failed: $($ord.Why)") }
     if ($appText -notmatch "Finished server process \[$appPid\]") { $fails.Add("no 'Finished server process [$appPid]' line in the new app-log bytes: the app was not drained") }

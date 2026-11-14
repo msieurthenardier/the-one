@@ -74,19 +74,19 @@ The 2026-05-15 maintenance report's A.1 / A.4 findings clustered as "listbox opt
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && grep -rn 'role="listbox"\|role="option"' the_one/interfaces/web/static/js/` — only the welcome listbox/options should match (the session-list container at chat.js:60 should no longer match). Tools-grid uses `role="list"`/`role="listitem"`; not affected.
-- `cd /home/cprch/projects/the-one && grep -rn "aria-selected" the_one/interfaces/web/static/js/areas/chat/` — welcome.js options retain `aria-selected` (legitimate listbox semantic); session-related sites should not match (replaced by `aria-current`)
-- `cd /home/cprch/projects/the-one && grep -n "data-session-id" the_one/interfaces/web/static/js/ tests/` — empty (we preserved `data-id`, did not rename)
-- `cd /home/cprch/projects/the-one && grep -rn 'list-item-delete' the_one/interfaces/web/static/js/` — delete button is a sibling, not a child of an `option`
-- `cd /home/cprch/projects/the-one && grep -n '\.list-item\b' the_one/interfaces/web/static/css/components.css the_one/interfaces/web/static/js/areas/chat/history-buckets.js` — `.list-item` class preserved on the `<li>` and CSS `:focus-within` rule still applies
-- `cd /home/cprch/projects/the-one && grep -nE 'snapshot|pixel' .gitignore` — confirm pixel-snapshot directory is gitignored before relying on the regenerate-and-don't-commit convention
+- `cd ~/projects/the-one && grep -rn 'role="listbox"\|role="option"' the_one/interfaces/web/static/js/` — only the welcome listbox/options should match (the session-list container at chat.js:60 should no longer match). Tools-grid uses `role="list"`/`role="listitem"`; not affected.
+- `cd ~/projects/the-one && grep -rn "aria-selected" the_one/interfaces/web/static/js/areas/chat/` — welcome.js options retain `aria-selected` (legitimate listbox semantic); session-related sites should not match (replaced by `aria-current`)
+- `cd ~/projects/the-one && grep -n "data-session-id" the_one/interfaces/web/static/js/ tests/` — empty (we preserved `data-id`, did not rename)
+- `cd ~/projects/the-one && grep -rn 'list-item-delete' the_one/interfaces/web/static/js/` — delete button is a sibling, not a child of an `option`
+- `cd ~/projects/the-one && grep -n '\.list-item\b' the_one/interfaces/web/static/css/components.css the_one/interfaces/web/static/js/areas/chat/history-buckets.js` — `.list-item` class preserved on the `<li>` and CSS `:focus-within` rule still applies
+- `cd ~/projects/the-one && grep -nE 'snapshot|pixel' .gitignore` — confirm pixel-snapshot directory is gitignored before relying on the regenerate-and-don't-commit convention
 - Manual: Chat → Welcome canvas → keyboard test (Tab in, ArrowDown moves with aria-selected, Enter activates)
 - Manual: Chat → focus session sidebar → keyboard test (Tab/Shift+Tab through items; Tab through session-button then sibling delete-button)
 - Manual: Admin → Tools → keyboard test (Tab cycles through button-grid tiles; Enter activates; no trap)
-- `cd /home/cprch/projects/the-one && make test-browser` — exits 0 (Chromium auto-restored via existing `_ensure-playwright`)
-- `cd /home/cprch/projects/the-one && pytest --tb=no -q` (host) — 1700 passed
-- `cd /home/cprch/projects/the-one && docker exec the-one pytest --tb=no -q --ignore=tests/browser` — 1700 passed
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both exit 0
+- `cd ~/projects/the-one && make test-browser` — exits 0 (Chromium auto-restored via existing `_ensure-playwright`)
+- `cd ~/projects/the-one && pytest --tb=no -q` (host) — 1700 passed
+- `cd ~/projects/the-one && docker exec the-one pytest --tb=no -q --ignore=tests/browser` — 1700 passed
+- `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both exit 0
 
 ## Implementation Guidance
 

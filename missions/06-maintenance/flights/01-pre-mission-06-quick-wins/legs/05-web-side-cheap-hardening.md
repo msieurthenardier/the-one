@@ -48,9 +48,9 @@ Per flight.md design decision: middleware is a small ASGI function in `the_one/i
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && pytest tests/test_origin_allowlist.py -v` (or wherever the new tests land) — passes
-- `cd /home/cprch/projects/the-one && pytest tests/test_db_api.py -v` — provider save validation tests pass
-- `cd /home/cprch/projects/the-one && pytest -m browser tests/browser/ -q 2>&1 | tail -10` — no browser-test regression
+- `cd ~/projects/the-one && pytest tests/test_origin_allowlist.py -v` (or wherever the new tests land) — passes
+- `cd ~/projects/the-one && pytest tests/test_db_api.py -v` — provider save validation tests pass
+- `cd ~/projects/the-one && pytest -m browser tests/browser/ -q 2>&1 | tail -10` — no browser-test regression
 - `curl -X POST http://127.0.0.1:8484/api/encryption/rotate -H 'Origin: http://evil.example.com'` — returns 403
 - `curl -X POST http://127.0.0.1:8484/api/encryption/rotate -H 'Origin: http://127.0.0.1:8484'` — returns its normal status (200/400/etc., not 403)
 - `curl -X GET http://127.0.0.1:8484/api/info -H 'Origin: http://evil.example.com'` — returns 200 (GET not gated)

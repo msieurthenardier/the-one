@@ -12,7 +12,7 @@ Flight 03 entered execution on 2026-04-29. Branch `flight/03-filesystem-expansio
 
 ### 2026-04-29 — Flight start
 - **Phase file loaded**: `the-one/.flightops/agent-crews/leg-execution.md` (project-specific). Crew = Developer (Sonnet) + Reviewer (Haiku) + optional Accessibility Reviewer (Sonnet). F3 has no UI surface in scope, so the Accessibility Reviewer will not be spawned.
-- **Working directory**: `/home/cprch/projects/the-one` (branch strategy per ARTIFACTS.md).
+- **Working directory**: `~/projects/the-one` (branch strategy per ARTIFACTS.md).
 - **Branch**: `flight/03-filesystem-expansion-and-constraints` from `main` (commit `83a34bb`).
 - **Total legs**: 9 (L1, L2a, L2b, L3, L4, L5, L6, L7-HAT, L8). L7 is interactive; the rest are autonomous.
 - **Review/commit cadence**: Per agentic-workflow skill — leg design is reviewed per leg; code review and commit happen once after all autonomous legs land.

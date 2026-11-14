@@ -107,7 +107,7 @@ Replace `BubblewrapSandbox.prepare_spawn`'s `NotImplementedError` stub with a re
 ## Verification Steps
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # --- 1. Diff scope ---
 git status --porcelain

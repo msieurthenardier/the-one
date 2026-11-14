@@ -565,10 +565,6 @@ def test_mcp_error_message_helper_headlines(app_clean: str, page: Page) -> None:
         ("MCPCapabilityMissing: x", "This server doesn't offer the tools capability."),
         ("SandboxError: x", "The server couldn't start in its sandbox."),
         (
-            "fetchMcpSourceTools: HTTP 500",
-            "The app couldn't check this server (the request failed).",
-        ),
-        (
             "Server error 500 Internal Server Error: boom",
             "The app couldn't check this server (the request failed).",
         ),

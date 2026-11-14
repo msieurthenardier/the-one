@@ -113,7 +113,7 @@ What exists after this leg completes:
 
 ```bash
 # In container
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # Targeted runs
 docker compose exec the-one make test ARGS='-k TestListToolsAndCallTool -v'  # 12 pass

@@ -29,12 +29,12 @@ Key design decisions inherited from the flight:
 ## Outputs
 
 **Files created**:
-- `/home/cprch/projects/the-one/docs/screenshots/chat-dark.png`
-- `/home/cprch/projects/the-one/docs/screenshots/studio-dark.png`
-- `/home/cprch/projects/the-one/docs/screenshots/admin-dark.png`
+- `~/projects/the-one/docs/screenshots/chat-dark.png`
+- `~/projects/the-one/docs/screenshots/studio-dark.png`
+- `~/projects/the-one/docs/screenshots/admin-dark.png`
 
 **Files modified**:
-- `/home/cprch/projects/the-one/README.md` — three `<!-- SCREENSHOT: -->` placeholders replaced with `<img>` references; each `<img>` wrapped in a `<p align="center">` for centering consistency with the hero asset
+- `~/projects/the-one/README.md` — three `<!-- SCREENSHOT: -->` placeholders replaced with `<img>` references; each `<img>` wrapped in a `<p align="center">` for centering consistency with the hero asset
 
 ## Acceptance Criteria
 
@@ -51,14 +51,14 @@ Key design decisions inherited from the flight:
 
 ## Verification Steps
 
-- **Screenshots committed**: `ls /home/cprch/projects/the-one/docs/screenshots/` shows exactly three files: `chat-dark.png`, `studio-dark.png`, `admin-dark.png`
-- **PNGs are valid images**: `file /home/cprch/projects/the-one/docs/screenshots/*.png` reports each as `PNG image data, ...`
-- **Dimensions consistent**: `for f in /home/cprch/projects/the-one/docs/screenshots/*.png; do file "$f"; done` — width × height should be the same across all three
-- **Not gitignored**: `cd /home/cprch/projects/the-one && git check-ignore docs/screenshots/chat-dark.png ; echo "Exit code: $?"` — exit code should be 1 (NOT ignored)
-- **README placeholders gone**: `grep -c "<!-- SCREENSHOT:" /home/cprch/projects/the-one/README.md` — zero matches
-- **README `<img>` references present**: `grep -c "docs/screenshots/" /home/cprch/projects/the-one/README.md` — exactly 3 matches
-- **README order preserved**: `grep -n "docs/screenshots/" /home/cprch/projects/the-one/README.md | head` — order is `chat-dark` → `studio-dark` → `admin-dark`
-- **`alt` text present**: `grep -c 'alt="' /home/cprch/projects/the-one/README.md` — at least 4 matches (hero + 3 screenshots)
+- **Screenshots committed**: `ls ~/projects/the-one/docs/screenshots/` shows exactly three files: `chat-dark.png`, `studio-dark.png`, `admin-dark.png`
+- **PNGs are valid images**: `file ~/projects/the-one/docs/screenshots/*.png` reports each as `PNG image data, ...`
+- **Dimensions consistent**: `for f in ~/projects/the-one/docs/screenshots/*.png; do file "$f"; done` — width × height should be the same across all three
+- **Not gitignored**: `cd ~/projects/the-one && git check-ignore docs/screenshots/chat-dark.png ; echo "Exit code: $?"` — exit code should be 1 (NOT ignored)
+- **README placeholders gone**: `grep -c "<!-- SCREENSHOT:" ~/projects/the-one/README.md` — zero matches
+- **README `<img>` references present**: `grep -c "docs/screenshots/" ~/projects/the-one/README.md` — exactly 3 matches
+- **README order preserved**: `grep -n "docs/screenshots/" ~/projects/the-one/README.md | head` — order is `chat-dark` → `studio-dark` → `admin-dark`
+- **`alt` text present**: `grep -c 'alt="' ~/projects/the-one/README.md` — at least 4 matches (hero + 3 screenshots)
 - **Visual sanity (operator)**: open README in VS Code preview or push branch to GitHub — all four images load without broken-image icons
 
 ## Implementation Guidance
@@ -67,7 +67,7 @@ Key design decisions inherited from the flight:
 
 Operator runs:
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 make rebuild-clean      # wipes DB volume, fresh start (HAT prep)
 make _ensure-playwright # restore Playwright Chromium if wiped
 ```
@@ -133,7 +133,7 @@ If anything is unfit for a public repo: recapture.
 ### Step 5: Commit PNGs to `docs/screenshots/`
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 mkdir -p docs/screenshots
 # operator copies the three PNGs from wherever they were saved into docs/screenshots/
 # (operator's responsibility — paths depend on OS / capture tool)
@@ -191,8 +191,8 @@ After all three placeholders are replaced:
 
 ## Files Affected
 
-- `/home/cprch/projects/the-one/docs/screenshots/` — NEW directory containing 3 PNGs
-- `/home/cprch/projects/the-one/README.md` — placeholders → `<img>` tags (3 substitutions, lines 17/19/21 area)
+- `~/projects/the-one/docs/screenshots/` — NEW directory containing 3 PNGs
+- `~/projects/the-one/README.md` — placeholders → `<img>` tags (3 substitutions, lines 17/19/21 area)
 
 No other files touched. No source code, no tests, no other artifacts.
 

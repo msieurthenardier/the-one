@@ -96,7 +96,7 @@ Each maps to a unit test (no network — call `provider.tool_schema(tool_def)` d
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one`
+- `cd ~/projects/the-one`
 - Host-native (Docker unavailable this environment): `.venv/bin/pytest
   tests/test_openrouter_provider.py -x --timeout 30 -q` (or the new test file) — all pass.
 - `.venv/bin/pytest tests/test_schema_sanitize.py tests/test_anthropic_provider.py -q` —

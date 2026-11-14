@@ -8,7 +8,7 @@ Flight in-flight as of 2026-05-04. Branch `flight/01-pre-mission-06-quick-wins` 
 
 ### Flight Director Notes
 
-- **Phase file loaded**: `/home/cprch/projects/the-one/.flightops/agent-crews/leg-execution.md` (project-specific, well-formed). Crew: Developer (Sonnet, all action variants), Reviewer (Haiku), Accessibility Reviewer (Sonnet, optional for UI legs).
+- **Phase file loaded**: `~/projects/the-one/.flightops/agent-crews/leg-execution.md` (project-specific, well-formed). Crew: Developer (Sonnet, all action variants), Reviewer (Haiku), Accessibility Reviewer (Sonnet, optional for UI legs).
 - **Leg-design pre-existing**: All 7 legs were scaffolded during `/routine-maintenance` Phase 8c (per the routine-maintenance skill). They land here at status `ready`. The agentic-workflow skill's 2a step (design the leg) is therefore satisfied at start; the design-review pass still runs per leg.
 - **Special-case Leg 06 (credential-rotation)**: requires the operator to interactively rotate the local Concourse password. This will be handled as a guided-manual leg — Flight Director walks the human through verification rather than spawning an autonomous Developer.
 - **Leg 07 design-review pass** (2026-05-04, post leg-06 land): Developer agent flagged the leg's claim that `agents.md:263-264` describes "pre-HAT tile-X design" — actually current/correct F6 admin-tile content. The stale entries the M04 F5 debrief flagged (Agent tile + Confirm-delete) drifted to lines 426-427 post-F6 AND have already been updated to reflect post-HAT design. Other findings: line-3 replacement should be mission-agnostic (no "as of M05"); CLAUDE.md insertion location needed to be specified; SECURITY-MODEL.md should summarize+link to CLAUDE.md (not duplicate); heading-hierarchy scope narrowed to F5 debrief's three call-outs. All accepted; leg artifact updated. Skipping re-review per skill — clarifications + factual corrections, not architectural changes.
@@ -279,10 +279,10 @@ Per the leg artifact's design-review-pass adjustments (line-3 mission-agnostic p
 
 #### Verification
 
-- `ls /home/cprch/projects/the-one/SECURITY-MODEL.md` — exists.
-- `head -10 /home/cprch/projects/the-one/the_one/agents.md` — line 3 now mission-agnostic.
-- `grep "Structural Foundation" /home/cprch/projects/the-one/the_one/agents.md` — zero matches.
-- `grep "SECURITY-MODEL" /home/cprch/projects/the-one/CLAUDE.md` — link present.
+- `ls ~/projects/the-one/SECURITY-MODEL.md` — exists.
+- `head -10 ~/projects/the-one/the_one/agents.md` — line 3 now mission-agnostic.
+- `grep "Structural Foundation" ~/projects/the-one/the_one/agents.md` — zero matches.
+- `grep "SECURITY-MODEL" ~/projects/the-one/CLAUDE.md` — link present.
 - `pytest --timeout=120 -q --ignore=tests/browser` — **1076 passed, 1 skipped, 6 deselected** in 60.34s. Same tally as Leg 05 baseline; no Python regression.
 - `pytest -m browser tests/browser/ -q --timeout=120` — **254 passed, 1 failed, 12 deselected**. The one failure (`test_flow_agent_crud.py::test_studio_agent_crud_flow`, agent-delete empty-state assertion at line 77) was confirmed **pre-existing**: stashed all leg-07 edits and reran — same failure on baseline. Unrelated to heading-hierarchy edits (no leg-07 change touched agent CRUD, empty-state visibility, or delete-button logic). Surfaced for the flight-end Reviewer pass.
 - All `.section-nav-header` and `.section-title.*MCP|Built-in` browser-test selectors are class-scoped (e.g., `page.locator(".section-nav-header")`) — class is preserved across the tag swap, so they continue to pass regardless of element tag.

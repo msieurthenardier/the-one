@@ -123,8 +123,8 @@ _(unexpected issues added as needed)_
 ### Flight Director Notes
 
 **2026-04-25 — Flight Setup**
-- Phase file loaded: project crew from `/home/cprch/projects/the-one/.flightops/agent-crews/leg-execution.md`
+- Phase file loaded: project crew from `~/projects/the-one/.flightops/agent-crews/leg-execution.md`
 - Crew: Developer (Sonnet), Reviewer (Haiku), optional Accessibility Reviewer (Sonnet)
 - Git strategy: branch (from flight/03-ollama-model-lifecycle)
-- Working directory: `/home/cprch/projects/the-one`
+- Working directory: `~/projects/the-one`
 - 7 legs total (6 autonomous + 1 HAT), using fast workflow (deferred review/commit)

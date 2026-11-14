@@ -578,7 +578,7 @@ Checked against `b044cab` on 2026-10-06, then spot-checked by both design-review
   - WSL interop launches into session 1, and WSL networking is mirrored.
 - [x] The operator consented to a test copy on their desktop (2026-10-06).
 - [x] The installed app is PID 208344 in session 1 on 8484. Its data dir
-  `C:\Users\cprch\AppData\Local\the-one` holds no `.env`. **Never touched.** This is
+  `C:\Users\<user>\AppData\Local\the-one` holds no `.env`. **Never touched.** This is
   re-checked at every session, not trusted from planning (DD10).
 - [ ] The operator's session is unlocked, and the operator is not typing, during each crew
   session. Checked at the start of each session (DD10).

@@ -468,7 +468,7 @@ Flight Director (Mission Control) loaded `/agentic-workflow` skill with `project
 ## Flight Director Notes
 
 ### Phase 1: context loading (2026-05-10)
-- **Phase file loaded**: `/home/cprch/projects/the-one/.flightops/agent-crews/leg-execution.md` (project-specific, NOT fallback). Validated structure: `## Crew` (Developer + Reviewer + optional Accessibility Reviewer), `## Interaction Protocol`, `## Prompts` (Review Leg Design + Implement + Review + Review Accessibility + Fix Review Issues + Commit), all sections present and well-formed.
+- **Phase file loaded**: `~/projects/the-one/.flightops/agent-crews/leg-execution.md` (project-specific, NOT fallback). Validated structure: `## Crew` (Developer + Reviewer + optional Accessibility Reviewer), `## Interaction Protocol`, `## Prompts` (Review Leg Design + Implement + Review + Review Accessibility + Fix Review Issues + Commit), all sections present and well-formed.
 - **Crew composition extracted**: Developer (Sonnet, project context, implements + reviews leg designs), Reviewer (Haiku, project context, code review with no Developer-reasoning carryover), Accessibility Reviewer (Sonnet, optional for UI changes — N/A for L1).
 - **Branch created**: `flight/10-lazy-tool-discovery` off `main` (= F9 L3-landed = `3bd6bd4`). Uncommitted changes carried over: F9 flight-log pivot Decision entry, F9 L5 leg artifact draft (preserved for F9 resume-or-absorb decision at F10 close), F10 init artifacts (flight.md + flight-log.md).
 - **F10 flight status updated**: `ready` → `in-flight`. F10 flight.md prerequisites checklist updated to reflect F9-pause-done + branch creation.

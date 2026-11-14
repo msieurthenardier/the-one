@@ -44,7 +44,7 @@ Replace the simple model list in the Admin provider editor with a full lifecycle
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && python -m pytest tests/ -x --timeout=30` (ensure no backend regressions)
+- `cd ~/projects/the-one && python -m pytest tests/ -x --timeout=30` (ensure no backend regressions)
 - Manual: open Admin -> LLM Providers -> edit an ollama provider -> verify lifecycle panel renders
 - Manual: pull a model, observe progress bar; load/unload, observe status changes; delete with confirmation
 

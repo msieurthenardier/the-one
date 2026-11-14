@@ -94,7 +94,7 @@ Add a "Sandbox" sub-section to `the_one/interfaces/web/static/js/areas/studio/mc
 ## Verification Steps
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # --- 1. Diff scope ---
 git status --porcelain

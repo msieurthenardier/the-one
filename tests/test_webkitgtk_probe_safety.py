@@ -75,7 +75,11 @@ def test_setup_script_missing_file_is_refused_before_any_webview(tmp_path: Path)
         probe.load_setup_scripts([tmp_path])  # a directory is not a file
 
 
-def test_main_refuses_missing_setup_script_without_gtk(tmp_path: Path, capsys) -> None:
+def test_main_refuses_missing_setup_script_without_gtk(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Stub the data-dir derivation: it needs the checkout's own .venv (squawk 0358).
+    monkeypatch.setattr(probe, "default_data_dir", lambda: tmp_path / "default")
     code = probe.main(
         [
             "--url",
@@ -156,7 +160,10 @@ def test_register_message_handler_rejects_bad_names(names: list[str]) -> None:
         probe.validate_handler_names(names)
 
 
-def test_main_refuses_a_bad_handler_name_before_any_gtk(tmp_path: Path, capsys) -> None:
+def test_main_refuses_a_bad_handler_name_before_any_gtk(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(probe, "default_data_dir", lambda: tmp_path / "default")
     code = probe.main(
         [
             "--url",
@@ -171,7 +178,10 @@ def test_main_refuses_a_bad_handler_name_before_any_gtk(tmp_path: Path, capsys) 
     assert "--register-message-handler" in capsys.readouterr().err
 
 
-def test_main_refuses_a_bad_combo_before_any_gtk(tmp_path: Path, capsys) -> None:
+def test_main_refuses_a_bad_combo_before_any_gtk(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(probe, "default_data_dir", lambda: tmp_path / "default")
     code = probe.main(
         [
             "--url",

@@ -40,13 +40,13 @@ Per flight design decision (Bundle C): document, don't implement. The project de
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && grep -B 1 -A 1 "GATED_METHODS = " the_one/interfaces/web/middleware.py`
-- `cd /home/cprch/projects/the-one && grep -n "## Future Work" SECURITY-MODEL.md`
-- `cd /home/cprch/projects/the-one && grep -A 6 "CORS / OPTIONS preflight" SECURITY-MODEL.md`
-- `cd /home/cprch/projects/the-one && grep -A 6 "X-Forwarded-Host" SECURITY-MODEL.md`
-- `cd /home/cprch/projects/the-one && pytest tests/test_origin_allowlist.py -v --timeout=60 2>&1 | tail -20`
-- `cd /home/cprch/projects/the-one && pytest -q --ignore=tests/browser --timeout=120 2>&1 | tail -5`
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/`
+- `cd ~/projects/the-one && grep -B 1 -A 1 "GATED_METHODS = " the_one/interfaces/web/middleware.py`
+- `cd ~/projects/the-one && grep -n "## Future Work" SECURITY-MODEL.md`
+- `cd ~/projects/the-one && grep -A 6 "CORS / OPTIONS preflight" SECURITY-MODEL.md`
+- `cd ~/projects/the-one && grep -A 6 "X-Forwarded-Host" SECURITY-MODEL.md`
+- `cd ~/projects/the-one && pytest tests/test_origin_allowlist.py -v --timeout=60 2>&1 | tail -20`
+- `cd ~/projects/the-one && pytest -q --ignore=tests/browser --timeout=120 2>&1 | tail -5`
+- `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/`
 
 ## Implementation Guidance
 

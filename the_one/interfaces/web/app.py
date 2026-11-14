@@ -2171,8 +2171,8 @@ def _build_session_joined_ok(session: Session, is_processing: bool | None = None
         # operator/peer distinction at all" (non-connector session) from
         # "no visibility key because this tool_result is genuinely
         # peer-visible" (connector session) — needed to gate promoting a
-        # delivered tool result to a top-level bubble instead of collapsing
-        # it into the "Tool activity" accordion.
+        # delivered tool result to a top-level bubble instead of folding
+        # it into the turn's work group.
         "platform": session.platform,
     }
 

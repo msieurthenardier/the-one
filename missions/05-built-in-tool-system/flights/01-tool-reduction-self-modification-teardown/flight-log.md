@@ -276,7 +276,7 @@ The leg artifact's "Files Affected" section did not anticipate this coupling. Fl
 - Phase file loaded from `the-one/.flightops/agent-crews/leg-execution.md` (project-specific, not default fallback). Crew: Developer (Sonnet) + Reviewer (Haiku) + optional Accessibility Reviewer (Sonnet).
 - Crew file validated: `## Crew`, `## Interaction Protocol`, and `## Prompts` sections present with fenced code blocks. No malformations.
 - Flight transitioned `ready` → `in-flight`.
-- Branch strategy: `branch` (per `.flightops/ARTIFACTS.md`). All agents work in `/home/cprch/projects/the-one`.
+- Branch strategy: `branch` (per `.flightops/ARTIFACTS.md`). All agents work in `~/projects/the-one`.
 - Leg planning order: L1 → L2 → L3 → L4 → L5 → L6 → review/commit → L7 (HAT).
 - L7 will be handled interactively (no autonomous Developer/Reviewer agents) per the skill's HAT protocol.
 

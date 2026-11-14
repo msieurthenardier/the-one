@@ -26,8 +26,8 @@ This is a guided-manual leg — same protocol as Flight 01 Leg 06. Flight Direct
 ## Inputs
 
 - Local Concourse instance running at `http://localhost:8080`
-- `/home/cprch/projects/concourse-local/.env` (contains `CONCOURSE_ADMIN_PASS=ZTul...`)
-- `/home/cprch/.fly/targets.yml` (contains cached admin login token)
+- `~/projects/concourse-local/.env` (contains `CONCOURSE_ADMIN_PASS=ZTul...`)
+- `~/.fly/targets.yml` (contains cached admin login token)
 - The epipen project's working tree (for the operator to verify epipen's admin-pass references, if any)
 
 ## Outputs
@@ -53,11 +53,11 @@ This is a guided-manual leg — same protocol as Flight 01 Leg 06. Flight Direct
 
 - Generate new password: `openssl rand -base64 30 | tr -d '/+=' | head -c 32` (run in a private/cleared terminal — do not log the value)
 - Update `concourse-local/.env`: replace `CONCOURSE_ADMIN_PASS=ZTul...` with the new value
-- Restart web: `cd /home/cprch/projects/concourse-local && docker compose up -d web`
+- Restart web: `cd ~/projects/concourse-local && docker compose up -d web`
 - Wait for ATC to come up: `until curl -sf http://localhost:8080/api/v1/info > /dev/null; do sleep 2; done`
 - Verify new pass: `fly -t local login -c http://localhost:8080 -u admin -p '<NEW_ADMIN>'` — should succeed
 - Verify old pass rejected: `fly -t test-old-admin login -c http://localhost:8080 -u admin -p 'ZTul+YLaMh9j0SbvB8clMTQe'` — should return `oauth2: access_denied`
-- Operator audits epipen's working tree: `grep -rE "ZTul|admin.*pass" /home/cprch/projects/epipen/ 2>/dev/null` (in epipen's project) — should return zero matches OR only matches in gitignored config the operator must manually update
+- Operator audits epipen's working tree: `grep -rE "ZTul|admin.*pass" ~/projects/epipen/ 2>/dev/null` (in epipen's project) — should return zero matches OR only matches in gitignored config the operator must manually update
 
 ## Implementation Guidance
 
@@ -71,7 +71,7 @@ This is a guided-manual leg. The Flight Director walks the operator through each
 
 3. **Recreate the web container**:
    ```bash
-   cd /home/cprch/projects/concourse-local && docker compose up -d web
+   cd ~/projects/concourse-local && docker compose up -d web
    ```
    Briefly interrupts any in-flight pipeline (epipen included).
 
@@ -93,7 +93,7 @@ This is a guided-manual leg. The Flight Director walks the operator through each
    Should fail with `error: oauth2: "access_denied" "Invalid username or password"`.
 
 7. **Coordinate with epipen**:
-   - Operator audits the epipen project: `grep -rE "ZTul|CONCOURSE_ADMIN_PASS" /home/cprch/projects/epipen/ 2>/dev/null | grep -v ".git/"`.
+   - Operator audits the epipen project: `grep -rE "ZTul|CONCOURSE_ADMIN_PASS" ~/projects/epipen/ 2>/dev/null | grep -v ".git/"`.
    - Most likely outcome: zero matches. The admin pass is typically operator-direct (no project file references it).
    - If epipen has a reference (e.g., a Makefile or script that calls `fly -t local login -u admin -p '...'`), update that reference now. If epipen tracks the value in `.env`, update there.
    - Log the audit result in flight-log.
@@ -109,9 +109,9 @@ This is a guided-manual leg. The Flight Director walks the operator through each
 
 ## Files Affected
 
-- `/home/cprch/projects/concourse-local/.env` — update `CONCOURSE_ADMIN_PASS` (gitignored, no commit)
-- (Possibly) `/home/cprch/projects/epipen/.env` or scripts — update admin-pass reference if any (gitignored, out-of-tree from `the-one`)
-- (Out of scope for this leg) `/home/cprch/.fly/targets.yml` — refreshed by `fly login`
+- `~/projects/concourse-local/.env` — update `CONCOURSE_ADMIN_PASS` (gitignored, no commit)
+- (Possibly) `~/projects/epipen/.env` or scripts — update admin-pass reference if any (gitignored, out-of-tree from `the-one`)
+- (Out of scope for this leg) `~/.fly/targets.yml` — refreshed by `fly login`
 
 ---
 

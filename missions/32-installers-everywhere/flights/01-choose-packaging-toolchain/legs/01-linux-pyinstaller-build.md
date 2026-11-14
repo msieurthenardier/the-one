@@ -48,7 +48,7 @@ Build the candidate-neutral spike harness (staging step, container images) and f
   Leg 2 measures the result. This leg proves the bundle's contents.
 
 ## Inputs
-- The branch `flight/01-choose-packaging-toolchain` in `/home/cprch/projects/the-one-worktrees/m32-installers`. Never touch `/home/cprch/projects/the-one` (Mission 31 is active there).
+- The branch `flight/01-choose-packaging-toolchain` in `~/projects/the-one-worktrees/m32-installers`. Never touch `~/projects/the-one` (Mission 31 is active there).
 - `packaging/windows/the-one.spec` and `frozen_entry.py` (reference; unchanged).
 - The closure: `uv export --no-dev --no-emit-project --extra gui --extra all-llms --format requirements-txt` (the same arguments as `scripts/windows_test_copy.py::CLOSURE_UV_EXPORT_ARGS`).
 - `ubuntu:26.04` and `debian:13` images.

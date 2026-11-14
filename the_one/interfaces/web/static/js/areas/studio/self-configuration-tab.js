@@ -163,7 +163,7 @@
     // `activate` (M33 F2 L5): the tab became the shown one again, so the queues are refetched
     // (an agent can propose while the operator is on another tab).
     function activate() {
-      ctx.refetchRevisions();
+      ctx.refetchRevisions(true);
       ctx.refetchRoutines(true);
     }
     // A window return often fires both `visibilitychange` and `focus` in one burst (squawk

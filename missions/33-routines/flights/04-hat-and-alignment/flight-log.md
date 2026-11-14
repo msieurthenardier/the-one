@@ -111,7 +111,7 @@ words, and any resulting fix or leg)*
   2867711 (recorded in `cwd/serve.pid`), `/proc/<pid>/environ`:
   `THE_ONE_PORT=8490`, `THE_ONE_DATA_DIR=$HOME/the-one-hat-m33/data`, no
   `THE_ONE_DEV_MODE`; `/proc/<pid>/cwd` the scratch cwd. The default data dir
-  (`/home/cprch/.local/share/the-one`, read from settings) is untouched.
+  (`~/.local/share/the-one`, read from settings) is untouched.
 - A fresh `serve` creates no credential (squawk 0278, still open): created
   with `the-one rotate-api-credential` against the scratch dir.
 - **A1 [empty instance]: pass.** Guidance state, handoff stripped, Anthropic
@@ -947,7 +947,7 @@ formatter diffs by Edit.
 - **Teardown (DD2):** the HAT instance (PID 3402110) stopped by PID; the
   scratch directory `$HOME/the-one-hat-m33` (the provider's plan sign-in,
   the Fernet key, the walk database) deleted after confirming it is not the
-  default data dir (`/home/cprch/.local/share/the-one`).
+  default data dir (`~/.local/share/the-one`).
 - **Closing (FD):** host quiet (load 0.40, no test process); closing gate
   started (unit, then `--parallel 3`); a read-only Reviewer checks fix pass 3
   and F-H1-1 meanwhile (no tests, to keep the host quiet).

@@ -118,7 +118,7 @@ Design review cycle 1 sized this leg at more than one session. It runs as three 
   - Published ports are on `127.0.0.1` only.
   - One guest at a time: `free -g` is checked before each `up` (at least 8 GB available), and peak RAM is sampled with `docker stats --no-stream` during each run.
   - Nothing this leg started listened on 8484 or 8485 on the host.
-  - Nothing this leg ran wrote to the operator data dir (`/home/cprch/.local/share/the-one`). Its newest mtime is recorded at leg start and end. A change while the operator's own app is running is not this leg's, so note it but don't fail on it.
+  - Nothing this leg ran wrote to the operator data dir (`~/.local/share/the-one`). Its newest mtime is recorded at leg start and end. A change while the operator's own app is running is not this leg's, so note it but don't fail on it.
   - No container left running at leg end.
   - Everything large lives under `$HOME/the-one-m32-vm/`, with total disk use recorded.
   - `git status --porcelain -- packaging/linux/vm` shows only this leg's files. Other legs are editing other paths concurrently.

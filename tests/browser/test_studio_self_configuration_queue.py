@@ -321,3 +321,104 @@ def test_disabling_the_item_drops_the_waiting_count_at_once(
         "Waiting for approval (0)", timeout=8000
     )
     expect(expander(page, PROMPT_WAITING)).to_be_hidden()
+
+
+@pytest.mark.browser
+def test_failed_return_refetch_keeps_the_prompt_waiting_list(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """Squawk 0318: a window-return refetch that fails keeps the shown waiting list and says so."""
+    base_url, data_dir = app_with_data_dir
+    _seed_agent(base_url, "queue-keep-agent", description="current desc")
+    _seed_pending_revision(
+        data_dir,
+        agent_name="queue-keep-agent",
+        field="description",
+        proposed_value="kept desc",
+        base_value="current desc",
+    )
+    _navigate_to_self_configuration_tab(page, base_url, "queue-keep-agent")
+    open_expander(page, PROMPT_WAITING)
+    expect(page.locator('[data-testid="revision-card"]')).to_have_count(1, timeout=8000)
+    page.wait_for_timeout(700)
+    page.route(
+        "**/self-configuration/revisions",
+        lambda route: route.fulfill(status=500, body="boom"),
+    )
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    error = page.locator('[data-testid="self-configuration-error"]')
+    expect(error).to_contain_text("Unable to refresh waiting changes", timeout=8000)
+    expect(page.locator('[data-testid="revision-card"]')).to_have_count(1)
+
+
+_ERROR_OBSERVER = """() => {
+  var el = document.querySelector('[data-testid="self-configuration-error"]');
+  window.__errMutations = 0;
+  new MutationObserver(function () { window.__errMutations++; })
+    .observe(el, { childList: true, characterData: true, subtree: true, attributes: true });
+}"""
+
+
+@pytest.mark.browser
+def test_repeated_failed_return_refetch_announces_once(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """Squawk 0318 review: the passive error line is set once per failure episode."""
+    base_url, data_dir = app_with_data_dir
+    _seed_agent(base_url, "queue-once-agent", description="current desc")
+    _navigate_to_self_configuration_tab(page, base_url, "queue-once-agent")
+    page.wait_for_timeout(700)
+    calls: list[int] = []
+
+    def fail(route) -> None:  # noqa: ANN001
+        calls.append(1)
+        route.fulfill(status=500, body="boom")
+
+    page.route("**/self-configuration/revisions", fail)
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    error = page.locator('[data-testid="self-configuration-error"]')
+    expect(error).to_contain_text("Unable to refresh waiting changes", timeout=8000)
+    page.evaluate(_ERROR_OBSERVER)
+    seen = len(calls)
+    page.wait_for_timeout(700)
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    for _ in range(40):
+        if len(calls) > seen:
+            break
+        page.wait_for_timeout(100)
+    assert len(calls) > seen, "second passive refetch did not run"
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => window.__errMutations") == 0
+
+
+@pytest.mark.browser
+def test_passive_success_leaves_a_real_action_error(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """Squawk 0318 review: a passive success clears only the passive message."""
+    base_url, data_dir = app_with_data_dir
+    _seed_agent(base_url, "queue-action-err-agent", description="current desc")
+    _navigate_to_self_configuration_tab(page, base_url, "queue-action-err-agent")
+    page.wait_for_timeout(700)
+    fail = lambda route: route.fulfill(status=500, body="boom")  # noqa: E731
+    page.route("**/self-configuration/revisions", fail)
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    expect(page.locator('[data-testid="self-configuration-error"]')).to_contain_text(
+        "Unable to refresh waiting changes", timeout=8000
+    )
+    page.unroute("**/self-configuration/revisions", fail)
+    page.route(
+        "**/api/agents/queue-action-err-agent/self-configuration",
+        lambda route: (
+            route.fulfill(status=500, body="boom")
+            if route.request.method == "POST"
+            else route.continue_()
+        ),
+    )
+    click_switch(page, ENABLE_SWITCH)
+    error = page.locator('[data-testid="self-configuration-error"]')
+    expect(error).to_contain_text("Failed to enable", timeout=8000)
+    page.wait_for_timeout(700)
+    page.evaluate("() => window.dispatchEvent(new Event('focus'))")
+    page.wait_for_timeout(1500)
+    expect(error).to_contain_text("Failed to enable")

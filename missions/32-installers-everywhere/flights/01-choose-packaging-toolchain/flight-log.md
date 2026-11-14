@@ -3,7 +3,7 @@
 **Flight**: [Choose the packaging toolchain](flight.md)
 
 ## Summary
-Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-installers`, from `origin/main` at `8a52a39` plus the mission commit `b060d84`. Mission 31 is active in the main checkout at the same time; this flight never touches it.
+Planned 2026-10-23 in the worktree `~/projects/the-one-worktrees/m32-installers`, from `origin/main` at `8a52a39` plus the mission commit `b060d84`. Mission 31 is active in the main checkout at the same time; this flight never touches it.
 
 ---
 
@@ -180,7 +180,7 @@ Planned 2026-10-23 in the worktree `/home/cprch/projects/the-one-worktrees/m32-i
 - `packaging/linux/`: `the-one.spec`, `rthook_host_gtk.py`, `excludes.txt`, `build.sh`, `AppRun`, `gleepglorp-ai.desktop.in`, `control.in`, `README.md` (pinned tools and checksums). `patches/` is empty: no app-side patch was needed to freeze or start.
 - Build outputs, all outside the repo: `$M32_BUILD=$HOME/the-one-m32-build` (bundles, `packages/`, `venv-pyi/`, `tools/`), evidence in `$M32_EVIDENCE=$HOME/the-one-m32-evidence`.
 - Nothing changed under `the_one/`, `tests/`, `.github/`, `ci/`, `pyproject.toml` or `uv.lock`; CLAUDE.md and `the_one/agents.md` untouched (shared with Mission 31).
-- Operator default data dir (read, not guessed; leg 2 uses it for its safety check): `/home/cprch/.local/share/the-one`.
+- Operator default data dir (read, not guessed; leg 2 uses it for its safety check): `~/.local/share/the-one`.
 
 #### AC1 - staging never touches the repo (met)
 - `stage.py --version 0.11.9.dev1 --candidate linux` -> `$M32_BUILD/stage-linux-0.11.9.dev1/` with `the_one/` and `icon-512.png`; `grep __version__` there: `__version__ = "0.11.9.dev1"`.
@@ -274,7 +274,7 @@ appimage/debian-13-baseline:    G1p=FAIL G1u=PASS G2=PASS G3=FAIL G4=PASS upgrad
 ```
 #### AC9 safety
 - No instance ran on 8484 or 8485; every instance used port 8490, 8491 or 8492, all inside containers (nothing app-side ran on the host). Every container used a scratch or container-home data dir (gate 4 uses the container's own `~/.local/share/the-one`, inside a container only). No container used `--privileged` or `--network host`; only containers named `m32-*` were created and stopped; two leftover `m32-gate-*`/`m32-shot-dbg` containers were removed by name.
-- The operator's default data dir `/home/cprch/.local/share/the-one`: newest mtime `1791383047.9672937840` before and after (unchanged).
+- The operator's default data dir `~/.local/share/the-one`: newest mtime `1791383047.9672937840` before and after (unchanged).
 - `git diff --stat mission/32-installers`: changes only under `missions/` (and untracked `packaging/`); `the_one/`, `tests/`, `.github/`, `ci/`, `pyproject.toml`, `uv.lock`, `CLAUDE.md`, `the_one/agents.md` untouched. The unit gate was not run: nothing outside `packaging/` changed.
 
 #### For leg 3 (`linux-briefcase`): reusing the runner
@@ -363,7 +363,7 @@ See the table below.
 
 #### AC8 - safety and forbidden paths (met)
 - No instance ran on 8484 or 8485: gate and probe runs used 8490-8492 inside containers named `m32-gate-*` / `m32-probe-*` (none left: `docker ps -a | grep m32` empty); no `--privileged`, no `--network host`; Briefcase's own build containers and `briefcase/ai.gleepglorp.the-one:*` images were the only other Docker objects. All data dirs were container-local or scratch; nothing app-side ran on the host.
-- `/home/cprch/.local/share/the-one` newest mtime `1791383047.9672937840` before and after (unchanged).
+- `~/.local/share/the-one` newest mtime `1791383047.9672937840` before and after (unchanged).
 - `git diff --stat mission/32-installers`: only the flight log and `flight.md` under `missions/` (plus untracked `packaging/`, `legs/`); `git status --porcelain -- the_one/ pyproject.toml uv.lock` empty.
 - `ruff check packaging/` and `ruff format --check packaging/` pass (7 files). The unit gate was not run: nothing outside `packaging/` and `missions/` changed (the patches live in `packaging/briefcase/patches/` and apply to the staging copy only).
 
@@ -748,7 +748,7 @@ No candidate limitation (b) was observed in the hard checks. Open B-specific cos
 **Fix (uncommitted, for the record; no further Windows run is planned, so it is unverified on Windows):** `packaging/spike/windows-lib.ps1` `Use-EnvVars` now sets or removes variables through `Env:` (`Remove-Item`/`Set-Item`) instead of `[Environment]::SetEnvironmentVariable(..., $null)`. Not changed: the lazy-credential read in `windows-checks.ps1` (a one-line fix would run `rotate-api-credential` before seeding; left because no run will use it, and the leg's results do not claim it).
 
 #### The operator's morning guide, finalised (supersedes the draft above where they differ)
-- **Where:** the run page https://github.com/msieurthenardier/the-one/actions/runs/40060408672 > Artifacts > `m32-probe-msi-1dd18235dc6b2c0138ed085067ecef19ee5ac5fe` (120 MB zip; contains the `.msi` and the `.sha256`). Retention is the Actions default (90 days). A copy is at `$HOME/the-one-m32-evidence/windows/run-2/msi/` (WSL; reach it from Windows as `\\wsl$\<distro>\home\cprch\the-one-m32-evidence\windows\run-2\msi\`).
+- **Where:** the run page https://github.com/msieurthenardier/the-one/actions/runs/40060408672 > Artifacts > `m32-probe-msi-1dd18235dc6b2c0138ed085067ecef19ee5ac5fe` (120 MB zip; contains the `.msi` and the `.sha256`). Retention is the Actions default (90 days). A copy is at `$HOME/the-one-m32-evidence/windows/run-2/msi/` (WSL; reach it from Windows as `\\wsl$\<distro>\home\<user>\the-one-m32-evidence\windows\run-2\msi\`).
 - **File:** `GleepGlorp AI-0.11.9.dev1.msi`, 121,108,264 bytes. **SHA-256 `181ede8e5587625442449eb1d2a44fbc683a4bf6ffa1485747278e3da663347a`** (compare with `(Get-FileHash -Algorithm SHA256 '<path>').Hash`).
 - **What you will see:** double-clicking runs a WiX wizard (the compiled-in dialogs include an Install Scope page: choose "Just me"; "All users" asks for elevation and should not be used for this try). Silent per-user form, no wizard: `msiexec /i "<path>" MSIINSTALLPERUSER=1 ALLUSERS=2`. Install location `%LOCALAPPDATA%\Programs\GleepGlorp AI\GleepGlorp AI`; Start-menu folder "GleepGlorp AI" with a second item "GleepGlorp AI" beside your Inno one (same names; right-click > Open file location tells them apart); Add/Remove Programs gets a second "GleepGlorp AI" entry, version 0.11.9. **It does not replace or touch your Inno install** (the hosted run showed them side by side, and the MSI uninstall left Inno intact). Both use the same data folder `%LOCALAPPDATA%\the-one`, so keep the backup step and do not run both at once.
 - **Is it safe to try?** On the hosted machine the MSI installed, `doctor` passed all 12 gates, `serve` answered, and a clean uninstall removed everything. What the hosted run did NOT show: a window opening (no desktop), the Start-menu shortcut starting the app (bare launch was killed by the harness defect), close-to-tray/single-instance, the title-bar tint, and the shared-data upgrade. The first launch may also migrate your real database to a schema newer than Inno v0.11.8 (the build is from the flight branch). **Recommendation: the try is worthwhile (it is the only way to see the window, tray and shortcut behaviours), but only with the step 2 backup taken and step 6's restore ready; if you only want the toolchain decision, the hosted evidence already covers the install/doctor/serve/uninstall/coexistence questions and skipping is reasonable.** Expect the first interactive `doctor` in a PowerShell window to print nothing (GUI stub); pipe it (`... doctor | Out-String`) or use the Inno exe.

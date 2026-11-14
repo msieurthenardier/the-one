@@ -230,6 +230,9 @@ def test_form_is_clean_and_shows_the_stored_model_while_loading(
     for route in held:
         route.fallback()
     expect(page.locator("#studio-model")).to_have_value("mock-default", timeout=8000)
+    # The value is already "mock-default" while loading; wait for the loaded list
+    # (the placeholder plus the models) before reading the options.
+    expect(page.locator("#studio-model option")).to_have_count(2, timeout=8000)
     # Loaded: no leftover loading option; the list is the placeholder plus the models.
     texts = page.eval_on_selector_all("#studio-model option", "els => els.map(e => e.value)")
     assert texts.count("mock-default") == 1, texts

@@ -3,7 +3,7 @@
 **Flight**: [Notes as memories](flight.md)
 
 ## Summary
-Backported on 2026-11-13. The work was done first, in an operator session on 2026-11-12 and 2026-11-13, as PR #364 (branch `notes-prompt-wording`, worktree `/home/cprch/projects/the-one-notes-prompt-wording`). The charter was then agreed with the operator, and these artifacts were written from what was built and measured.
+Backported on 2026-11-13. The work was done first, in an operator session on 2026-11-12 and 2026-11-13, as PR #364 (branch `notes-prompt-wording`, worktree `~/projects/the-one-notes-prompt-wording`). The charter was then agreed with the operator, and these artifacts were written from what was built and measured.
 
 Both legs are complete, the flight review confirmed, and the sortie was debriefed and marked **completed** on 2026-11-13. It merges with PR #369.
 

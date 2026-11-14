@@ -219,7 +219,7 @@ Verify:
 - Removing `behaviors.py` surfaces unexpected callers outside `core.py` and the test files inventoried (defensive search planned in L1, but if surprises emerge, pause)
 - The `/api/selftest` path-fix (L4) doesn't survive a `make rebuild` + deploy-cycle smoke test — auto-rollback fires. Investigate before considering L4 landed; the deploy pipeline's auto-rollback is the M01-M04 capability F1 cannot regress
 
-*Confirmed safe (no divert needed):* the `concourse` external Docker network is owned by the `concourse-local` sibling project at `/home/cprch/projects/concourse-local`. The-one is only an attached client. Dropping the `external: true` reference from the-one's compose file does not affect the concourse-local stack.
+*Confirmed safe (no divert needed):* the `concourse` external Docker network is owned by the `concourse-local` sibling project at `~/projects/concourse-local`. The-one is only an attached client. Dropping the `external: true` reference from the-one's compose file does not affect the concourse-local stack.
 
 **Acceptable variations**:
 - Whether `entrypoint.sh` becomes minimal-`exec-"$@"` or is deleted entirely (Dockerfile would then change `ENTRYPOINT` accordingly) — pick the simpler outcome in L4 design

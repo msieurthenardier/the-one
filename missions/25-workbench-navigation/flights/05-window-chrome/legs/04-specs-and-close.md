@@ -70,7 +70,7 @@ the close-gate behavior run.
 ## Inputs
 
 - The landed working tree (legs 1a–3), and the scratch root
-  `C:\Users\cprch\AppData\Local\Temp\the-one-f5\` with its venv and `dist\`.
+  `C:\Users\<user>\AppData\Local\Temp\the-one-f5\` with its venv and `dist\`.
 - `tests/behavior/windows-window-chrome.md` (draft) and
   `tests/behavior/windows-native-frame-splash.md`.
 - `missions/25-workbench-navigation/mission.md`.
@@ -132,7 +132,7 @@ the close-gate behavior run.
   - leave SC9 unchecked, with a one-line "Flight 5's part" note.
 - **Preview captures** (no PII: scratch data dirs only), saved as PNG under the scratch
   root's `evidence\preview\` and copied to
-  `/tmp/claude-1000/-home-cprch-projects-the-one/0eb14466-3200-4ca3-9529-5ff071966eae/scratchpad/f5preview/`:
+  `/tmp/claude-1000/-home-<user>-projects-the-one/0eb14466-3200-4ca3-9529-5ff071966eae/scratchpad/f5preview/`:
   - `light-active.png`, `light-inactive.png`, `dark-active.png`, `dark-inactive.png`:
     the whole test-copy window through `capture --window`;
   - `splash-light.png`, `splash-dark.png`: a frame of the splash from a launch series;

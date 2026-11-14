@@ -30,25 +30,25 @@ Predominantly the violations are in test files (65 of 69 errors), so production-
 
 ## Acceptance Criteria
 
-- [ ] `cd /home/cprch/projects/the-one && ruff check the_one/ tests/` exits 0 with "All checks passed!"
-- [ ] `cd /home/cprch/projects/the-one && ruff format --check the_one/ tests/` exits 0 with "X files already formatted"
+- [ ] `cd ~/projects/the-one && ruff check the_one/ tests/` exits 0 with "All checks passed!"
+- [ ] `cd ~/projects/the-one && ruff format --check the_one/ tests/` exits 0 with "X files already formatted"
 - [ ] No production logic change. Acceptable production changes are limited to: format-driven whitespace, import-order, line-wrap, deletion of provably-unused imports, hand-fix of E501 via wrapping/extraction (no behavior change), and resolution of E402 (`interfaces/web/api.py:660`) via either reordering or a justified `# noqa: E402` comment naming the reason (e.g., "side-effect import; must precede X")
 - [ ] No NEW test failures or collection errors introduced beyond the pre-existing baseline (6 `asgi-lifespan` collection errors + 1 `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` failure — both fixed in Leg 2). Acceptance is "matching the pre-leg baseline," not absolute zero — Leg 2 is the leg that drives broad pytest to clean exit-code 0.
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/` — exit 0
-- `cd /home/cprch/projects/the-one && ruff format --check the_one/ tests/` — exit 0
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ --output-format=concise | wc -l` — returns 0 lines (belt-and-suspenders over `exit 0`)
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ --statistics` — confirm no error types remain
-- `cd /home/cprch/projects/the-one && git diff --stat HEAD~1` — review the cleanup commit; verify no logic changes
+- `cd ~/projects/the-one && ruff check the_one/ tests/` — exit 0
+- `cd ~/projects/the-one && ruff format --check the_one/ tests/` — exit 0
+- `cd ~/projects/the-one && ruff check the_one/ tests/ --output-format=concise | wc -l` — returns 0 lines (belt-and-suspenders over `exit 0`)
+- `cd ~/projects/the-one && ruff check the_one/ tests/ --statistics` — confirm no error types remain
+- `cd ~/projects/the-one && git diff --stat HEAD~1` — review the cleanup commit; verify no logic changes
 
 ## Implementation Guidance
 
 1. **Restore the lint baseline**
-   - `cd /home/cprch/projects/the-one && ruff check .` to capture current state
-   - `cd /home/cprch/projects/the-one && ruff check --fix .` — applies the autofixable items (currently ~23, small drift acceptable)
-   - `cd /home/cprch/projects/the-one && ruff check --fix --unsafe-fixes .` — applies the unsafe-fixable items (currently ~3; review the diff carefully; unsafe fixes can include removing `# noqa` directives or adding `if` guards)
+   - `cd ~/projects/the-one && ruff check .` to capture current state
+   - `cd ~/projects/the-one && ruff check --fix .` — applies the autofixable items (currently ~23, small drift acceptable)
+   - `cd ~/projects/the-one && ruff check --fix --unsafe-fixes .` — applies the unsafe-fixable items (currently ~3; review the diff carefully; unsafe fixes can include removing `# noqa` directives or adding `if` guards)
    - Hand-fix the remaining ~46 errors. Common patterns:
      - `E501 line-too-long`: wrap lines, extract intermediate variables, or break long strings into adjacent literals
      - `F401 unused import`: delete the import (verify it's truly unused, not pulled in for side-effect)
@@ -57,20 +57,20 @@ Predominantly the violations are in test files (65 of 69 errors), so production-
      - `N806 non-lowercase variable in function`: rename (the M05-era `REMOVED` set in `db/schema.py` was the prior offender; check if it's resurfaced)
      - `N802 function name should be lowercase`: rename, or `# noqa: N802` for protocol-required names
      - `I001 unsorted imports`: should be auto-fixed by `--fix`; if not, `ruff check --fix --select I .` on the specific file
-   - `cd /home/cprch/projects/the-one && ruff check the_one/ tests/` — verify 0 errors
+   - `cd ~/projects/the-one && ruff check the_one/ tests/` — verify 0 errors
    - Common pitfall: `--fix` does NOT fix `E501`; line-too-long must be hand-fixed.
 
 2. **Restore the format baseline**
-   - `cd /home/cprch/projects/the-one && ruff format the_one/ tests/` — applies the 81-file diff
-   - `cd /home/cprch/projects/the-one && ruff format --check the_one/ tests/` — verify "all files already formatted"
+   - `cd ~/projects/the-one && ruff format the_one/ tests/` — applies the 81-file diff
+   - `cd ~/projects/the-one && ruff format --check the_one/ tests/` — verify "all files already formatted"
    - Re-run `ruff check` to confirm format pass did not introduce new lint errors (it shouldn't, but verify)
 
 3. **Verify the broad pytest collection still works**
-   - `cd /home/cprch/projects/the-one && pytest --collect-only -q | tail -5` — should report 1683+ collected, 0 errors at collection time
+   - `cd ~/projects/the-one && pytest --collect-only -q | tail -5` — should report 1683+ collected, 0 errors at collection time
    - Note: this leg does not fix the 6 `asgi-lifespan` collection errors (Leg 2's job) or the `test_sandbox_eperm_on_unshare` failure (Leg 2's job). Those persist after this leg.
 
 4. **Commit**
-   - Stage all changes: `cd /home/cprch/projects/the-one && git add -A`
+   - Stage all changes: `cd ~/projects/the-one && git add -A`
    - Inspect: `git diff --cached --stat`
    - Commit on the current branch (`flight/01-integrity-gate-restoration`) with message: `flight/01: restore ruff lint+format zero baseline\n\nMission: 09`
    - Do NOT push yet — the flight uses a single end-of-flight review + commit pattern; per crew protocol, signal `[HANDOFF:review-needed]` at leg end, NOT `[COMPLETE:leg]`.

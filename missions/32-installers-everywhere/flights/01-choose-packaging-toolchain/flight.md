@@ -170,7 +170,7 @@ Verified against the worktree at `b060d84` (`origin/main` `8a52a39` plus the mis
 | GitHub repo is private (macOS runners billed at 10×, Windows at 2×) (DD6, DD7) | verified |
 
 ### Prerequisites
-- [x] Work happens on a branch off `mission/32-installers` in the worktree `/home/cprch/projects/the-one-worktrees/m32-installers`, never in the Mission 31 checkout.
+- [x] Work happens on a branch off `mission/32-installers` in the worktree `~/projects/the-one-worktrees/m32-installers`, never in the Mission 31 checkout.
 - [x] Fresh target-distro containers (`ubuntu:26.04`, `debian:13`) resolve (planning check).
 - [x] WSLg display and the host WebKitGTK 4.1 are present (planning check).
 - [x] Operator-confirmed hosted budget: at most 2 macOS jobs and 1 Windows job in this flight.

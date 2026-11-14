@@ -8,6 +8,7 @@ Real fixtures where it matters: the hello server behind ``Auth401Wrapper`` (a ba
 from __future__ import annotations
 
 import logging
+import socket
 from unittest.mock import MagicMock, patch
 
 import httpx2
@@ -119,6 +120,19 @@ async def test_cached_no_auth_posture_still_takes_the_branch_and_keeps_its_postu
 
     # A 401 that names a sign-in goes on to Phase B even though the cached posture is
     # no_auth (the plain early return would have reported a defensive MCPAuthRequired error).
+    # Phase B's driver opens a real connection to the source URL (it does not use the ASGI
+    # seam), so point it at a loopback port nothing listens on: it is refused at once. On a
+    # host where localhost:80 accepts and stalls (WSL mirrored networking) the default URL
+    # hangs until consent_url_timeout (squawk 0344).
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        closed_port = s.getsockname()[1]
+    src = await repo.get(SID)
+    await repo.update(
+        src.model_copy(
+            update={"config": {**src.config, "url": f"http://127.0.0.1:{closed_port}/mcp"}}
+        )
+    )
     wrapper = Auth401Wrapper(make_http_app(), fail_methods={"server/discover", "initialize"})
     async with serve_asgi(monkeypatch, wrapper):
         body = (await c.post(f"/api/mcp-sources/{SID}/test/connect")).json()

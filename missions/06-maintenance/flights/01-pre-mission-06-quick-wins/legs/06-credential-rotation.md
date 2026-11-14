@@ -20,14 +20,14 @@ Maintenance report finding 1.1 + CICD-M4 (see `maintenance/2026-05-04.md`).
 ## Inputs
 
 - Local Concourse instance running at `http://localhost:8080` (per `concourse-local` project in projects.md)
-- `/home/cprch/projects/the-one/.env` (existing; contains current `THE_ONE_CONCOURSE_PASS`)
-- Knowledge of how to rotate passwords in the local Concourse setup (see `/home/cprch/projects/concourse-local/`)
+- `~/projects/the-one/.env` (existing; contains current `THE_ONE_CONCOURSE_PASS`)
+- Knowledge of how to rotate passwords in the local Concourse setup (see `~/projects/concourse-local/`)
 
 ## Outputs
 
 - New `the-one` team password generated and applied to Concourse local team
 - New Concourse admin password (if the operator chooses to rotate it; recommended)
-- `/home/cprch/projects/the-one/.env` updated with the new `THE_ONE_CONCOURSE_PASS`
+- `~/projects/the-one/.env` updated with the new `THE_ONE_CONCOURSE_PASS`
 - Old passwords no longer authenticate against local Concourse
 - `fly` CLI works with the new password (verified by `fly -t the-one login` success)
 - Pipeline still set/triggers correctly with the new credential
@@ -47,10 +47,10 @@ Maintenance report finding 1.1 + CICD-M4 (see `maintenance/2026-05-04.md`).
 
 - Generate new password: `openssl rand -base64 30 | tr -d '/+=' | cut -c1-32`
 - Apply via the local Concourse rotation procedure (see `concourse-local` project)
-- `cat /home/cprch/projects/the-one/.env | grep THE_ONE_CONCOURSE_PASS` — shows new value, NOT `PRRARX...`
+- `cat ~/projects/the-one/.env | grep THE_ONE_CONCOURSE_PASS` — shows new value, NOT `PRRARX...`
 - `fly -t the-one login -c http://localhost:8080 -n the-one -u the-one -p "${NEW_PASS}"` — succeeds
 - `fly -t test-old login -c http://localhost:8080 -n the-one -u the-one -p 'PRRARX6dpNqOdJAHZlVsihQppIGBBcRu'` — fails with auth error
-- `fly -t the-one set-pipeline -p the-one -c /home/cprch/projects/the-one/ci/pipeline.yml --non-interactive` — succeeds
+- `fly -t the-one set-pipeline -p the-one -c ~/projects/the-one/ci/pipeline.yml --non-interactive` — succeeds
 
 ## Implementation Guidance
 
@@ -59,7 +59,7 @@ Maintenance report finding 1.1 + CICD-M4 (see `maintenance/2026-05-04.md`).
    - Optionally generate one for `admin` (recommended, since the admin password is also in history)
 
 2. **Rotate the `the-one` team password in local Concourse**
-   - The exact procedure depends on how the local Concourse is configured. Check `/home/cprch/projects/concourse-local/` for setup details. Typical paths:
+   - The exact procedure depends on how the local Concourse is configured. Check `~/projects/concourse-local/` for setup details. Typical paths:
      - Update `concourse-local/docker-compose.yml` env vars `CONCOURSE_LOCAL_USER_THE_ONE` (or similar)
      - Restart Concourse: `docker compose restart concourse-web` (in the concourse-local project)
      - OR if Concourse is configured via `fly set-team`: run `fly -t local set-team -n the-one --local-user the-one --basic-auth-password "${NEW_PASS}"`
@@ -70,13 +70,13 @@ Maintenance report finding 1.1 + CICD-M4 (see `maintenance/2026-05-04.md`).
    - Verify the new password works.
 
 4. **Update `.env`**
-   - Open `/home/cprch/projects/the-one/.env`
+   - Open `~/projects/the-one/.env`
    - Replace `THE_ONE_CONCOURSE_PASS=PRRARX6dpNqOdJAHZlVsihQppIGBBcRu` with `THE_ONE_CONCOURSE_PASS=${NEW_PASS}`
    - Save. `.env` is gitignored — no commit.
    - (Future improvement, OUT OF SCOPE for this leg: move to a system keychain or `pass`. Surface as a follow-up if interest.)
 
 5. **Re-set the pipeline with the new credential**
-   - From `/home/cprch/projects/the-one/`: `fly -t the-one login -c http://localhost:8080 -n the-one -u the-one -p "${NEW_PASS}"`
+   - From `~/projects/the-one/`: `fly -t the-one login -c http://localhost:8080 -n the-one -u the-one -p "${NEW_PASS}"`
    - `fly -t the-one set-pipeline -p the-one -c ci/pipeline.yml --non-interactive`
    - `fly -t the-one trigger-job -j the-one/deploy -w` (or whatever the existing trigger is)
    - Confirm successful pipeline run.
@@ -98,9 +98,9 @@ Maintenance report finding 1.1 + CICD-M4 (see `maintenance/2026-05-04.md`).
 
 ## Files Affected
 
-- `/home/cprch/projects/the-one/.env` — update `THE_ONE_CONCOURSE_PASS` (gitignored, no commit)
-- Local Concourse configuration in `/home/cprch/projects/concourse-local/` — update env vars or run `fly set-team` (out-of-tree from the-one)
-- Possibly `/home/cprch/.fly/targets.yml` — clear stale local fly targets if needed
+- `~/projects/the-one/.env` — update `THE_ONE_CONCOURSE_PASS` (gitignored, no commit)
+- Local Concourse configuration in `~/projects/concourse-local/` — update env vars or run `fly set-team` (out-of-tree from the-one)
+- Possibly `~/.fly/targets.yml` — clear stale local fly targets if needed
 
 ---
 

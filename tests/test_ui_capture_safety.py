@@ -117,7 +117,11 @@ def _no_start(*_a, **_k):
     raise AssertionError("the instance must not start when a refusal applies")
 
 
-def test_keep_running_refuses_a_protected_port(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_keep_running_refuses_a_protected_port(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Stub the data-dir derivation: it needs the checkout's own .venv (squawk 0358).
+    monkeypatch.setattr(cap, "default_data_dir", lambda: tmp_path / "default")
     monkeypatch.setattr(cap, "pick_port", lambda: 8484)
     monkeypatch.setattr(cap, "start_instance", _no_start)
     with pytest.raises(cap.CaptureError, match="8484"):

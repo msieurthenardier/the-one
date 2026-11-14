@@ -152,7 +152,7 @@ _(unexpected issues will be logged here)_
 
 ### Flight Director Notes
 
-**Phase file loaded**: `/home/cprch/projects/the-one/.flightops/agent-crews/leg-execution.md` (project-specific)
+**Phase file loaded**: `~/projects/the-one/.flightops/agent-crews/leg-execution.md` (project-specific)
 - Crew: Developer (Sonnet), Reviewer (Haiku), Accessibility Reviewer (Sonnet, optional)
 - Git strategy: branch
-- Working directory: `/home/cprch/projects/the-one`
+- Working directory: `~/projects/the-one`

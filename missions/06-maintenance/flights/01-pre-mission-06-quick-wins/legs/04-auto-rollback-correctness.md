@@ -39,10 +39,10 @@ Both are CI/CD reviewer findings; both are HIGH because they corrupt the operato
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && cat ci/deploy.sh` — review rollback path; verify post-rollback health check + first-deploy guard
-- `cd /home/cprch/projects/the-one && cat ci/pipeline.yml` — review health-check task; verify `up` flag and explicit timeout message
-- `cd /home/cprch/projects/the-one && fly -t local set-pipeline -p the-one -c ci/pipeline.yml --non-interactive --check-creds`
-- `cd /home/cprch/projects/the-one && fly -t local trigger-job -j the-one/deploy -w` — full deploy succeeds
+- `cd ~/projects/the-one && cat ci/deploy.sh` — review rollback path; verify post-rollback health check + first-deploy guard
+- `cd ~/projects/the-one && cat ci/pipeline.yml` — review health-check task; verify `up` flag and explicit timeout message
+- `cd ~/projects/the-one && fly -t local set-pipeline -p the-one -c ci/pipeline.yml --non-interactive --check-creds`
+- `cd ~/projects/the-one && fly -t local trigger-job -j the-one/deploy -w` — full deploy succeeds
 - Manual failure-injection test: temporarily change `--host` to an invalid IP in `docker-compose.yml`; trigger deploy; verify "app never came up after 60s" is printed and pipeline exits non-zero (rollback also runs and is also verified by its own health check)
 
 ## Implementation Guidance

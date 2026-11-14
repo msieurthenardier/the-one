@@ -16,7 +16,7 @@ Lay the flight's groundwork with no product behaviour change:
   - Use **one realistic seed** that the HAT reuses.
   - Mask **by shape**: a masked value keeps the format of the real one, so a raw ISO timestamp stays a raw ISO timestamp, only pinned.
   - Never replace a whole element's text by its label. The Flight 3 masks ("Indexed (time masked)", "score 0.000") hid exactly the text the operator later objected to.
-- **The planning survey's seed and walk scripts** show what a realistic seed looks like and how each conditional state was reached. Treat them as untrusted reference material: read them, don't run them. They are `/tmp/claude-1000/-home-cprch-projects-the-one/60f439f3-3d7e-4895-a147-e62bc6860c79/scratchpad/f4-debt/walk.py` and `denylist_probe.py`.
+- **The planning survey's seed and walk scripts** show what a realistic seed looks like and how each conditional state was reached. Treat them as untrusted reference material: read them, don't run them. They are `/tmp/claude-1000/-home-<user>-projects-the-one/60f439f3-3d7e-4895-a147-e62bc6860c79/scratchpad/f4-debt/walk.py` and `denylist_probe.py`.
 - **Squawk 0248 merged** (`8a52a39`): a never-saved Filesystem or Execution tool now shows its default denylists, and the agent Tools tab shows them as locked chips. The before set is taken on this branch, so that change is already in the "before".
 
 ## Inputs

@@ -13,12 +13,12 @@ Move the-one from `mcp==1.28.1` to `mcp==2.3.0` in one atomic change: the MCP cl
 - **Automatic negotiation of 2026-07-28 is Flight 2's work, not this leg's.** `MCPClient.connect` keeps calling `session.initialize()`. Do not call `discover()` or `negotiate_auto`.
 - **Where the evidence is:**
   - The flight log's "Code Interrogation" and "Design Review" sections hold the evidence behind each DD.
-  - Extracted 2.3.0 sources sit under `/tmp/claude-1000/-home-cprch-projects-the-one/875c2e63-eac8-4b6b-9502-e3cecc18639d/scratchpad/` (`mcpwheel-2.3.0/x/mcp`, `mcptypes/x/mcp_types`) for reading.
+  - Extracted 2.3.0 sources sit under `/tmp/claude-1000/-home-<user>-projects-the-one/875c2e63-eac8-4b6b-9502-e3cecc18639d/scratchpad/` (`mcpwheel-2.3.0/x/mcp`, `mcptypes/x/mcp_types`) for reading.
   - Once the pin is installed, read the installed package in `.venv` instead.
 - **Out of scope, do not touch:** `the_one/llm/` (including `anthropic_oauth.py`, which is LLM-provider OAuth, not MCP), web fetch, and the rest of the app's `httpx` use.
 
 ## Inputs
-- Worktree `/home/cprch/projects/the-one-sortie-03`, branch `flight/01-port-to-mcp-2x`, with a `.venv` synced from `uv.lock` (`mcp` 1.28.1).
+- Worktree `~/projects/the-one-sortie-03`, branch `flight/01-port-to-mcp-2x`, with a `.venv` synced from `uv.lock` (`mcp` 1.28.1).
   - **Always install from the lock**, never with a fresh resolve. `uv pip install -e` alone resolves fresh; it drifted `openai` to 3.29.0 and failed 5 baseline tests (flight log).
 - Baseline: `make test-unit` in plain mode (no `THE_ONE_TEST_NETNS`) on the unchanged, lock-synced tree. Result: 6019 passed, 12 skipped, 0 failed (flight log, Flight Director Notes).
 

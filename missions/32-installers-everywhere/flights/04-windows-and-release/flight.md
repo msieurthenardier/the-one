@@ -373,7 +373,7 @@ Verified against the worktree at `f98f2c7` (`origin/main` after #314). Corrected
 - [x] `gh` is authenticated (re-checked at each leg that uses it). The repo is private, with three collaborators.
 - [ ] The operator logs in to Concourse (`fly -t the-one login`) before leg 3a. It is re-checked at the leg.
 - [ ] The operator's go for the stub PRs, their merges and the dispatch budgets (DD5, DD8), asked for at leg 1.
-- [x] Mission 31 is active in `/home/cprch/projects/the-one` and is never touched. The host test policy holds.
+- [x] Mission 31 is active in `~/projects/the-one` and is never touched. The host test policy holds.
 - [x] Both charters are amended for the in-flight release (2026-10-25).
 
 ### Pre-Flight Checklist

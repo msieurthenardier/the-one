@@ -10,7 +10,7 @@ Harden the Concourse CI pipeline by removing `|| true` from the test step, repla
 ## Context
 
 - The test step currently has `|| true` which swallows test failures — the pipeline deploys even if tests fail
-- 5 occurrences of `/home/cprch/projects/the-one` are hardcoded in pipeline.yml
+- 5 occurrences of `~/projects/the-one` are hardcoded in pipeline.yml
 - The docker run env block (13 env vars, network, volume mounts) is duplicated 3 times (deploy, rollback, auto-rollback)
 - The auto-rollback block is missing `--network concourse-local_default` (bug)
 - `((workspace-path))` Concourse variable has already been set in Vault as a pre-execution step
@@ -37,7 +37,7 @@ Harden the Concourse CI pipeline by removing `|| true` from the test step, repla
 - [x] Build step still uses inline docker commands (build needs docker-in-docker, different from deploy)
 - [x] Rollback step uses `ci/deploy.sh rollback`
 - [x] Auto-rollback step uses `ci/deploy.sh rollback` (also fixes missing `--network` bug)
-- [x] All 5 occurrences of `/home/cprch/projects/the-one` replaced with `$WORKSPACE_PATH`
+- [x] All 5 occurrences of `~/projects/the-one` replaced with `$WORKSPACE_PATH`
 - [x] Deploy, rollback, auto-rollback `params` include `WORKSPACE_PATH: ((workspace-path))`
 - [x] `fly validate-pipeline -c ci/pipeline.yml` passes
 - [x] No hardcoded paths remain in pipeline.yml (except image references)
@@ -45,7 +45,7 @@ Harden the Concourse CI pipeline by removing `|| true` from the test step, repla
 ## Verification Steps
 
 - `fly validate-pipeline -c ci/pipeline.yml` — valid YAML
-- `grep -r '/home/cprch' ci/pipeline.yml` — no matches
+- `grep -r '/home/<user>' ci/pipeline.yml` — no matches
 - `grep '|| true' ci/pipeline.yml` — no matches
 - `head -1 ci/deploy.sh` — starts with `#!/bin/sh` or `#!/usr/bin/env sh`
 - `test -x ci/deploy.sh` — is executable
@@ -89,7 +89,7 @@ Harden the Concourse CI pipeline by removing `|| true` from the test step, repla
 2. **Modify `ci/pipeline.yml` test step**
    - Remove `|| true` from the pytest command
    - Remove `python -m compileall -q the_one/ &&` (unnecessary)
-   - Replace `/home/cprch/projects/the-one` with `$WORKSPACE_PATH`
+   - Replace `~/projects/the-one` with `$WORKSPACE_PATH`
    - Add `WORKSPACE_PATH: ((workspace-path))` to params
 
 3. **Modify `ci/pipeline.yml` build-and-deploy step**

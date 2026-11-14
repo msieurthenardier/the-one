@@ -278,11 +278,17 @@ async def test_lock_holds_pid_and_live_owner_data_survives_a_second_start(
 async def test_refuses_a_run_dir_owned_by_another_live_process(tmp_path, real_data_dir):
     run_dir = tmp_path / "runs" / "r"
     run_dir.mkdir(parents=True)
-    parent = os.getppid()  # a live process that is not us
-    (run_dir / "owner.lock").write_text(str(parent))
-    with pytest.raises(EvalRefusalError, match="in use by process"):
-        await startup(StartupOptions(run_dir=run_dir))
-    assert os.environ["HOME"] != str(run_dir / "home")  # HOME restored after the failure
+    # A live process that is not us, and that the test owns: os.getppid() is 0 in a CI container
+    # whose parent is outside the PID namespace (squawk 0316).
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        (run_dir / "owner.lock").write_text(str(child.pid))
+        with pytest.raises(EvalRefusalError, match="in use by process"):
+            await startup(StartupOptions(run_dir=run_dir))
+        assert os.environ["HOME"] != str(run_dir / "home")  # HOME restored after the failure
+    finally:
+        child.terminate()
+        child.wait(timeout=10)
 
 
 # ── the redactor ──────────────────────────────────────────────────────────

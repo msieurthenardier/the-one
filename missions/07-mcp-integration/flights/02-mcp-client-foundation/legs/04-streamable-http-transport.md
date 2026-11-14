@@ -106,7 +106,7 @@ What exists after this leg completes:
 
 ```bash
 # In container
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # Module imports cleanly, helper signatures correct
 docker compose exec the-one python -c "

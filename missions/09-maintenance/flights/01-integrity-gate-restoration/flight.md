@@ -125,13 +125,13 @@ Three sequential legs. Each leg lands as a separate commit so a per-leg `git rev
 
 ### Verification
 
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/` → exit 0, "All checks passed!"
-- `cd /home/cprch/projects/the-one && ruff format --check the_one/ tests/` → exit 0, "X files already formatted"
-- `cd /home/cprch/projects/the-one && make doctor` → exit 0, all dev extras importable
-- `cd /home/cprch/projects/the-one && pytest -q --tb=no` → exit 0, 1683+ collected, 0 errors at collection
-- `cd /home/cprch/projects/the-one && grep -n "_init_provider_state\|live-read\|lazy-resolver" the_one/agents.md` → matches in `## Provider type extension checklist` and `## Project Conventions`
-- `cd /home/cprch/projects/the-one && grep -n "THE_ONE_DEV_MODE" .env.example` → match
-- `cd /home/cprch/projects/the-one && grep -n "MCP.*streamable-http\|streamable_http.*URL gating\|asymmetric" SECURITY-MODEL.md` → match
-- `cd /home/cprch/projects/the-one && grep -n "GleepGlorp" the_one/llm/openrouter_provider.py` → match (no longer literal `"the-one"` in `_APP_*`)
-- `cd /home/cprch/projects/the-one && pip-audit --skip-editable` → runs, reports findings (non-blocking)
+- `cd ~/projects/the-one && ruff check the_one/ tests/` → exit 0, "All checks passed!"
+- `cd ~/projects/the-one && ruff format --check the_one/ tests/` → exit 0, "X files already formatted"
+- `cd ~/projects/the-one && make doctor` → exit 0, all dev extras importable
+- `cd ~/projects/the-one && pytest -q --tb=no` → exit 0, 1683+ collected, 0 errors at collection
+- `cd ~/projects/the-one && grep -n "_init_provider_state\|live-read\|lazy-resolver" the_one/agents.md` → matches in `## Provider type extension checklist` and `## Project Conventions`
+- `cd ~/projects/the-one && grep -n "THE_ONE_DEV_MODE" .env.example` → match
+- `cd ~/projects/the-one && grep -n "MCP.*streamable-http\|streamable_http.*URL gating\|asymmetric" SECURITY-MODEL.md` → match
+- `cd ~/projects/the-one && grep -n "GleepGlorp" the_one/llm/openrouter_provider.py` → match (no longer literal `"the-one"` in `_APP_*`)
+- `cd ~/projects/the-one && pip-audit --skip-editable` → runs, reports findings (non-blocking)
 - Manually triggered Concourse build for the merge passes lint+format gates

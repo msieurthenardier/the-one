@@ -89,7 +89,7 @@ What exists after this leg completes:
 
 ```bash
 # Run inside the container — host has stale mcp 1.18.0
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # File inventory
 ls tests/fixtures/mcp/
@@ -104,7 +104,7 @@ import subprocess, sys, json
 proc = subprocess.Popen(
     [sys.executable, '-m', 'tests.fixtures.mcp.hello_server', '--stdio'],
     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-    cwd='/home/cprch/projects/the-one',
+    cwd='<repo>',  # the repository root (placeholder)
 )
 # Quick liveness probe — server should not exit immediately
 import time; time.sleep(0.5)

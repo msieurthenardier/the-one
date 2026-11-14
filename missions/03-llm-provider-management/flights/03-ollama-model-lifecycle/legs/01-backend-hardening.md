@@ -34,8 +34,8 @@ Fix key rotation atomicity bug and normalize error handling across all provider 
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && python -m pytest tests/ -x --timeout=30`
-- `cd /home/cprch/projects/the-one && ruff check the_one/`
+- `cd ~/projects/the-one && python -m pytest tests/ -x --timeout=30`
+- `cd ~/projects/the-one && ruff check the_one/`
 - Inspect `rotate_encryption_key` to verify the reencrypt callback writes to DB before the key file is updated
 
 ## Implementation Guidance

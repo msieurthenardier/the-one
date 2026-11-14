@@ -246,7 +246,7 @@ Checked against the working tree at `2d1e6860` (2026-11-12).
 - Gate lists: `packaging/windows/build.ps1:52`, `:365`; `packaging/windows/README.md:53`; `scripts/windows_test_copy.py:101`; `tests/test_windows_build_recipe.py:161`; `tests/test_windows_test_copy.py:452`; `packaging/macos/checks.sh:85`; `tests/test_doctor.py:886`, `:1232`; `the_one/agents.md:1908`, `:1925`, `:1927` — verified
 - Freeze specs: `packaging/linux/the-one.spec:63-66`, `packaging/macos/the-one.spec:81-83`, `packaging/windows/the-one.spec:156-157`, `:170`, `:202` — `collect_data_files("the_one", includes=[…])` — verified
 - `tests/browser/test_ui_chart_contract.py:23` `CORPUS` path; `engine_page` + `load_harness`; lane `contracts-chat` — verified
-- Pillow 13.0.0, FreeType 2.14.3, `features.check("raqm")` True on this host; `/home/cprch/.local/bin/uv` present — verified (measured)
+- Pillow 13.0.0, FreeType 2.14.3, `features.check("raqm")` True on this host; `~/.local/bin/uv` present — verified (measured)
 - Design review cycle 1 (Developer, Sonnet, 2026-11-12) also verified:
   - `chart.js:105` (SVG height 240, or 32 for a sparkline) and `chart-scale.js:26-27` (`SPARK_W` 140, `SPARK_H` 32);
   - `test_doctor.py:867`, `diagnostics.py:1177-1191` and `checks.sh:73`;

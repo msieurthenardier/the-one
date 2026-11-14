@@ -41,7 +41,7 @@ _(In progress)_
 - Created `ci/deploy.sh` — shared deploy script accepting image tag argument (`latest` or `rollback`), reads `$WORKSPACE_PATH` and `$CONCOURSE_PASS` from environment, single `docker run` command with all env vars, network, volume, restart policy
 - Removed `|| true` from test step (pipeline now fails on test failures)
 - Removed `compileall` from test step (unnecessary, pytest imports modules)
-- Replaced all 5 hardcoded `/home/cprch/projects/the-one` paths with `$WORKSPACE_PATH`
+- Replaced all 5 hardcoded `~/projects/the-one` paths with `$WORKSPACE_PATH`
 - Added `WORKSPACE_PATH: ((workspace-path))` param to test, build-and-deploy, auto-rollback, and rollback steps
 - Added `CONCOURSE_PASS: ((concourse-pass))` param to build-and-deploy, auto-rollback, and rollback steps (deploy.sh needs it as env var)
 - Replaced inline docker run deploy blocks in build-and-deploy, auto-rollback, and rollback steps with calls to `ci/deploy.sh`

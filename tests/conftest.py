@@ -152,14 +152,46 @@ def _close_db_singleton_at_session_end():
 # ---------------------------------------------------------------------------
 
 
+def check_tool_pairing(messages: list[Message]) -> None:
+    """Raise ``AssertionError`` naming the id when ``messages`` is a history a real
+    provider would reject (squawk 0218): a tool result whose id has no earlier tool
+    call, or a second result for an id already answered."""
+    called: set[str] = set()
+    answered: set[str] = set()
+    for i, msg in enumerate(messages):
+        for call in msg.tool_calls or []:
+            called.add(call.id)
+        result = msg.tool_result
+        if result is None:
+            continue
+        rid = result.tool_call_id
+        if rid in answered:
+            raise AssertionError(
+                f"FakeLLM: duplicate tool_result for tool call id {rid!r} (message {i}); "
+                "a real provider rejects this history"
+            )
+        if rid not in called:
+            raise AssertionError(
+                f"FakeLLM: tool_result for tool call id {rid!r} (message {i}) has no "
+                "preceding tool call; a real provider rejects this history"
+            )
+        answered.add(rid)
+
+
 class FakeLLM(LLMProvider):
-    """LLM provider that returns pre-scripted responses in order."""
+    """LLM provider that returns pre-scripted responses in order.
+
+    Each call checks the history's tool-call/result pairing the way real providers
+    do (squawk 0218). A test that builds a malformed history on purpose passes
+    ``strict_history=False``.
+    """
 
     name = "fake"
 
-    def __init__(self, responses: list[Message]) -> None:
+    def __init__(self, responses: list[Message], *, strict_history: bool = True) -> None:
         self.responses = list(responses)
         self.calls: list[dict[str, Any]] = []
+        self.strict_history = strict_history
 
     async def complete(
         self,
@@ -178,6 +210,8 @@ class FakeLLM(LLMProvider):
                 "max_tokens": max_tokens,
             }
         )
+        if self.strict_history:
+            check_tool_pairing(messages)
         return self.responses.pop(0)
 
 

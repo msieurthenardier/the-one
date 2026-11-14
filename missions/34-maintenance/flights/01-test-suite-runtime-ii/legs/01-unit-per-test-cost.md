@@ -53,12 +53,12 @@ Slowest files (junit time, setup + call + teardown):
 
 Other single slow calls: `test_mcp_httpx_guard::test_no_code_uses_mcp_1x_only_names` 2.1 s and `test_schema_template::test_no_direct_schema_builds_outside_allow_list` 1.7 s (step c), `test_unused_selectors_script::test_cli_runs_and_exits_zero` 2.4 s (e), `test_routines_scheduler::test_once_routine_runs_without_waiting_for_the_tick` 2.2 s (d).
 
-Full output: `/tmp/claude-1000/-home-cprch-projects-the-one/5bcc7a13-9d9b-42d0-995d-d093938fbb96/scratchpad/baseline-4b3dbb19.txt` and `.xml` (session-local; the flight log keeps the table).
+Full output: `/tmp/claude-1000/-home-<user>-projects-the-one/5bcc7a13-9d9b-42d0-995d-d093938fbb96/scratchpad/baseline-4b3dbb19.txt` and `.xml` (session-local; the flight log keeps the table).
 
 ## Inputs
 - `main` at `4b3dbb19` on branch `flight/01-test-suite-runtime-ii`.
 - `tests/_schema_template.py` (template DB), `tests/_credential_helpers.py::auth_headers`, `tests/_evals_helpers.py::evals_isolation`.
-- The baseline junit/duration output at `/tmp/claude-1000/-home-cprch-projects-the-one/5bcc7a13-9d9b-42d0-995d-d093938fbb96/scratchpad/baseline-4b3dbb19.{xml,txt}`.
+- The baseline junit/duration output at `/tmp/claude-1000/-home-<user>-projects-the-one/5bcc7a13-9d9b-42d0-995d-d093938fbb96/scratchpad/baseline-4b3dbb19.{xml,txt}`.
 
 ## Outputs
 - `tests/_api_app.py` (new): the shared API app helper and its isolation check.

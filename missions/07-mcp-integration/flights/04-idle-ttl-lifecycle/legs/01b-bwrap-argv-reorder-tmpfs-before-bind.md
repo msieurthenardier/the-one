@@ -90,7 +90,7 @@ How to confirm each criterion is met:
 
 ## Implementation Guidance
 
-1. **Capture the L1b-start commit SHA**: `cd /home/cprch/projects/the-one && git rev-parse HEAD` and note the value (this is post-L1a; L1a's source changes are uncommitted in the working tree but that's expected — Flight Director batches commit at flight-end).
+1. **Capture the L1b-start commit SHA**: `cd ~/projects/the-one && git rev-parse HEAD` and note the value (this is post-L1a; L1a's source changes are uncommitted in the working tree but that's expected — Flight Director batches commit at flight-end).
 
 2. **Run the L1b-affected test baseline**:
    ```bash

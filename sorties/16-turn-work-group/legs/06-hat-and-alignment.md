@@ -69,7 +69,7 @@ Each step names the state change and what must and must not be on screen.
 
 ## Citation Audit
 - `CLAUDE.md` "Behavior-test credential convention" - a dev instance uses a non-default port and a scratch data directory together, is started from a scratch working directory, and a browser signs in through `POST /api/session/handoff` - followed for the instance above
-- `the_one/config.py::settings.data_dir` - printed `/home/cprch/.local/share/the-one` on this host; the HAT instance's own `/proc/<pid>/environ` shows `THE_ONE_DATA_DIR=/home/cprch/the-one-hat-sortie16/data` and `THE_ONE_PORT=8487` - verified 2026-11-14
+- `the_one/config.py::settings.data_dir` - printed `~/.local/share/the-one` on this host; the HAT instance's own `/proc/<pid>/environ` shows `THE_ONE_DATA_DIR=~/the-one-hat-sortie16/data` and `THE_ONE_PORT=8487` - verified 2026-11-14
 
 ---
 

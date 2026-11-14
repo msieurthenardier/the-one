@@ -76,18 +76,18 @@ The sweep items are mostly one-liner each. They cluster in this leg because (i) 
 ## Verification Steps
 
 - Manual A.2: open Studio → edit an agent → save with empty name → inspect DOM via DevTools: confirm `aria-invalid="true"` on input, `aria-describedby` references the error span id, error span has `role="alert"` or is announced
-- `cd /home/cprch/projects/the-one && pytest tests/test_design_tokens_a11y.py -v` → relevant tests PASS
+- `cd ~/projects/the-one && pytest tests/test_design_tokens_a11y.py -v` → relevant tests PASS
 - Manual A.5: trigger a toast (e.g., agent save success); verify it persists ≥5s OR has pause-on-hover + close button
 - Inspect DOM for MCP server tile: `alt=""` when icon present; `alt={meaningful}` only if non-decorative
 - Manual A.7: set OS `prefers-reduced-motion: reduce` → trigger thinking-indicator → confirm no animation update OR very slow update
 - Manual A.8: inspect telemetry overlay DOM; verify row-level labels; verify visual opacity ≥0.7
-- `cd /home/cprch/projects/the-one && grep -A5 "indicator-led" the_one/interfaces/web/static/css/components.css` — contract comment present
-- `cd /home/cprch/projects/the-one && grep "role=\"group\"\|role=\"tablist\"" the_one/interfaces/web/static/js/layout/section-nav.js` — appropriate role
+- `cd ~/projects/the-one && grep -A5 "indicator-led" the_one/interfaces/web/static/css/components.css` — contract comment present
+- `cd ~/projects/the-one && grep "role=\"group\"\|role=\"tablist\"" the_one/interfaces/web/static/js/layout/section-nav.js` — appropriate role
 - Manual A.11: inspect trace-shell DOM; `summary aria-label` includes count
 - Manual A.12: inspect tools-grid; toggle has visible state context
-- `cd /home/cprch/projects/the-one && grep -i "accessibility\|wcag" README.md` — section present
-- `cd /home/cprch/projects/the-one && pytest --tb=no -q` → exit 0
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` → both exit 0
+- `cd ~/projects/the-one && grep -i "accessibility\|wcag" README.md` — section present
+- `cd ~/projects/the-one && pytest --tb=no -q` → exit 0
+- `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` → both exit 0
 
 ## Implementation Guidance
 
@@ -200,8 +200,8 @@ This leg has 8 firm sub-tasks + 3 opportunistic ones (A.9, A.10, A.13). Sequence
     - **Slip rule**: if README section placement requires reading the file end-to-end + voice-matching takes more than 15 minutes, route to next maintenance pass; this is the lowest-impact item in the bundle
 
 12. **Verify all sub-fixes**
-    - `cd /home/cprch/projects/the-one && pytest --tb=no -q` — exit 0
-    - `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both exit 0
+    - `cd ~/projects/the-one && pytest --tb=no -q` — exit 0
+    - `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both exit 0
     - Run manual a11y checks per the verification steps
 
 13. **Regenerate local pixel baselines** if the A.3 token change affected pixel-snapshot test surfaces (likely it did)

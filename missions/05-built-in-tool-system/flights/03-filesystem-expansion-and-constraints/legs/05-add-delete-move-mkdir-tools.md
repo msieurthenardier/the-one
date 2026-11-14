@@ -136,7 +136,7 @@ Total new tests: **18** (6 + 8 + 4 = 18, plus tilde-expansion redundancy makes 1
 Static:
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # Three new tool classes
 rg -n "^class (DeleteFile|MoveFile|Mkdir)Tool\b" the_one/tools/filesystem.py

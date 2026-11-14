@@ -68,15 +68,15 @@ Key design decisions from the flight artifact:
 
 ## Verification Steps
 
-- **README presence**: `test -f /home/cprch/projects/the-one/README.md && wc -l /home/cprch/projects/the-one/README.md` — file exists, line count in 100-200 range
-- **Required sections present**: `grep -n "^## " /home/cprch/projects/the-one/README.md` should show at minimum: install, architecture, security, contributing/methodology
-- **Hero asset reference**: `grep -n "gleepglorp_med.png" /home/cprch/projects/the-one/README.md` — should return at least one line in the top ~15 lines
-- **Screenshot placeholders**: `grep -n "<!-- SCREENSHOT:" /home/cprch/projects/the-one/README.md` — exactly 3 matches: chat-dark.png, studio-dark.png, admin-dark.png
-- **No premature `<img>` for screenshots**: `grep -n "<img.*chat-dark\|<img.*studio-dark\|<img.*admin-dark" /home/cprch/projects/the-one/README.md` — zero matches
-- **No Concourse/self-mod**: `grep -in "concourse\|self-modif" /home/cprch/projects/the-one/README.md` — zero matches
-- **Security link present**: `grep -n "SECURITY-MODEL.md" /home/cprch/projects/the-one/README.md` — at least one match
-- **Mission Control link present**: `grep -n "mission-control" /home/cprch/projects/the-one/README.md` — at least one match
-- **Convention entry added**: `awk '/^## Project Conventions/{found=1} found && /^## Dependency Graph/{exit} found && /^### /{print NR": "$0}' /home/cprch/projects/the-one/the_one/agents.md` — should now print five `### {name}` lines (the existing four plus the new one) within the `## Project Conventions` → `## Dependency Graph` range; the new entry's name should be self-describing and not collide semantically with the existing four. (Note: the obvious-looking `grep -n "^### " ... | sed -n '1,/Dependency Graph/p'` pattern does NOT work — `Dependency Graph` is an H2, never present in the H3-only grep output, so the sed range would stream indefinitely.)
+- **README presence**: `test -f ~/projects/the-one/README.md && wc -l ~/projects/the-one/README.md` — file exists, line count in 100-200 range
+- **Required sections present**: `grep -n "^## " ~/projects/the-one/README.md` should show at minimum: install, architecture, security, contributing/methodology
+- **Hero asset reference**: `grep -n "gleepglorp_med.png" ~/projects/the-one/README.md` — should return at least one line in the top ~15 lines
+- **Screenshot placeholders**: `grep -n "<!-- SCREENSHOT:" ~/projects/the-one/README.md` — exactly 3 matches: chat-dark.png, studio-dark.png, admin-dark.png
+- **No premature `<img>` for screenshots**: `grep -n "<img.*chat-dark\|<img.*studio-dark\|<img.*admin-dark" ~/projects/the-one/README.md` — zero matches
+- **No Concourse/self-mod**: `grep -in "concourse\|self-modif" ~/projects/the-one/README.md` — zero matches
+- **Security link present**: `grep -n "SECURITY-MODEL.md" ~/projects/the-one/README.md` — at least one match
+- **Mission Control link present**: `grep -n "mission-control" ~/projects/the-one/README.md` — at least one match
+- **Convention entry added**: `awk '/^## Project Conventions/{found=1} found && /^## Dependency Graph/{exit} found && /^### /{print NR": "$0}' ~/projects/the-one/the_one/agents.md` — should now print five `### {name}` lines (the existing four plus the new one) within the `## Project Conventions` → `## Dependency Graph` range; the new entry's name should be self-describing and not collide semantically with the existing four. (Note: the obvious-looking `grep -n "^### " ... | sed -n '1,/Dependency Graph/p'` pattern does NOT work — `Dependency Graph` is an H2, never present in the H3-only grep output, so the sed range would stream indefinitely.)
 - **Convention cross-link**: the new entry's body should reference `Performance Measurement (F7)` or `App.perf` or both; verify via `awk` or `grep -A 30 "### {convention-name}"`
 - **No drift to other agents.md sections**: `git diff the_one/agents.md` should show ADDITIONS only between the existing `### verbatim-message-equality` content and the `---` separator at line 219; no other modifications
 - **Markdown sanity (optional)**: open in VS Code preview or run a markdown linter — no syntax errors
@@ -85,7 +85,7 @@ Key design decisions from the flight artifact:
 
 ### Step 1: Draft `/README.md`
 
-Create the file at `/home/cprch/projects/the-one/README.md`. The structure (top to bottom):
+Create the file at `~/projects/the-one/README.md`. The structure (top to bottom):
 
 1. **Hero**
    - Centered `<img>` of `the_one/interfaces/web/static/brand/gleepglorp_med.png` (use `<p align="center">` wrapper since GitHub markdown respects it; img `alt="GleepGlorp AI"`, width around 240-320px — readable but not overwhelming)
@@ -143,7 +143,7 @@ Create the file at `/home/cprch/projects/the-one/README.md`. The structure (top 
    - "The codebase is organized using [Mission Control](https://github.com/msieurthenardier/mission-control), an aviation-themed AI-first development methodology — missions, flights, and legs live under [`missions/`](missions/), and the per-mission artifacts there capture the design and execution history of every change."
 
 8. **License / contributing** (optional, brief)
-   - If a license file doesn't exist, skip — don't make claims about licensing in the README that aren't backed by a `LICENSE` file. (Verify with `ls /home/cprch/projects/the-one/LICENSE` before deciding.)
+   - If a license file doesn't exist, skip — don't make claims about licensing in the README that aren't backed by a `LICENSE` file. (Verify with `ls ~/projects/the-one/LICENSE` before deciding.)
    - One-line "Contributions welcome — read a flight under `missions/` first to get oriented" is acceptable but optional.
 
 ### Step 2: Add the new convention entry to `the_one/agents.md`
@@ -170,7 +170,7 @@ Verify the entry uses the verbatim-message-equality block's structural template 
 
 ### Step 3: Verify markdown renders correctly
 
-- Open `/home/cprch/projects/the-one/README.md` in VS Code's markdown preview, or push the branch and view on GitHub
+- Open `~/projects/the-one/README.md` in VS Code's markdown preview, or push the branch and view on GitHub
 - Inspect: hero image loads, internal links (`SECURITY-MODEL.md`, `missions/`, Mission Control repo URL) resolve, the three screenshot placeholders are visible as HTML comments (so they don't render as broken images), code blocks for install/Docker have correct syntax highlighting
 - For `agents.md`: inspect that the new convention entry visually slots between `### verbatim-message-equality` and the `## Dependency Graph` section break
 
@@ -187,8 +187,8 @@ Verify the entry uses the verbatim-message-equality block's structural template 
 
 ## Files Affected
 
-- `/home/cprch/projects/the-one/README.md` — NEW; ~120-160 lines of markdown with hero + 6 sections
-- `/home/cprch/projects/the-one/the_one/agents.md` — MODIFY; one new `### {convention-name}` block (~15-25 lines) inserted under `## Project Conventions`, between the existing `### verbatim-message-equality` block and the section-closing `---` separator
+- `~/projects/the-one/README.md` — NEW; ~120-160 lines of markdown with hero + 6 sections
+- `~/projects/the-one/the_one/agents.md` — MODIFY; one new `### {convention-name}` block (~15-25 lines) inserted under `## Project Conventions`, between the existing `### verbatim-message-equality` block and the section-closing `---` separator
 
 No other files modified. No source code changed. No tests added or modified. No build artifacts produced.
 

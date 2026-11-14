@@ -313,6 +313,53 @@ App.admin.toolsPage = {
         if (toolConfigs[i].name === name) { idx = i; break; }
       }
       if (idx === -1) return;
+      // Turning a tool ON can bring back notices on agents that hold their own value for it
+      // (squawk 0322): ask the editor's impact check first and confirm the same way. A failed
+      // preview does not block: the PUT is the gate.
+      if (newEnabled) {
+        // The switch itself is the dialog's opener (focus returns to it on close).
+        var active = document.activeElement;
+        var opener = active && active !== document.body ? active : null;
+        toolsInFlight[name] = true;
+        // Render now so the switch is disabled while the preview is held (a second press
+        // would otherwise flip the native checkbox with the event dropped).
+        renderToolsListNow();
+        App.api.fetchJson('/api/tools/configs/' + encodeURIComponent(name) + '/impact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: true })
+        }).then(function (res) {
+          return (res && res.agents) || [];
+        }, function () {
+          return [];
+        }).then(function (agents) {
+          delete toolsInFlight[name];
+          // Re-enable the switch (the grid hands focus back to it) before the dialog opens.
+          renderToolsListNow();
+          if (!agents.length) { applyToggle(name, newEnabled); return; }
+          App.confirmDialog({
+            opener: opener || undefined,
+            title: 'Turning on ' + name + ' affects ' + agents.length +
+              (agents.length === 1 ? ' agent' : ' agents'),
+            message: App.admin.toolsImpact.message(agents),
+            confirmText: 'Turn on anyway',
+            cancelText: 'Cancel',
+            onConfirm: function () { applyToggle(name, newEnabled); },
+            onCancel: function () { renderToolsListNow(); }
+          });
+        });
+        return;
+      }
+      applyToggle(name, newEnabled);
+    }
+
+    function applyToggle(name, newEnabled) {
+      if (toolsInFlight[name] || !toolConfigs) return;
+      var idx = -1;
+      for (var i = 0; i < toolConfigs.length; i++) {
+        if (toolConfigs[i].name === name) { idx = i; break; }
+      }
+      if (idx === -1) return;
       var prev = toolConfigs[idx].enabled;
       toolConfigs[idx].enabled = newEnabled;
       toolsInFlight[name] = true;

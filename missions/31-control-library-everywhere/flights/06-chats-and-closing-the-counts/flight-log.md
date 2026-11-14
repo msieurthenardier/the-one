@@ -41,7 +41,7 @@ Two read-only crew ran at `2e82aaa`. Their reports are in the FD scratchpad.
   The five unit guard files passed at HEAD (66 tests). No browser test was run.
 - **Presentation debt:** `f6-presentation-debt.md`, with 242 screenshots in `$HOME/the-one-f6-debt/shots/`.
   - **Instance:** a scratch instance on port 8496 inside `unshare -rn`, data dir `$HOME/the-one-f6-debt/data`, cwd `$HOME/the-one-f6-debt/cwd`.
-  - **Safety:** each PID was stopped by PID (2696393, 2699438, 2709772, 2717918, 2718943, 2720127). Port 8484 and the default data dir (`/home/cprch/.local/share/the-one`) were never touched.
+  - **Safety:** each PID was stopped by PID (2696393, 2699438, 2709772, 2717918, 2718943, 2720127). Port 8484 and the default data dir (`~/.local/share/the-one`) were never touched.
   - **Stubs:** the MCP sign-in states were driven by injected WebSocket frames and a stubbed `/api/oauth/start`, and the Pull stream by an in-page `fetch` override.
 
 ## Reconnaissance Report

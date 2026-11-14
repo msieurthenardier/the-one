@@ -46,9 +46,9 @@ Create a new `the_one/llm/ollama_api.py` module wrapping Ollama's native REST AP
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && python -m pytest tests/test_ollama_api.py -x --timeout=30`
-- `cd /home/cprch/projects/the-one && python -m pytest tests/ -x --timeout=30`
-- `cd /home/cprch/projects/the-one && ruff check the_one/llm/ollama_api.py`
+- `cd ~/projects/the-one && python -m pytest tests/test_ollama_api.py -x --timeout=30`
+- `cd ~/projects/the-one && python -m pytest tests/ -x --timeout=30`
+- `cd ~/projects/the-one && ruff check the_one/llm/ollama_api.py`
 
 ## Implementation Guidance
 

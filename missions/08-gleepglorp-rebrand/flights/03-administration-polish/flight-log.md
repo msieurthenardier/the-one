@@ -379,7 +379,7 @@ All four items remain in Flight 3 scope. No items retired.
 
 ### Flight design (2026-05-11)
 
-- Loaded flight-design phase file from `/home/cprch/projects/the-one/.flightops/agent-crews/flight-design.md` (project file present).
+- Loaded flight-design phase file from `~/projects/the-one/.flightops/agent-crews/flight-design.md` (project file present).
 - Reconnaissance verified four Flight 2 debrief items; all four confirmed-live; one citation drift repaired (`:29-33` → `:30-32`).
 - Flight scoped as 6 legs: 1 autonomous prep (token hygiene + V3b extraction), 3 interactive page-polish vibe legs, 1 mixed routing-sweep leg, 1 closing alignment leg.
 - Mission Known Issue (custom dropdown for native `<select>`) explicitly deferred to Flight 4 (Studio Polish) per the design decision in the flight artifact — Studio has materially more dropdown consumers and amortizes the build cost.

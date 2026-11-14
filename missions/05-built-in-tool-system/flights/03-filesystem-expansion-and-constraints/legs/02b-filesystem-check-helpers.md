@@ -77,7 +77,7 @@ State changes:
 Static (after edit, before test run):
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # 5 helpers defined
 rg -n "^def _filesystem_check\b|^def _filesystem_check_write_parent\b|^def _is_descendant\b|^def _check_read_size\b|^def _is_binary\b" the_one/tools/filesystem.py

@@ -30,7 +30,7 @@ Found during Mission 31 Flight 2 planning, where the Architect review confirmed 
 - Tests: `tests/test_agent_tool_overrides_round_trip.py` (3 new), `tests/browser/test_flow_studio_tool_overrides_preserved.py` (new).
 
 ## Verification
-- `the_one.__file__` with `PYTHONPATH=$PWD` resolves to `/home/cprch/projects/the-one-squawk-wt/the_one/__init__.py`.
+- `the_one.__file__` with `PYTHONPATH=$PWD` resolves to `~/projects/the-one-squawk-wt/the_one/__init__.py`.
 - API unit tests: with the `api.py` fix stashed, `test_omitted_key_preserves` fails (1 failed, 8 passed); with it, 9 passed.
 - Browser test: before the api.py + studio.js fix it fails (`tool_overrides` is `None`); after, passes.
 - Per the Flight Director's amendment (host lane policy), the full agents lane was NOT run; instead, sequentially under netns: new preserve test (1 passed), `test_flow_studio_tools_overrides.py` (12 passed), `test_flow_studio_time_tool.py` (7 passed), `test_flow_agent_tabs.py` (12 passed).

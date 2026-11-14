@@ -66,10 +66,10 @@ facts.
 - Leg 1a's uncommitted work: `scripts/windows_test_copy.py`,
   `tests/test_windows_test_copy.py`, the `agents.md` block, the `CLAUDE.md` sentence and
   the flight-log entry.
-- The scratch root `C:\Users\cprch\AppData\Local\Temp\the-one-f5\` (`src\`, `venv\`,
+- The scratch root `C:\Users\<user>\AppData\Local\Temp\the-one-f5\` (`src\`, `venv\`,
   `src\dist\`). Re-run `setup` first; it copies only changed files.
 - 1a's spike scripts in
-  `/tmp/claude-1000/-home-cprch-projects-the-one/0eb14466-3200-4ca3-9529-5ff071966eae/scratchpad/f5-spike/`.
+  `/tmp/claude-1000/-home-<user>-projects-the-one/0eb14466-3200-4ca3-9529-5ff071966eae/scratchpad/f5-spike/`.
 
 ## Outputs
 

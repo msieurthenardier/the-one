@@ -183,7 +183,7 @@ python -m pytest tests/ --tb=short -q --ignore=tests/browser
 
 ## Implementation Guidance
 
-Work from project root `/home/cprch/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
+Work from project root `~/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
 
 1. **Replace `DEFAULT_SYSTEM_PROMPT` with `BASE_PROMPT` in `the_one/agent/config.py`** — rename the constant and replace its content with the new draft. The `Field` import is already present; no other config-file imports change.
 

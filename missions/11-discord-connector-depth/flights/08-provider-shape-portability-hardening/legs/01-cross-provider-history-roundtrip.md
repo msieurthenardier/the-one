@@ -67,7 +67,7 @@ Codebase landscape (as of leg design):
 For each acceptance criterion, the verification command:
 
 1. **Test file exists**:
-   `ls -la /home/cprch/projects/the-one/tests/test_llm_provider_cross_provider_history.py`
+   `ls -la ~/projects/the-one/tests/test_llm_provider_cross_provider_history.py`
 
 2. **Pure-encoder tests pass** (no network required):
    ```

@@ -87,7 +87,7 @@ GleepGlorp AI now installs on Ubuntu 26.04 and Debian 13 as an AppImage and as a
   - The template's Decisions, Deviations and Anomalies sections stayed empty, because everything went into the Flight Director Notes.
   - The `linux-hat` section recorded the code fix but not the operator's dispositions; they were added with this debrief.
 - **Leftovers outside the repo:**
-  - A Reviewer left `/home/cprch/m32rev`, which was root-owned. The Flight Director removed it through a container.
+  - A Reviewer left `~/m32rev`, which was root-owned. The Flight Director removed it through a container.
   - Two `dbus-daemon` processes (2132108, 2132116) from leg 2's first no-bus `doctor` smoke **are still running** (8 hours at debrief time). The permission classifier refused the kill, so they are with the operator.
 
 ### Technical

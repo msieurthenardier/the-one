@@ -38,7 +38,7 @@
 ## Planning Notes
 
 ### Flight Director Notes
-- **Branch:** `flight/03-macos-app`, off `origin/main` at `e21d219` (after #311), in the Mission 32 worktree `/home/cprch/projects/the-one-worktrees/m32-installers`. Mission 31's checkout (`/home/cprch/projects/the-one`) is untouched; its Flight 4 HAT is in progress.
+- **Branch:** `flight/03-macos-app`, off `origin/main` at `e21d219` (after #311), in the Mission 32 worktree `~/projects/the-one-worktrees/m32-installers`. Mission 31's checkout (`~/projects/the-one`) is untouched; its Flight 4 HAT is in progress.
 - **Inputs carried in:**
   - **Flight 2 debrief recommendations:**
     - rec 1, the `shell.py` split → DD1, leg 1;

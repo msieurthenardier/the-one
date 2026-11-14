@@ -683,6 +683,14 @@ class MCPClient:
                     # entered it, cancelling the connecting task (squawk 0251).
                     async with asyncio.timeout(3.0):
                         await self._cleanup_after_failed_connect()
+                except MCPClientError:
+                    # The stdio transport's translated cause (squawk 0301: a SandboxError
+                    # naming the missing writable path, or the inner process's own error)
+                    # beats the generic "Connection closed" wrapping; it is raised by the
+                    # cleanup walk and was swallowed here.
+                    self._transport_stack = None
+                    self._session = None
+                    raise
                 except (
                     asyncio.TimeoutError,
                     asyncio.CancelledError,

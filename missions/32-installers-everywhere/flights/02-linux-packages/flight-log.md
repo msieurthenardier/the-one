@@ -28,7 +28,7 @@
 ## Planning Notes
 
 ### Flight Director Notes
-- **Branch:** `flight/02-linux-packages`, off `origin/main` at `6f92fd5` (after #305-#308), in the Mission 32 worktree `/home/cprch/projects/the-one-worktrees/m32-installers`. Mission 31's checkout (`/home/cprch/projects/the-one`) is untouched.
+- **Branch:** `flight/02-linux-packages`, off `origin/main` at `6f92fd5` (after #305-#308), in the Mission 32 worktree `~/projects/the-one-worktrees/m32-installers`. Mission 31's checkout (`~/projects/the-one`) is untouched.
 - **Inputs carried in:**
   - **Flight 1 debrief recommendations:**
     - rec 1, rehearse hosted scripts by running them → DD10;
@@ -157,7 +157,7 @@
   - uv pinned by digest.
 
   All folded in. A cycle-2 review runs in parallel with leg 2's implementation (disjoint files).
-- **The reviewer left a root-owned scratch dir, `/home/cprch/m32rev`** (six copied libraries and a typelib from its closure check). The Flight Director listed it and removed it through a throwaway `m32-cleanup-rev` container.
+- **The reviewer left a root-owned scratch dir, `~/m32rev`** (six copied libraries and a typelib from its closure check). The Flight Director listed it and removed it through a throwaway `m32-cleanup-rev` container.
 - **Concurrency:** legs 1 and 2 are implemented by separate Developers in the same worktree, on disjoint files (`packaging/` against `the_one/` and `tests/`). Each adds only its own Leg Progress section to this log.
 - **Leg 1 design review cycle 2 (Sonnet): approve with changes.** Findings:
   - the build container must mount all of `packaging/` (the spec loads `../windows/frozen_entry.py`);

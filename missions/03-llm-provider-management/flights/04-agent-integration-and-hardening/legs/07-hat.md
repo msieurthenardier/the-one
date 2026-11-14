@@ -55,5 +55,5 @@ In Admin, edit an Ollama provider. In the "Pull a model" search box, type a mode
 **Expected**: Second search returns results faster (cached). No errors.
 
 ### Step 9: Test suite
-Run: `cd /home/cprch/projects/the-one && python -m pytest tests/ --timeout=30 -x -q`
+Run: `cd ~/projects/the-one && python -m pytest tests/ --timeout=30 -x -q`
 **Expected**: 325+ tests pass, 0 failures.

@@ -55,23 +55,23 @@ Remove Concourse CI infrastructure and self-modification framing from the projec
 
 ## Acceptance Criteria
 
-- [ ] `cd /home/cprch/projects/the-one && test ! -d ci` — `ci/` directory is gone
-- [ ] `cd /home/cprch/projects/the-one && grep -i concourse .env || true` — no match
-- [ ] `cd /home/cprch/projects/the-one && grep -i "concourse" CLAUDE.md README.md Dockerfile docker-compose.yml Makefile pyproject.toml 2>/dev/null || true` — no matches in any live file
-- [ ] `cd /home/cprch/projects/the-one && grep -in "concourse\|THE_ONE_CONCOURSE_PASS" SECURITY-MODEL.md || true` — no `THE_ONE_CONCOURSE_PASS` matches; the word "Concourse" itself may persist only in historical/comment contexts and only with operator concurrence
-- [ ] `cd /home/cprch/projects/the-one && grep -in "self.modif\|self.improv\|deploy via" CLAUDE.md README.md SECURITY-MODEL.md the_one/agents.md || true` — no live-narrative self-modification refs (historical mission docs are exempt)
-- [ ] `cd /home/cprch/projects/mission-control && sed -n '/^## the-one$/,/^## /p' projects.md | grep -i "concourse\|self.modif"` — no match (the entry's description + stack lines no longer name Concourse or self-modification; `sed` extracts the whole `## the-one` section regardless of length)
-- [ ] `cd /home/cprch/projects/the-one && pytest --tb=no -q --collect-only` — collection still works (no test imports `ci/` paths)
-- [ ] `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — Leg 1's zero-baseline preserved (this leg's removal doesn't introduce ruff violations)
+- [ ] `cd ~/projects/the-one && test ! -d ci` — `ci/` directory is gone
+- [ ] `cd ~/projects/the-one && grep -i concourse .env || true` — no match
+- [ ] `cd ~/projects/the-one && grep -i "concourse" CLAUDE.md README.md Dockerfile docker-compose.yml Makefile pyproject.toml 2>/dev/null || true` — no matches in any live file
+- [ ] `cd ~/projects/the-one && grep -in "concourse\|THE_ONE_CONCOURSE_PASS" SECURITY-MODEL.md || true` — no `THE_ONE_CONCOURSE_PASS` matches; the word "Concourse" itself may persist only in historical/comment contexts and only with operator concurrence
+- [ ] `cd ~/projects/the-one && grep -in "self.modif\|self.improv\|deploy via" CLAUDE.md README.md SECURITY-MODEL.md the_one/agents.md || true` — no live-narrative self-modification refs (historical mission docs are exempt)
+- [ ] `cd ~/projects/mission-control && sed -n '/^## the-one$/,/^## /p' projects.md | grep -i "concourse\|self.modif"` — no match (the entry's description + stack lines no longer name Concourse or self-modification; `sed` extracts the whole `## the-one` section regardless of length)
+- [ ] `cd ~/projects/the-one && pytest --tb=no -q --collect-only` — collection still works (no test imports `ci/` paths)
+- [ ] `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — Leg 1's zero-baseline preserved (this leg's removal doesn't introduce ruff violations)
 - [ ] `the-one/maintenance/2026-05-15.md` has a clearly-marked header annotation acknowledging the post-write pivot (CI/CD findings superseded)
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && ls ci/ 2>&1` — should report "No such file or directory"
-- `cd /home/cprch/projects/the-one && grep -rn "concourse\|fly trigger-job\|pipeline\.yml" --include="*.py" --include="*.md" --include="*.sh" --include="Makefile" --include="*.toml" --include="*.yml" . 2>/dev/null | grep -v -E "^./missions/|^./maintenance/|^./.git/|^./.venv/"` — only allowed remaining matches should be in historical artifacts under `missions/` and `maintenance/`. Inspect each remaining hit for legitimacy.
-- `cd /home/cprch/projects/the-one && grep -in "self.modif\|self.improv" the_one/agents.md` — no matches
-- `cd /home/cprch/projects/the-one && pytest --tb=no -q 2>&1 | tail -10` — no NEW failures vs Leg 2's post-leg baseline
-- `cd /home/cprch/projects/mission-control && cat projects.md | sed -n '/^## the-one$/,/^---$/p'` — the entry no longer reads "Self-modifying, LLM-powered personal agent..."
+- `cd ~/projects/the-one && ls ci/ 2>&1` — should report "No such file or directory"
+- `cd ~/projects/the-one && grep -rn "concourse\|fly trigger-job\|pipeline\.yml" --include="*.py" --include="*.md" --include="*.sh" --include="Makefile" --include="*.toml" --include="*.yml" . 2>/dev/null | grep -v -E "^./missions/|^./maintenance/|^./.git/|^./.venv/"` — only allowed remaining matches should be in historical artifacts under `missions/` and `maintenance/`. Inspect each remaining hit for legitimacy.
+- `cd ~/projects/the-one && grep -in "self.modif\|self.improv" the_one/agents.md` — no matches
+- `cd ~/projects/the-one && pytest --tb=no -q 2>&1 | tail -10` — no NEW failures vs Leg 2's post-leg baseline
+- `cd ~/projects/mission-control && cat projects.md | sed -n '/^## the-one$/,/^---$/p'` — the entry no longer reads "Self-modifying, LLM-powered personal agent..."
 - (manual) Re-read the revised CLAUDE.md and SECURITY-MODEL.md to verify the edits read naturally and don't leave orphaned phrasing
 
 ## Implementation Guidance
@@ -84,7 +84,7 @@ Remove Concourse CI infrastructure and self-modification framing from the projec
    - If new Concourse refs surfaced beyond the leg's stated edit set, surface in flight log Decisions before proceeding
 
 1. **Delete `ci/` directory**
-   - `cd /home/cprch/projects/the-one && git rm -r ci/`
+   - `cd ~/projects/the-one && git rm -r ci/`
    - This removes `pipeline.yml` and `deploy.sh` in one go; tracked by git so the deletion is in the commit
 
 2. **Remove `THE_ONE_CONCOURSE_PASS` from `.env`**
@@ -121,18 +121,18 @@ Remove Concourse CI infrastructure and self-modification framing from the projec
    - This is the maintenance report's record of the strategic shift — it stays a snapshot of what was found, but with the right caveat
 
 8. **Verify nothing in the source tree imports or shells out to anything Concourse-coupled**
-   - `cd /home/cprch/projects/the-one && grep -rn "concourse\|fly trigger\|deploy\.sh" --include="*.py" the_one/ tests/ 2>/dev/null` — should be empty
-   - `cd /home/cprch/projects/the-one && grep -rn "ci/pipeline\|ci/deploy" --include="*.py" the_one/ tests/ 2>/dev/null` — should be empty
+   - `cd ~/projects/the-one && grep -rn "concourse\|fly trigger\|deploy\.sh" --include="*.py" the_one/ tests/ 2>/dev/null` — should be empty
+   - `cd ~/projects/the-one && grep -rn "ci/pipeline\|ci/deploy" --include="*.py" the_one/ tests/ 2>/dev/null` — should be empty
    - If anything surfaces, investigate per-finding; either dead code (delete) or genuinely needs revision
 
 9. **Run the test suite to confirm nothing breaks from the removals**
-   - `cd /home/cprch/projects/the-one && pytest --tb=no -q --collect-only | tail -5` — collection still works
+   - `cd ~/projects/the-one && pytest --tb=no -q --collect-only | tail -5` — collection still works
    - `docker exec the-one pytest -x --timeout 30 tests/ 2>&1 | tail -20` — broad pytest at Leg 2's post-leg baseline (no NEW failures)
 
 10. **Commit**
     - In `the-one`: enumerate the paths explicitly (NOT `git add -A`, per design-review fix — `-A` could sweep in scratch files):
       ```
-      cd /home/cprch/projects/the-one
+      cd ~/projects/the-one
       git add CLAUDE.md SECURITY-MODEL.md maintenance/2026-05-15.md
       # ci/ is already staged from the `git rm -r ci/` in step 1
       git status  # inspect — should be clean except for the intended changes
@@ -149,7 +149,7 @@ Remove Concourse CI infrastructure and self-modification framing from the projec
     - Do NOT push the the-one flight branch — the operator decides push cadence at flight close.
     - In `mission-control` (SEPARATE REPO with its own commit cadence): stage the `projects.md` change but **DO NOT auto-commit or auto-push** unless the operator explicitly says to. Surface the staged change in the flight log so the operator can commit at their preferred time:
       ```
-      cd /home/cprch/projects/mission-control
+      cd ~/projects/mission-control
       git add projects.md
       git status  # show operator the staged change
       ```

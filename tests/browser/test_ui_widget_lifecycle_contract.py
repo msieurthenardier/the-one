@@ -320,6 +320,9 @@ def test_cap_card_scroll_pause_and_resume(engine_page: Page, sink: WidgetSink) -
     assert _frozen(p, 0)
     assert p.get_by_test_id("w3-start").count() == 0
     n_before = counter(p, 0)
+    p.wait_for_function(
+        "() => __cards[0]._frame() && __cards[0]._frame().loads() >= 1", timeout=8000
+    )
     loads = p.evaluate("() => __cards[0]._frame().loads()")
     # back in view: the cap holds (B, C, D run), so card 0 stays paused-auto until a slot frees
     p.evaluate("() => window.scrollTo(0, 0)")
@@ -390,6 +393,10 @@ def test_nine_loaded_unloads_the_oldest_visible_paused_auto(
     # back at the top it loads again, from the beginning (a fresh frame)
     scroll_to_card(p, 0)
     p.wait_for_function("() => __cards[0].state() === 'running'", timeout=8000)
+    # a card reads running as soon as it mounts, before its load is counted
+    p.wait_for_function(
+        "() => __cards[0]._frame() && __cards[0]._frame().loads() === 1", timeout=8000
+    )
     assert p.evaluate("() => __cards[0]._frame().loads()") == 1
     assert states(p).count("waiting") == 1
 

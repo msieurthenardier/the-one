@@ -52,11 +52,11 @@ This is the smallest leg by file impact but highest by future-contributor value.
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && ls SECURITY-MODEL.md` — file exists (OR `grep "## Threat Model" the_one/agents.md` returns a section)
-- `cd /home/cprch/projects/the-one && head -10 the_one/agents.md` — line 3 no longer says "Structural Foundation mission"
-- `cd /home/cprch/projects/the-one && sed -n '260,270p' the_one/agents.md` — lines 263-264 reflect current design
-- `cd /home/cprch/projects/the-one && grep "SECURITY-MODEL" CLAUDE.md` — link present
-- `cd /home/cprch/projects/the-one && pytest -m browser tests/browser/ -q 2>&1 | tail -10` — no regression
+- `cd ~/projects/the-one && ls SECURITY-MODEL.md` — file exists (OR `grep "## Threat Model" the_one/agents.md` returns a section)
+- `cd ~/projects/the-one && head -10 the_one/agents.md` — line 3 no longer says "Structural Foundation mission"
+- `cd ~/projects/the-one && sed -n '260,270p' the_one/agents.md` — lines 263-264 reflect current design
+- `cd ~/projects/the-one && grep "SECURITY-MODEL" CLAUDE.md` — link present
+- `cd ~/projects/the-one && pytest -m browser tests/browser/ -q 2>&1 | tail -10` — no regression
 
 ## Implementation Guidance
 

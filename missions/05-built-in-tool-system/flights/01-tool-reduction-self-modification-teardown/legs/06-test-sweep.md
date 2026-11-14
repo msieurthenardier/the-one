@@ -155,7 +155,7 @@ rg -n "self_deploy|GitTool|MemoryTool|MissionControlTool|TestRunnerTool|SelfDepl
 
 ## Implementation Guidance
 
-Work from project root `/home/cprch/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
+Work from project root `~/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
 
 1. **Delete `tests/test_aiat.py::test_git_status`** — remove lines 135-149 (the entire `@pytest.mark.live\ndef test_git_status(...) -> None: ...` function). Adjacent blank line spacing should be preserved (one blank line between functions).
 

@@ -16,7 +16,7 @@ Define the target directory layout, module boundaries, and public interfaces for
 
 ## Inputs
 
-- Current codebase at `/home/cprch/projects/the-one/`
+- Current codebase at `~/projects/the-one/`
 - Mission design decisions (filesystem JSON, registry-based tools, AgentFactory)
 - Flight design decisions (design-only, no code changes)
 

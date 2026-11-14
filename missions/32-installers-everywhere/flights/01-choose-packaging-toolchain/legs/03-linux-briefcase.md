@@ -44,7 +44,7 @@ Build GleepGlorp AI for Linux with Briefcase (candidate B): a system-package `.d
 - **Safety:** as leg 2 (CLAUDE.md):
   - containers named `m32-…`; no `--privileged`; no `--network host`;
   - no 8484 or 8485; ports of 8490 or higher;
-  - the default data dir `/home/cprch/.local/share/the-one` is never used, and its newest mtime is unchanged at the end (leg 2 recorded `1791383047.9672937840`);
+  - the default data dir `~/.local/share/the-one` is never used, and its newest mtime is unchanged at the end (leg 2 recorded `1791383047.9672937840`);
   - kill only PIDs you recorded.
 
 - **Briefcase facts from the leg design review** (Briefcase 0.4.6 source and its linux-system template, read by the reviewer; confirm them against the version you pin):

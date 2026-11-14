@@ -41,7 +41,7 @@ The leg is **interactive** — the FD cannot judge "does this read clearly cold"
 
 ## Verification Steps
 
-- **Install snippet pin check**: `grep -A 1 "optional-dependencies" /home/cprch/projects/the-one/pyproject.toml | head` should show `all-llms = [...]` and `dev = [...]` matching the README's `pip install -e ".[all-llms,dev]"` claim
+- **Install snippet pin check**: `grep -A 1 "optional-dependencies" ~/projects/the-one/pyproject.toml | head` should show `all-llms = [...]` and `dev = [...]` matching the README's `pip install -e ".[all-llms,dev]"` claim
 - **README link sanity** (operator visually inspects): SECURITY-MODEL.md link resolves, missions/ relative path link resolves, Mission Control https URL is correct
 - **All checkboxes ticked**: re-confirm flight.md and mission.md state via `grep` for criterion 12 + Flight 8 in `mission.md`
 
@@ -88,8 +88,8 @@ When the operator is satisfied:
 
 ## Files Affected
 
-- `/home/cprch/projects/the-one/README.md` — possible wording / link / image-width edits
-- `/home/cprch/projects/the-one/missions/08-gleepglorp-rebrand/mission.md` — criterion 12 ticked, Flight 8 entry ticked
+- `~/projects/the-one/README.md` — possible wording / link / image-width edits
+- `~/projects/the-one/missions/08-gleepglorp-rebrand/mission.md` — criterion 12 ticked, Flight 8 entry ticked
 - This leg artifact — status updated to `completed`
 - The flight artifact — status updated to `landed`, leg checked off
 - The flight log — alignment HAT entry, mission close note

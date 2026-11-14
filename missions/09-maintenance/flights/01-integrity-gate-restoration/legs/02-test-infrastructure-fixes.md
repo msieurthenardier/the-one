@@ -38,24 +38,24 @@ Design decision from flight: drift-detection mechanism is a `make doctor` Makefi
 ## Acceptance Criteria
 
 - [ ] `pip show asgi-lifespan` (HOST venv — `/bin/pip`, not `docker exec`) reports the installed package
-- [ ] `cd /home/cprch/projects/the-one && make doctor` (HOST-side: target shells `python -c "..."` directly, NOT `docker exec`) exits 0 with a one-line confirmation
+- [ ] `cd ~/projects/the-one && make doctor` (HOST-side: target shells `python -c "..."` directly, NOT `docker exec`) exits 0 with a one-line confirmation
 - [ ] Deliberately uninstalling `asgi-lifespan` on the host and running `make doctor` reports a clear `ModuleNotFoundError: No module named 'asgi_lifespan'` and exits non-zero
 - [ ] (DROPPED — Concourse going away in Leg 4) ~~`ci/pipeline.yml`'s test task runs `make doctor` BEFORE `ruff check` + `ruff format --check` + `pytest`~~. `make doctor` ships as a host-bench target only.
-- [ ] On the operator's HOST (WSL2, `unshare -U` succeeds without privilege), `cd /home/cprch/projects/the-one && pytest tests/test_mcp_sandbox_integration.py::test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3 -v` reports SKIPPED with a reason citing the new `_can_unshare_user_namespace()` branch. **Verification must run on HOST, not container** — the container has `cap_add: SYS_ADMIN` which short-circuits to the existing `_has_sys_admin()` branch and never exercises the new predicate.
-- [ ] `cd /home/cprch/projects/the-one && pytest --tb=no -q` (HOST) exits 0 — proves the asgi-lifespan install + predicate fix engage on the operator's primary host pytest invocation point
+- [ ] On the operator's HOST (WSL2, `unshare -U` succeeds without privilege), `cd ~/projects/the-one && pytest tests/test_mcp_sandbox_integration.py::test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3 -v` reports SKIPPED with a reason citing the new `_can_unshare_user_namespace()` branch. **Verification must run on HOST, not container** — the container has `cap_add: SYS_ADMIN` which short-circuits to the existing `_has_sys_admin()` branch and never exercises the new predicate.
+- [ ] `cd ~/projects/the-one && pytest --tb=no -q` (HOST) exits 0 — proves the asgi-lifespan install + predicate fix engage on the operator's primary host pytest invocation point
 - [ ] `docker exec the-one pytest --tb=no -q --ignore=tests/browser` (CONTAINER) still exits 0 — Leg 1's clean container baseline preserved
 
 ## Verification Steps
 
 All commands run on the HOST unless explicitly prefixed `docker exec`.
 - `pip show asgi-lifespan | head -3` (HOST) — shows installed version ≥ 2.0
-- `cd /home/cprch/projects/the-one && make doctor` — exit 0; one-line per probed extra
-- `cd /home/cprch/projects/the-one && pip uninstall -y asgi-lifespan && make doctor; pip install asgi-lifespan` (HOST) — `make doctor` should exit non-zero before reinstall, exit 0 after
+- `cd ~/projects/the-one && make doctor` — exit 0; one-line per probed extra
+- `cd ~/projects/the-one && pip uninstall -y asgi-lifespan && make doctor; pip install asgi-lifespan` (HOST) — `make doctor` should exit non-zero before reinstall, exit 0 after
 - ~~`grep -A3 "make doctor" ci/pipeline.yml`~~ DROPPED — Concourse going away in Leg 4
-- `cd /home/cprch/projects/the-one && pytest tests/test_mcp_sandbox_integration.py::test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3 -v` (HOST) — the predicate covers three host shapes: (A) `cap_add: SYS_ADMIN` present → SKIPPED (the container branch — verified via `docker exec` if desired); (B) WSL2/stock-Ubuntu host where `unshare -U` succeeds without privilege — was FAILED pre-leg, now SKIPPED post-leg via the new `_can_unshare_user_namespace()` branch (this is the operator's primary path); (C) locked-down host where `unshare -U` fails — PASSED (test's intended path: EPERM fires, test asserts correctly). On the operator's WSL2 host the expected outcome is **case B → SKIPPED**; document the observed case in flight log.
-- `cd /home/cprch/projects/the-one && pytest --tb=no -q` (HOST) — exits 0; reports 1683+ collected; no errors at collection time; remaining tests pass or skip as expected
+- `cd ~/projects/the-one && pytest tests/test_mcp_sandbox_integration.py::test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3 -v` (HOST) — the predicate covers three host shapes: (A) `cap_add: SYS_ADMIN` present → SKIPPED (the container branch — verified via `docker exec` if desired); (B) WSL2/stock-Ubuntu host where `unshare -U` succeeds without privilege — was FAILED pre-leg, now SKIPPED post-leg via the new `_can_unshare_user_namespace()` branch (this is the operator's primary path); (C) locked-down host where `unshare -U` fails — PASSED (test's intended path: EPERM fires, test asserts correctly). On the operator's WSL2 host the expected outcome is **case B → SKIPPED**; document the observed case in flight log.
+- `cd ~/projects/the-one && pytest --tb=no -q` (HOST) — exits 0; reports 1683+ collected; no errors at collection time; remaining tests pass or skip as expected
 - `docker exec the-one pytest --tb=no -q --ignore=tests/browser` (CONTAINER) — exits 0; preserves Leg 1's clean baseline (1679 passed)
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/` — still 0 errors (Leg 1's work not regressed by this leg)
+- `cd ~/projects/the-one && ruff check the_one/ tests/` — still 0 errors (Leg 1's work not regressed by this leg)
 
 ## Implementation Guidance
 
@@ -113,13 +113,13 @@ All commands run on the HOST unless explicitly prefixed `docker exec`.
    - HOST PROBE CONFIRMED during design review: on the operator's WSL2 host, `unshare -U -r true` exits 0, so the new branch will trigger and the test will SKIP (not FAIL) on host runs.
 
 5. **Verify broad pytest passes — on HOST**
-   - `cd /home/cprch/projects/the-one && pytest --tb=no -q` (HOST — proves asgi-lifespan install + predicate fix both engage)
+   - `cd ~/projects/the-one && pytest --tb=no -q` (HOST — proves asgi-lifespan install + predicate fix both engage)
    - Should report 1683+ collected, 0 collection errors, 0 failures
    - If `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` reports FAILED still, the skip predicate needs refinement; iterate
    - Also: `docker exec the-one pytest --tb=no -q --ignore=tests/browser` (CONTAINER) — should still exit 0 (1679 passed per Leg 1); confirms no regression
 
 6. **Verify the Leg 1 baseline still passes**
-   - `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both should exit 0
+   - `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both should exit 0
    - If this leg's Makefile or test-file edits introduce ruff violations, fix them inline
 
 7. **Commit**
