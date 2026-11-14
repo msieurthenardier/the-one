@@ -18,7 +18,7 @@ Build the widget frame core: a sandboxed `srcdoc` iframe whose fixed prelude and
 - **Not here:** the card, header, lifecycle, pause gate, hang guard, focus guard (leg 3) and chat wiring (leg 4).
   - The next-launch `localStorage` key measurement on real quit paths (DD9) and the real-shell bridge confirmation on Linux move to **leg 4**. They need a seeded chat with a widget, which needs leg 4's wiring.
   - On Linux the real pywebview page cannot be scripted, so leg 1 answers the bridge question with a faithful replica (below). Windows is checked in the real shell over CDP.
-- **Planning probes to reuse**, in the session scratchpad (`/tmp/claude-1000/-home-cprch-projects-the-one/da169ac8-75fe-44c8-8380-7ab56e91e088/scratchpad/`): `probe/` (the Flight Director's), `arch/` and `arch2/` (the Architect's). They show working patterns: a local `http.server` sink; full Chromium via `channel="chromium"`; WebKit via `tests.browser._ui_engines._webkit_launch_kwargs`; the UDP listener; `preconnect`; focus steal.
+- **Planning probes to reuse**, in the session scratchpad (`/tmp/claude-1000/-home-<user>-projects-the-one/da169ac8-75fe-44c8-8380-7ab56e91e088/scratchpad/`): `probe/` (the Flight Director's), `arch/` and `arch2/` (the Architect's). They show working patterns: a local `http.server` sink; full Chromium via `channel="chromium"`; WebKit via `tests.browser._ui_engines._webkit_launch_kwargs`; the UDP listener; `preconnect`; focus steal.
 - **Flight 1 lessons:**
   - run the real engine on a premise, never reason from source;
   - pace streams slower than the 16 ms tick (not relevant here);

@@ -147,7 +147,7 @@ What exists after this leg completes:
 ## Verification Steps
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # --- 1. Diff scope ---
 git status --porcelain

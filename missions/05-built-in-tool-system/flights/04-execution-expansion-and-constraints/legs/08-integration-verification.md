@@ -78,7 +78,7 @@ echo "=== NarrowSuperset uses ==="
 docker exec the-one grep -rn 'NarrowSuperset' the_one/tools/
 
 # Browser tests
-cd /home/cprch/projects/the-one && make test-browser 2>&1 | tail -20 || echo "browser-test-failed"
+cd ~/projects/the-one && make test-browser 2>&1 | tail -20 || echo "browser-test-failed"
 
 # AIAT (if available)
 docker exec the-one pytest -m live tests/test_aiat.py -x -q 2>&1 | tail -5 || echo "aiat-live-not-available"

@@ -132,6 +132,7 @@
         : 'Self-configuration is disabled for this agent.');
       toggleCtl.setChecked(enabled);
       toggleCtl.setDisabled(false);
+      passiveRevisionsError = false;
       clearError(errorLine);
       // `change` fires after the browser has already flipped `.checked` to
       // the new (opposite of `enabled`) state — that IS the "flip on
@@ -155,6 +156,7 @@
           if (!nowEnabled) ctx.setWaitingCount('prompt', 0);
           refetchRevisions();
         }).catch(function (err) {
+          passiveRevisionsError = false;
           showError(errorLine, 'Failed to ' + (enabled ? 'disable' : 'enable') +
             ' self-configuration: ' + (err && err.message ? err.message : String(err)));
           toggleCtl.setChecked(enabled);
@@ -228,7 +230,10 @@
       });
     }
 
-    function refetchRevisions() {
+    // `passive` (squawk 0318): a refetch the operator did not ask for (the window or tab came
+    // back); a failure keeps the shown waiting list and says so on the error line.
+    var passiveRevisionsError = false;
+    function refetchRevisions(passive) {
       var seq = ++ctx.revisionsSeq;
       function live() { return !ctx.destroyed && seq === ctx.revisionsSeq; }
       if (!callbacks.fetchRevisions) {
@@ -240,10 +245,19 @@
       // history is the whole list.
       return callbacks.fetchRevisions(ctx.agent.name).then(function (revisions) {
         if (!live()) return;
+        if (passiveRevisionsError) { passiveRevisionsError = false; clearError(errorLine); }
         ctx.renderQueue(revisions);
         ctx.renderHistory(revisions);
       }).catch(function () {
         if (!live()) return;
+        if (passive) {
+          // Announce once per failure episode, and never over a real action error.
+          if (passiveRevisionsError || !errorLine.el.hidden) return;
+          passiveRevisionsError = true;
+          showError(errorLine, 'Unable to refresh waiting changes.');
+          return;
+        }
+        passiveRevisionsError = false;
         // Never leave an actionable card for a queue that cannot be confirmed.
         ctx.queueList.textContent = '';
         ctx.cards.prompt.queue.setUnavailable('unable to load pending revisions.');

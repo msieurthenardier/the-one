@@ -84,7 +84,7 @@ All under `@pytest.mark.live`; each self-skips if `ANTHROPIC_API_KEY` is unset.
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one`
+- `cd ~/projects/the-one`
 - Default suite still excludes these (proves the marker/deselect works):
   `.venv/bin/pytest tests/test_anthropic_live.py -q` → **all deselected/skipped** (0 run
   under default addopts).

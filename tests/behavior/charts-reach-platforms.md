@@ -24,7 +24,7 @@ Every command is a shell command. Nothing here touches port 8484, 8485 or the op
 
 1. **Variables** (use these in every later command; pick other ports of 8490 or higher if these are taken, and a different `S` if it exists and is not yours):
    ```bash
-   export R=/home/cprch/projects/the-one S=$HOME/m35f3-l6-scratch PORT=8490 FPORT=8491
+   export R=~/projects/the-one S=$HOME/m35f3-l6-scratch PORT=8490 FPORT=8491
    export DATA=$S/data B=http://127.0.0.1:$PORT F=http://127.0.0.1:$FPORT
    mkdir -p $S/cwd $S/fake-files $DATA
    api() { curl -sS -H "Authorization: Bearer $(cat $DATA/api-credential)" -H 'Content-Type: application/json' "$@"; }

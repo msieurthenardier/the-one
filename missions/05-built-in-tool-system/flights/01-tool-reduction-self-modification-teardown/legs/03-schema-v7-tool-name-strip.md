@@ -143,7 +143,7 @@ asyncio.run(main())
 
 ## Implementation Guidance
 
-Work from project root `/home/cprch/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
+Work from project root `~/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
 
 1. **Bump `CURRENT_VERSION`** in `the_one/db/schema.py`:
    ```python

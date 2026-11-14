@@ -139,14 +139,14 @@ Each finding gets a separate sub-commit inside its leg so reverting any one item
 
 ### Verification
 
-- `cd /home/cprch/projects/the-one && pytest --tb=no -q` → exit 0
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` → both exit 0
-- `cd /home/cprch/projects/the-one && make test-browser` → exit 0 (auto-restores Chromium via existing `_ensure-playwright` if absent; preferred over raw `docker exec` to leverage existing machinery)
-- `cd /home/cprch/projects/the-one && make doctor` (HOST) → exit 0 `doctor: ok`
-- `cd /home/cprch/projects/the-one && make audit` (HOST) → runs, prints any findings, exits 0 (non-blocking)
-- `cd /home/cprch/projects/the-one && make audit-bytes` → exit 0 (no raw LSEP/PSEP)
-- `cd /home/cprch/projects/the-one && grep "test_usage_event_reflects_live_max_context_tokens_at_emission" the_one/agents.md` → match (citation fix landed)
-- `cd /home/cprch/projects/the-one && grep "^### host-side-bench-drift-detection" the_one/agents.md` → match (new convention landed)
+- `cd ~/projects/the-one && pytest --tb=no -q` → exit 0
+- `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` → both exit 0
+- `cd ~/projects/the-one && make test-browser` → exit 0 (auto-restores Chromium via existing `_ensure-playwright` if absent; preferred over raw `docker exec` to leverage existing machinery)
+- `cd ~/projects/the-one && make doctor` (HOST) → exit 0 `doctor: ok`
+- `cd ~/projects/the-one && make audit` (HOST) → runs, prints any findings, exits 0 (non-blocking)
+- `cd ~/projects/the-one && make audit-bytes` → exit 0 (no raw LSEP/PSEP)
+- `cd ~/projects/the-one && grep "test_usage_event_reflects_live_max_context_tokens_at_emission" the_one/agents.md` → match (citation fix landed)
+- `cd ~/projects/the-one && grep "^### host-side-bench-drift-detection" the_one/agents.md` → match (new convention landed)
 - Manual: open chat → click in welcome agent picker → press ArrowDown → focus moves to next agent → press Enter → agent selected
 - Manual: open chat → focus session list → press Tab through items → each item focusable; delete button per-item also focusable via Tab
 - Manual: open admin tools-grid → focus first tile → press ArrowRight/ArrowDown → focus moves; press Enter → tile activates

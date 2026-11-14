@@ -226,6 +226,20 @@ class TestOverrideRefusal:
         assert resp.status_code == 201, resp.text
         assert SURFACE_ROW_NAME not in ((await _get(env, "n"))["mcp_overrides"] or {})
 
+    @pytest.mark.parametrize("entry", [{}, None])
+    async def test_normalize_drops_an_empty_entry_on_its_own(self, env, entry) -> None:
+        """Squawk 0325: the write-boundary drop, shown without the later
+        ``_drop_surface_override`` pass that would otherwise mask its absence."""
+        from the_one.interfaces.web.api import _normalize_surface_fields
+
+        data = {
+            "mcp_overrides": {SURFACE_ROW_NAME: entry, "other": {"disabled_tools": ["y"]}},
+            "disabled_tools": [PREFIXED, "shell"],
+        }
+        await _normalize_surface_fields(data, "a", [], mcp_repo=env.mcp)
+        assert data["mcp_overrides"] == {"other": {"disabled_tools": ["y"]}}
+        assert data["disabled_tools"] == ["shell"]
+
     async def test_save_omitting_the_key_is_accepted_and_removes_a_stored_entry(self, env) -> None:
         await _agent(env, "a")
         cfg = await env.store.load("a")
@@ -275,11 +289,15 @@ class TestDisabledToolsStrip:
         )
         assert resp.status_code == 200, resp.text
         assert resp.json()["disabled_tools"] == keep
+        # The STORED list, not only the response or tool presence (the factory's
+        # is_platform_surface exemption would mask a broken strip).
+        assert (await env.store.load("a")).disabled_tools == keep
         resp = await env.client.post(
             "/api/agents", json={"name": "n", "disabled_tools": [*keep, PREFIXED]}
         )
         assert resp.status_code == 201, resp.text
         assert resp.json()["disabled_tools"] == keep
+        assert (await env.store.load("n")).disabled_tools == keep
 
     async def test_a_mixed_list_and_a_non_list_are_left_for_validation(self, env) -> None:
         await _agent(env, "a")
@@ -405,6 +423,75 @@ class TestBuildSitesIgnoreAStoredEntry:
     @pytest.mark.parametrize(
         "override", [{"disabled_tools": ["update_my_description"]}, {"enabled_tools": []}]
     )
+    async def test_tool_provider_build_registers_all_four_tools(self, env, override) -> None:
+        """Squawk 0325: ``MCPToolProvider.get_tools_for_agent`` reads the override
+        through ``override_for`` (the third build site, beside the projection and
+        the search index), so a stored entry on the surface row withholds nothing."""
+        from the_one.mcp._tool_provider import MCPToolProvider
+
+        await env.mcp.create(_src(SURFACE_ROW_NAME, _cache(*_FOUR), sid="sc"))
+        await env.mcp.create(
+            _src("github", _cache("a_tool", "b_tool") | {"self_configuration": None}, sid="gh")
+        )
+        config = AgentConfig(
+            name="a",
+            mcp_source_ids=["sc", "gh"],
+            mcp_overrides={
+                SURFACE_ROW_NAME: override,
+                "github": {"disabled_tools": ["b_tool"]},
+            },
+        )
+        with (
+            patch("the_one.mcp._tool_provider.get_connection", return_value=env.conn),
+            patch("the_one.mcp._tool_provider.get_encryptor", return_value=env.enc),
+        ):
+            tools = await MCPToolProvider().get_tools_for_agent(config, agent_name="a")
+        names = {t.name for t in tools}
+        assert {f"{SURFACE_TOOL_PREFIX}{t}" for t in _FOUR} <= names
+        # an ordinary source's override still filters
+        assert "mcp__github__a_tool" in names
+        assert "mcp__github__b_tool" not in names
+
+    async def test_connection_resolver_ignores_a_stored_surface_entry(self, env) -> None:
+        """Squawk 0325: the pool's connect-time resolver (the fourth reader of
+        ``override_for``) hands back the surface source with no per-agent headers,
+        whatever entry the stored agent carries."""
+        from the_one.mcp._tool_provider import make_source_resolver
+
+        surface = _src(SURFACE_ROW_NAME, _cache(*_FOUR), sid="sc")
+        await env.mcp.create(surface)
+        await env.store.save(
+            AgentConfig(
+                name="a",
+                mcp_source_ids=["sc"],
+                mcp_overrides={SURFACE_ROW_NAME: {"headers": {"X-Injected": "yes"}}},
+            )
+        )
+        with (
+            patch("the_one.mcp._tool_provider.get_connection", return_value=env.conn),
+            patch("the_one.mcp._tool_provider.get_encryptor", return_value=env.enc),
+        ):
+            resolved = await make_source_resolver("a", "sc", surface)()
+        assert "X-Injected" not in (resolved.secrets or {})
+        assert resolved.secrets == surface.secrets
+
+    async def test_per_agent_cache_ignores_a_stored_surface_credential(self, env) -> None:
+        """Squawk 0325: ``per_agent_tools`` (the fifth reader) never treats a stored
+        credential entry on the surface row as the agent's own credentials."""
+        from the_one.mcp._agent_cache import per_agent_tools
+
+        surface = _src(SURFACE_ROW_NAME, _cache(*_FOUR), sid="sc")
+        entry = {SURFACE_ROW_NAME: {"headers": {"X-Injected": "yes"}}}
+        await _agent(env, "a")  # a stored agent, so a credential entry WOULD switch caches
+        ordinary = _src("github", {"url": "http://x"}, sid="gh")
+        own = {"github": entry[SURFACE_ROW_NAME]}
+        assert (await per_agent_tools(env.conn, "a", own, ordinary))[0] is True
+        got = await per_agent_tools(env.conn, "a", entry, surface)
+        assert got == (False, None, None)
+
+    @pytest.mark.parametrize(
+        "override", [{"disabled_tools": ["update_my_description"]}, {"enabled_tools": []}]
+    )
     async def test_search_tools_index_lists_all_four_tools(self, override) -> None:
         from the_one.agent.factory import _build_source_index
 
@@ -438,6 +525,51 @@ class TestBuildSitesIgnoreAStoredEntry:
             f"{SURFACE_TOOL_PREFIX}{t}" for t in _FOUR
         }
         assert index["github"]["tool_names_prefixed"] == ["mcp__github__a_tool"]
+
+
+class TestNoDirectOverrideLookup:
+    """Squawk 0325: every build-time read of a source's per-agent entry goes
+    through ``override_for``; a direct ``<overrides>.get(<source>.name)`` would
+    let a stale stored entry reach the self-configuration surface again."""
+
+    # (path, stripped line) pairs that are allowed to read the map directly.
+    ALLOWED = {
+        # the helper itself
+        ("the_one/self_configuration/constants.py", "return (overrides or {}).get(source.name)"),
+        # the targeted credential write refuses a surface row (422) just above it
+        (
+            "the_one/interfaces/web/api.py",
+            "stored_entry = (existing.mcp_overrides or {}).get(source.name)",
+        ),
+    }
+
+    def test_no_new_direct_lookup_outside_override_for(self) -> None:
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent
+        pattern = re.compile(r"overrides[^\n]*\.get\(\s*\w*source\w*\.name\b")
+        found: set[tuple[str, str]] = set()
+        for path in (root / "the_one").rglob("*.py"):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped.startswith(("#", '"', "`")) or "``" in stripped:
+                    continue
+                if pattern.search(stripped):
+                    found.add((path.relative_to(root).as_posix(), stripped))
+        assert found - self.ALLOWED == set(), (
+            "read a source's per-agent entry through "
+            "the_one.self_configuration.constants.override_for"
+        )
+        assert self.ALLOWED <= found, "an allowed direct lookup is gone; trim ALLOWED"
+
+    def test_the_pattern_catches_a_direct_lookup(self) -> None:
+        import re
+
+        pattern = re.compile(r"overrides[^\n]*\.get\(\s*\w*source\w*\.name\b")
+        assert pattern.search("x = (config.mcp_overrides or {}).get(source.name)")
+        assert pattern.search("x = agent.mcp_overrides.get(effective_source.name)")
+        assert not pattern.search("x = override_for(config.mcp_overrides, source)")
 
 
 # ── DD4: the startup strip (AC13, AC16) ───────────────────────────────────

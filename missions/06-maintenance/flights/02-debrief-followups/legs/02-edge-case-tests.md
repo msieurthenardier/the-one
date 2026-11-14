@@ -36,10 +36,10 @@ Flight 01 debrief — "Testing Assessment" section action items:
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && grep -n "test_websocket_with_no_origin_passes" tests/test_origin_allowlist.py`
-- `cd /home/cprch/projects/the-one && pytest tests/test_origin_allowlist.py::TestWebSocketGating -v --timeout=30 2>&1 | tail -15`
-- `cd /home/cprch/projects/the-one && pytest -q --ignore=tests/browser --timeout=120 2>&1 | tail -5`
-- `cd /home/cprch/projects/the-one && ruff check tests/ && ruff format --check tests/`
+- `cd ~/projects/the-one && grep -n "test_websocket_with_no_origin_passes" tests/test_origin_allowlist.py`
+- `cd ~/projects/the-one && pytest tests/test_origin_allowlist.py::TestWebSocketGating -v --timeout=30 2>&1 | tail -15`
+- `cd ~/projects/the-one && pytest -q --ignore=tests/browser --timeout=120 2>&1 | tail -5`
+- `cd ~/projects/the-one && ruff check tests/ && ruff format --check tests/`
 
 ## Implementation Guidance
 

@@ -204,7 +204,7 @@ python -m pytest tests/ --tb=short -q --ignore=tests/browser
 
 ## Implementation Guidance
 
-Work from project root `/home/cprch/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
+Work from project root `~/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
 
 1. **Update `the_one/interfaces/web/static/js/areas/studio.js`** (lines 151-156). Replace the `TOOL_CATEGORIES` block with:
    ```javascript

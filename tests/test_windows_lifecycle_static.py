@@ -101,12 +101,12 @@ def test_lifecycle_has_the_interactive_wizard_row():
 
 
 def test_log_lines_the_lifecycle_rows_read_are_emitted():
-    # the format is '<tag> quit-poll: ...' with tag 'setup' or 'uninstall' (Log(Tag + ' quit-...'))
+    # the format is '<tag> quit-check: ...' with tag 'setup' or 'uninstall' (Log(Tag + ' quit-...'))
     poll = _proc("CheckThenKill")
     for frag in (
-        "' quit-poll: present (iteration 0)'",
-        "' quit-poll: gone (iteration 0)'",
-        "' quit-poll: nothing left before KillRunning'",
+        "' quit-check: present'",
+        "' quit-check: gone'",
+        "' quit-check: nothing left before KillRunning'",
         "' quit-killrunning: calling KillRunning'",
     ):
         assert f"Log(Tag + {frag}" in poll, frag
@@ -115,14 +115,14 @@ def test_log_lines_the_lifecycle_rows_read_are_emitted():
     # and the lifecycle driver searches for exactly those strings
     for rx in (
         "setup quit-call: ExecAsOriginalUser",
-        "setup quit-poll: present",
-        "setup quit-poll: gone",
-        "setup quit-poll: nothing left",
+        "setup quit-check: present",
+        "setup quit-check: gone",
+        "setup quit-check: nothing left",
         "setup quit-killrunning: calling",
         "uninstall quit-call: Exec ",
-        "uninstall quit-poll: present",
-        "uninstall quit-poll: gone",
-        "uninstall quit-poll: nothing left",
+        "uninstall quit-check: present",
+        "uninstall quit-check: gone",
+        "uninstall quit-check: nothing left",
         "uninstall quit-killrunning: calling",
     ):
         assert rx in LIFECYCLE, rx

@@ -657,3 +657,115 @@ def test_use_narrowed_and_reset_announce_politely(app_with_agent: SeededApp, pag
     expect(live).to_have_text("Reset to inherited")
     # One persistent node, reused.
     expect(live).to_have_count(1)
+
+
+# -- Squawk 0323: field-state paths that were verified by code read only -----------------
+
+_UA_DEFAULT = "app-wide-ua/1"
+
+
+def _ua_setup(app_with_agent: SeededApp, page: Page):
+    name = app_with_agent.agent_name
+    assert name is not None
+    base = app_with_agent.base_url
+    seed_tool_config(base, "fetch_url", config={"default_user_agent": _UA_DEFAULT})
+    _open_tools(page, base, name)
+    panel = _open_panel(page, "fetch_url")
+    return base, name, panel, _control(panel, "default_user_agent")
+
+
+def test_a_plain_text_field_is_own_when_edited_and_inherited_when_cleared(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, name, panel, control = _ua_setup(app_with_agent, page)
+    state = _field(panel, "default_user_agent").locator(STATE)
+    expect(control).to_have_attribute("data-field-type", "string")
+    expect(control).to_have_attribute("data-tool-override-state", "inherited")
+    # A Substitute text field inherits as empty: the app-wide value is not copied in.
+    expect(control).to_have_value("")
+    control.fill("agent-ua/1")
+    expect(control).to_have_attribute("data-tool-override-state", "own")
+    expect(state).to_have_text("This agent's own")
+    expect(_field(panel, "default_user_agent").locator(RESET)).to_be_visible()
+    # Clearing: inherited again at once, nothing of its own left, clean against a store
+    # with no override.
+    control.fill("")
+    expect(control).to_have_attribute("data-tool-override-state", "inherited")
+    expect(state).to_have_text("Inherited from Settings")
+    expect(_field(panel, "default_user_agent").locator(RESET)).to_be_hidden()
+    control.blur()
+    expect(control).to_have_value("")
+    expect(control).to_have_attribute("data-tool-override-state", "inherited")
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_disabled()
+    # With a stored own value, clearing it dirties the editor and Save removes it.
+    control.fill("agent-ua/2")
+    _save(page)
+    assert _stored(base, name) == {"fetch_url": {"default_user_agent": "agent-ua/2"}}
+    control.fill("")
+    control.blur()
+    expect(control).to_have_attribute("data-tool-override-state", "inherited")
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_enabled()
+    _save(page)
+    assert _stored(base, name) in (None, {})
+
+
+def test_pasting_into_a_text_or_number_field_makes_it_own(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    name = app_with_agent.agent_name
+    assert name is not None
+    base = app_with_agent.base_url
+    seed_tool_config(base, "http_request", config={"timeout_seconds_max": 60})
+    seed_tool_config(base, "fetch_url", config={"default_user_agent": _UA_DEFAULT})
+    _open_tools(page, base, name)
+    # insert_text is the browser's own text insertion (an input event), as a paste is.
+    text_panel = _open_panel(page, "fetch_url")
+    text = _control(text_panel, "default_user_agent")
+    expect(text).to_have_attribute("data-tool-override-state", "inherited")
+    text.focus()
+    text.press("Control+A")
+    page.keyboard.insert_text("pasted-ua/2")
+    expect(text).to_have_value("pasted-ua/2")
+    expect(text).to_have_attribute("data-tool-override-state", "own")
+    expect(_field(text_panel, "default_user_agent").locator(RESET)).to_be_visible()
+    num_panel = _open_panel(page, "http_request")
+    number = _control(num_panel, "timeout_seconds_max")
+    expect(number).to_have_attribute("data-tool-override-state", "inherited")
+    number.focus()
+    number.press("Control+A")
+    page.keyboard.insert_text("25")
+    expect(number).to_have_value("25")
+    expect(number).to_have_attribute("data-tool-override-state", "own")
+    expect(_field(num_panel, "timeout_seconds_max").locator(RESET)).to_be_visible()
+    _save(page)
+    stored = _stored(base, name)
+    assert stored["fetch_url"] == {"default_user_agent": "pasted-ua/2"}
+    assert stored["http_request"] == {"timeout_seconds_max": 25}
+
+
+def test_a_422_on_a_field_that_is_then_emptied_clears_and_keeps_the_ids(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, name, panel, control = _number_setup(app_with_agent, page)
+    field = _field(panel, "timeout_seconds_max")
+    control.fill("25")
+    _refuse_with(
+        page, ["tool_overrides", "http_request", "timeout_seconds_max"], "Must be at most 10."
+    )
+    _save_expecting_refusal(page)
+    expect(field.locator(".field-error")).to_contain_text("Must be at most 10.")
+    # Emptied: the refusal goes, the field is inherited again, on blur it shows the
+    # app-wide value, and every aria-describedby id still points at a live node.
+    _backspace_to_empty(control)
+    control.fill("")
+    expect(field.locator(".field-error")).to_have_count(0)
+    expect(control).to_have_attribute("data-tool-override-state", "inherited")
+    control.blur()
+    expect(control).to_have_value("60")
+    expect(field.locator(".field-error")).to_have_count(0)
+    described = _described(control)
+    assert described, "the control lost its aria-describedby"
+    assert all(t is not None for _id, t in described), "an id points at nothing"
+    assert any("Inherited from Settings" in t for _id, t in described), described
+    assert not any("Must be at most 10." in t for _id, t in described), described
+    assert _stored(base, name) == {"http_request": {"timeout_seconds_max": 20}}

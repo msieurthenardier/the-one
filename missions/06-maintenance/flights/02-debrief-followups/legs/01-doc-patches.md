@@ -44,12 +44,12 @@ Flight 01 debrief — "Documentation" section action items:
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && grep -B 2 -A 10 "Origin allowlist (M06" the_one/agents.md | head -30`
-- `cd /home/cprch/projects/the-one && grep -B 2 -A 8 "Provider URL validation (M06" the_one/agents.md | head -25`
-- `cd /home/cprch/projects/the-one && grep "web/middleware.py" the_one/agents.md`
-- `cd /home/cprch/projects/the-one && grep -B 1 -A 3 "THE_ONE_ORIGIN_ALLOWLIST" CLAUDE.md`
-- `cd /home/cprch/projects/the-one && pytest -q --ignore=tests/browser --timeout=120 2>&1 | tail -10`
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/`
+- `cd ~/projects/the-one && grep -B 2 -A 10 "Origin allowlist (M06" the_one/agents.md | head -30`
+- `cd ~/projects/the-one && grep -B 2 -A 8 "Provider URL validation (M06" the_one/agents.md | head -25`
+- `cd ~/projects/the-one && grep "web/middleware.py" the_one/agents.md`
+- `cd ~/projects/the-one && grep -B 1 -A 3 "THE_ONE_ORIGIN_ALLOWLIST" CLAUDE.md`
+- `cd ~/projects/the-one && pytest -q --ignore=tests/browser --timeout=120 2>&1 | tail -10`
+- `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/`
 
 ## Implementation Guidance
 

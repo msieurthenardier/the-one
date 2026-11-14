@@ -157,7 +157,7 @@ async def test_clearing_or_deleting_the_routine_does_not_unflag_the_chat(conn) -
     )
     assert (await repo.get(NAME, rt.id)).untrusted is True
     routine = {"id": rt.id, "name": "Planted", "untrusted_sources": ["web_fetch"]}
-    agent = await make_agent([done(), save("first"), done(), save("second"), done()])
+    agent = await make_agent([done(), save("first"), done(), save("second", cid="n2"), done()])
     await run_turn(agent, "run", routine=routine, bind=True)
     # the operator clears the flag (a PUT with prompt) ...
     cleared = await repo.get(NAME, rt.id)

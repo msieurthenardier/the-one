@@ -636,10 +636,10 @@ What exists after this leg completes:
    - **`ManualOAuthClientProvider` test**: use `httpx.MockTransport` (per `tests/CONVENTIONS.md`) to fail any `.well-known` URL — assert no GET request to `.well-known` is made.
 
 10. **Pre-implementation citation audit** (per `leg/SKILL.md` Phase 2 item 7) — RUN BEFORE writing any code:
-    - `cd /home/cprch/projects/the-one && grep -rn "_mcp_source_response\|update_mcp_source" tests/ the_one/`
-    - `cd /home/cprch/projects/the-one && grep -rn "_mask_secrets\b" tests/ the_one/`
-    - `cd /home/cprch/projects/the-one && grep -rn "MCPSourceRepository\b" the_one/ tests/`
-    - `cd /home/cprch/projects/the-one && grep -rn "_send_to_session\b" the_one/ tests/`
+    - `cd ~/projects/the-one && grep -rn "_mcp_source_response\|update_mcp_source" tests/ the_one/`
+    - `cd ~/projects/the-one && grep -rn "_mask_secrets\b" tests/ the_one/`
+    - `cd ~/projects/the-one && grep -rn "MCPSourceRepository\b" the_one/ tests/`
+    - `cd ~/projects/the-one && grep -rn "_send_to_session\b" the_one/ tests/`
     - Record results (counts + brief list) in this leg's flight-log entry under "Citation audit results".
 
 11. **Lint + post-completion checklist** (per leg-execution phase file):

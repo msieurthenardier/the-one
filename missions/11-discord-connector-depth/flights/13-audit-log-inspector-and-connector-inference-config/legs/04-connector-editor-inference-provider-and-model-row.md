@@ -95,7 +95,7 @@ Key design decisions inherited from the flight spec:
 
 ## Verification Steps
 
-Run each command from the project root (`/home/cprch/projects/the-one`). Per F13 testing convention, all pytest invocations use `docker exec the-one pytest …` with `-x --timeout 30`.
+Run each command from the project root (`~/projects/the-one`). Per F13 testing convention, all pytest invocations use `docker exec the-one pytest …` with `-x --timeout 30`.
 
 **Phase 1 — Static gates (run before pytest):**
 

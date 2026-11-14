@@ -402,16 +402,6 @@ async def test_sandbox_network_allowed_when_network_allowed_true() -> None:
 
 
 @pytest.mark.requires_bwrap
-@pytest.mark.skip(
-    reason=(
-        "F5 L01: SDK task-group cross-task deadlock (F6 A5) routes SandboxError "
-        "through teardown rather than the connect() context — test expects "
-        "SandboxError at the `async with MCPClient(source):` line but actual "
-        "chain raises MCPConnectionError there with SandboxError surfacing in "
-        "teardown. Pre-existing F6-class architectural issue; defer to MCP cleanup "
-        "flight. Symptom class: F6-A5-deadlock."
-    )
-)
 async def test_sandbox_writable_paths_nonexistent_raises_at_connect() -> None:
     """Nonexistent writable_paths entry surfaces as SandboxError #1.
 

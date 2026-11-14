@@ -435,7 +435,7 @@ leg's work (import-block reordering after `ruff check --fix` in
 verified against the real bundled weights, no stubbing):
 
 ```
-embedding model: OK — 512-dim float16 model → float32 seam, norm 1.0000, truncated=0 (model.safetensors=64,605,272 bytes, peak RSS 262.6 MiB) from /home/cprch/projects/the-one/the_one/embeddings/data/potion-retrieval-32M
+embedding model: OK — 512-dim float16 model → float32 seam, norm 1.0000, truncated=0 (model.safetensors=64,605,272 bytes, peak RSS 262.6 MiB) from ~/projects/the-one/the_one/embeddings/data/potion-retrieval-32M
 ```
 
 Full run: `RESULT: PASS`, all nine gates OK — both CI lanes' `embedding

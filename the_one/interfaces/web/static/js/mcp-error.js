@@ -18,7 +18,7 @@
     // has no class prefix; it means the same as an MCPConnectionError.
     if (!cls && /^\s*connection probe failed\b/.test(text)) cls = 'MCPConnectionError';
     var headline;
-    if (/^(fetchMcpSourceTools: HTTP|Server error)\b/.test(text.trim())) {
+    if (/^Server error\b/.test(text.trim())) {
       headline = "The app couldn't check this server (the request failed).";
     } else if (cls === 'MCPCredentialsRejected') {
       headline = 'The server rejected the configured credentials. ' +

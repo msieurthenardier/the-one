@@ -48,14 +48,14 @@ Maintenance report findings 2.1, 2.2, 4.1, 4.2 (see `maintenance/2026-05-04.md`)
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && pytest tests/test_token_definitions.py -v` — passes
-- `cd /tmp && pytest /home/cprch/projects/the-one/tests/test_execution_tools.py::TestShellTool::test_relative_cwd_refused_when_outside_allowlist` — passes from `/tmp`
-- `cd /home/cprch/projects/the-one && pytest tests/test_execution_tools.py::TestShellTool::test_relative_cwd_refused_when_outside_allowlist` — passes from project root
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/` — returns 0
-- `cd /home/cprch/projects/the-one && ruff format --check the_one/ tests/` — passes
-- `cd /home/cprch/projects/the-one && grep -A 3 "ruff" ci/pipeline.yml` — shows lint step
-- `cd /home/cprch/projects/the-one && pytest -q --ignore=tests/browser 2>&1 | tail -10` — 0 failures
-- `cd /home/cprch/projects/the-one && make test-browser 2>&1 | tail -10` — 0 failures (regression check)
+- `cd ~/projects/the-one && pytest tests/test_token_definitions.py -v` — passes
+- `cd /tmp && pytest ~/projects/the-one/tests/test_execution_tools.py::TestShellTool::test_relative_cwd_refused_when_outside_allowlist` — passes from `/tmp`
+- `cd ~/projects/the-one && pytest tests/test_execution_tools.py::TestShellTool::test_relative_cwd_refused_when_outside_allowlist` — passes from project root
+- `cd ~/projects/the-one && ruff check the_one/ tests/` — returns 0
+- `cd ~/projects/the-one && ruff format --check the_one/ tests/` — passes
+- `cd ~/projects/the-one && grep -A 3 "ruff" ci/pipeline.yml` — shows lint step
+- `cd ~/projects/the-one && pytest -q --ignore=tests/browser 2>&1 | tail -10` — 0 failures
+- `cd ~/projects/the-one && make test-browser 2>&1 | tail -10` — 0 failures (regression check)
 
 ## Implementation Guidance
 

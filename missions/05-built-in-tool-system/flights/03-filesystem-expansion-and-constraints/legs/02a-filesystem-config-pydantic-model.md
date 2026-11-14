@@ -77,7 +77,7 @@ State changes:
 Static (after edit, before test run):
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # Symbols exported
 rg -n "^class FilesystemConfig\b" the_one/tools/filesystem.py        # 1

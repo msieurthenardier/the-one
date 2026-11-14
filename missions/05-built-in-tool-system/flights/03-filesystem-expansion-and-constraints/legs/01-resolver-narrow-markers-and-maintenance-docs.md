@@ -72,7 +72,7 @@ State changes:
 Static (after edit, before commit):
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # Markers exported
 rg -n "^class NarrowPrefix" the_one/tools/resolver.py    # 1 match

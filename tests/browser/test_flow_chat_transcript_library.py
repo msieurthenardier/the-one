@@ -231,6 +231,13 @@ def test_a_deleted_agents_chat_makes_no_context_window_request(app_clean: str, p
 
 def test_a_restored_count_is_never_zeroed_by_a_zero_maximum(app_clean: str, page: Page) -> None:
     _joined(page, app_clean, _agent(app_clean))
+    # The chat's own context-window fetch (the current model's limit, which rightly wins when
+    # it lands) must settle before the test injects, or it would overwrite the test's setMax.
+    page.wait_for_function(
+        "(js) => { const r = eval(js)(); return r !== '0'; }",
+        arg=_TELEMETRY_MAX_JS,
+        timeout=8000,
+    )
     page.evaluate(
         "() => { const t = window.App.areas.find(a => a.id === 'chat')._telemetry();"
         " t.update({input_tokens: 5, output_tokens: 2, context_tokens: 50, max_context_tokens: 0});"

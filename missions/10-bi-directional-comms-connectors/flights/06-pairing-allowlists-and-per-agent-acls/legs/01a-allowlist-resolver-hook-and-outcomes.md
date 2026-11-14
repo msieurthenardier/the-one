@@ -79,7 +79,7 @@ Land the type-level surface for F6's gating substrate in `the_one/connectors/bas
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && grep -n "Permit\|NeedsPairing\|Deny\|ResolveOutcome\|_default_permit" the_one/connectors/base.py` — confirm the four new symbols exist
+- `cd ~/projects/the-one && grep -n "Permit\|NeedsPairing\|Deny\|ResolveOutcome\|_default_permit" the_one/connectors/base.py` — confirm the four new symbols exist
 - `python -c "from the_one.connectors.base import Permit, NeedsPairing, Deny, ResolveOutcome, _default_permit; p1 = Permit(); p2 = Permit(); assert p1 == p2 and hash(p1) == hash(p2); print(NeedsPairing('test'), Deny('test'))"` (run inside the container)
 - `python -c "from the_one.connectors import Permit, NeedsPairing, Deny, ResolveOutcome; print('public exports ok')"` — confirm public re-exports
 - `python -c "from the_one.connectors import _default_permit"` should FAIL (private; not re-exported) — `python -c "from the_one.connectors.base import _default_permit"` should succeed

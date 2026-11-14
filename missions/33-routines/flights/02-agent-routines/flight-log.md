@@ -589,7 +589,7 @@ is no third review. The flight is `ready`.
   the switches from `GET .../self-configuration/routines`, and pending-count
   returns `{count}`. The spec is `ready`. The run waits until the quiet-host
   gate finishes, so a live model run does not skew the lane readings.
-- **Leg 6 session re-check** (before the run): Ollama lists `gpt-oss:20b` and `qwen3:30b`; the default data dir is `/home/cprch/.local/share/the-one` (read from settings); ports 8490-8499 free. Quiet-host gate: `PARALLEL_RESULT rc=0 total=1774s lanes=17`, start load 0.73. `agent-routines` budgeted at 240 s (measured 171 s), `agent-tabs` re-budgeted 540 to 390 s (measured 293 s), others within 15%.
+- **Leg 6 session re-check** (before the run): Ollama lists `gpt-oss:20b` and `qwen3:30b`; the default data dir is `~/.local/share/the-one` (read from settings); ports 8490-8499 free. Quiet-host gate: `PARALLEL_RESULT rc=0 total=1774s lanes=17`, start load 0.73. `agent-routines` budgeted at 240 s (measured 171 s), `agent-tabs` re-budgeted 540 to 390 s (measured 293 s), others within 15%.
 - **Flight landed** by the FD. Leg 6 passed 7/7. The flight checklist and
   the mission's Flight 2 box are checked, all but "Code merged". The lane
   budgets from the quiet-host gate are committed with leg 6.

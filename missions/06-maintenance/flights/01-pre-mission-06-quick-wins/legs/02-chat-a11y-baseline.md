@@ -48,10 +48,10 @@ A flight-design decision was made to convert the `<span>` to a real `<button typ
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && grep -n 'role="log"\|aria-live="polite"' the_one/interfaces/web/static/js/areas/chat.js` — confirms ARIA attrs in the message log
-- `cd /home/cprch/projects/the-one && grep -n 'aria-label="Message"' the_one/interfaces/web/static/js/areas/chat.js` — confirms input label
-- `cd /home/cprch/projects/the-one && grep -n 'field-info-icon' the_one/interfaces/web/static/js/areas/admin/tools-form-helpers.js the_one/interfaces/web/static/js/areas/admin/tools-editor.js` — confirms `<button>` element
-- `cd /home/cprch/projects/the-one && pytest tests/browser/ -q` — all browser tests green
+- `cd ~/projects/the-one && grep -n 'role="log"\|aria-live="polite"' the_one/interfaces/web/static/js/areas/chat.js` — confirms ARIA attrs in the message log
+- `cd ~/projects/the-one && grep -n 'aria-label="Message"' the_one/interfaces/web/static/js/areas/chat.js` — confirms input label
+- `cd ~/projects/the-one && grep -n 'field-info-icon' the_one/interfaces/web/static/js/areas/admin/tools-form-helpers.js the_one/interfaces/web/static/js/areas/admin/tools-editor.js` — confirms `<button>` element
+- `cd ~/projects/the-one && pytest tests/browser/ -q` — all browser tests green
 - Manual keyboard test: open the app in a browser, Tab through the chat surface (input is reachable and labelled "Message"), Tab through the admin tools editor (info-icons are reachable as buttons; their descriptions are announced)
 - Manual screen-reader test (optional but recommended): with VoiceOver / NVDA / Orca enabled, send a chat message and verify the agent's reply is announced via the live region
 

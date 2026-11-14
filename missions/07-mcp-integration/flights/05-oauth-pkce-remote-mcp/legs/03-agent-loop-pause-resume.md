@@ -615,10 +615,10 @@ What exists after this leg completes:
    ```
 
 5. **Pre-implementation citation audit** (per `leg/SKILL.md` Phase 2 item 7) — RUN BEFORE writing code:
-   - `cd /home/cprch/projects/the-one && grep -rn "ToolResult(" tests/ the_one/`
-   - `cd /home/cprch/projects/the-one && grep -rn "agent\.step\b\|\.step(" tests/ the_one/`
-   - `cd /home/cprch/projects/the-one && grep -rn "_execute_tool\b" tests/ the_one/`
-   - `cd /home/cprch/projects/the-one && grep -rn "tool_result\." tests/ the_one/`
+   - `cd ~/projects/the-one && grep -rn "ToolResult(" tests/ the_one/`
+   - `cd ~/projects/the-one && grep -rn "agent\.step\b\|\.step(" tests/ the_one/`
+   - `cd ~/projects/the-one && grep -rn "_execute_tool\b" tests/ the_one/`
+   - `cd ~/projects/the-one && grep -rn "tool_result\." tests/ the_one/`
    - Record results in flight log.
 
 6. **Tests** (11 functions across 3 files):

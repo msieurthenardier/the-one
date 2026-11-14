@@ -1,10 +1,10 @@
 # Squawk 0301: A stdio MCP server that can't start says only "Connection closed"
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-10-25
-**Completed**: —
+**Completed**: 2026-11-14
 **Related**: renumbered from 0260 on 2026-10-30; that id was also used by the completed `0260-model-catalog-never-refreshes`. Mission 31 and 32 documents that cite "squawk 0260" for the stdio cause text mean this squawk ([maintenance 2026-10-30](../maintenance/2026-10-30.md)).
 
 ## Report
@@ -31,13 +31,16 @@ Flight 5 fixes only the stdio headline wording (ledger row 18, A18), not the mis
 **Not in this squawk:** checking writable paths when the server is saved (rejecting them, or creating them) is a separate design choice.
 
 ## Corrective Action
-*(written at completion)*
+Cause found on the plain host (bubblewrap 0.9.0, stderr `bwrap: Can't find source path <path>: No such file or directory`, which the existing regex matches): `_translate_bwrap_stderr` and `_cleanup_after_failed_connect` worked, but in `MCPClient.connect` the final `except (Exception, BaseExceptionGroup)` arm wrapped the cleanup in `_safe_cleanup`, whose catch-all swallowed the `SandboxError` the cleanup raised, so the generic "Connection closed" wrapping won. `the_one/mcp/client.py` `_safe_cleanup` now lets an `MCPClientError` from cleanup propagate (abandoning the stack first). The previously skipped `test_sandbox_writable_paths_nonexistent_raises_at_connect` is un-skipped and is the proof (its skip reason blamed this same swallowed path).
 
 ## Verification
-*(written at completion)*
+Falsified: with the new `except MCPClientError` replaced the test fails with "MCP connect failed: MCPError: Connection closed"; with it, it passes. `tests/test_mcp_sandbox_integration.py`, `tests/test_mcp_stdio_sandbox.py` and `tests/test_mcp_client.py` pass (100 passed, 2 pre-existing skips); ruff clean. The inner-process (uvx package) case was not separately reproduced. Run under the plain host, not the netns.
+
+The missing-uvx-package case in the report was not reproduced separately.
+
+Gate (Flight Director, full gate on the final tree, 2026-11-14): unit tier 10155 passed, 15 skipped (under `THE_ONE_TEST_NETNS=1`); browser `PARALLEL_RESULT rc=0 total=2253s lanes=20 failed=-`.
 
 ## Sign-Off
-*(written at completion)*
-**Reviewer**:
-**Verdict**:
-**Commit**:
+**Reviewer**: independent Reviewer (Sonnet tier, because the batch diff touches the MCP sandbox error path), who confirmed the batch diff with `[HANDOFF:confirmed]` on 2026-11-14 with no high or medium issues.
+**Verdict**: confirmed
+**Commit**: the `squawk: turnaround 2026-11-14` commit on `squawk/turnaround-2026-11-14`

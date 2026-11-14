@@ -19,7 +19,7 @@ Prepare the flight with no product behaviour change:
   - it refuses ports 8484 and 8485 and anything below 8490, the default or a configured data dir, and an `--out` inside the repo;
   - its only MCP surfaces are `agent-mcps` (stubbed tools) and `mcp-consent-link` (skipped).
 - **The planning survey's working seed and driver** (FD scratchpad, outside the repo):
-  - `/tmp/claude-1000/-home-cprch-projects-the-one/60f439f3-3d7e-4895-a147-e62bc6860c79/scratchpad/f5-debt/fixtures.py` runs three fixture servers: a rich HTTP server with title, version, website, instructions and 4 tools; `asgi_legacy` in `fast400` mode; and `asgi_401` with bare 401s.
+  - `/tmp/claude-1000/-home-<user>-projects-the-one/60f439f3-3d7e-4895-a147-e62bc6860c79/scratchpad/f5-debt/fixtures.py` runs three fixture servers: a rich HTTP server with title, version, website, instructions and 4 tools; `asgi_legacy` in `fast400` mode; and `asgi_401` with bare 401s.
   - `orchestrate.py` and `walk.py` seed the seven MCP servers and drive every state.
   - Read them for what worked. Port them into the tool; do not import from the scratchpad.
 - **The guards today:**

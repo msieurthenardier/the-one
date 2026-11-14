@@ -167,18 +167,18 @@ end;
 procedure CheckThenKill(const Tag: String; const Present: Boolean);
 begin
   if Present then
-    Log(Tag + ' quit-poll: present (iteration 0)')
+    Log(Tag + ' quit-check: present')
   else
-    Log(Tag + ' quit-poll: absent at iteration 0 (nothing was running)');
+    Log(Tag + ' quit-check: absent (nothing was running)');
   if AppsRunning then
   begin
-    Log(Tag + ' quit-poll: processes still present after the quit call');
-    Log(Tag + ' quit-poll: something left before KillRunning');
+    Log(Tag + ' quit-check: processes still present after the quit call');
+    Log(Tag + ' quit-check: something left before KillRunning');
   end
   else
   begin
-    Log(Tag + ' quit-poll: gone (iteration 0)');
-    Log(Tag + ' quit-poll: nothing left before KillRunning');
+    Log(Tag + ' quit-check: gone');
+    Log(Tag + ' quit-check: nothing left before KillRunning');
   end;
   Log(Tag + ' quit-killrunning: calling KillRunning');
   KillRunning;

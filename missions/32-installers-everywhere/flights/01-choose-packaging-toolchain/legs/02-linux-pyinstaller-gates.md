@@ -15,7 +15,7 @@ Measure candidate A's four Linux packages (from leg 1) against every DD2 hard ga
   - The bundle no longer carries `libstdc++`/`libgcc_s` (the `.deb` depends on them).
   - On the build host, `doctor` passed with `PYSTRAY_BACKEND=gtk PYWEBVIEW_GUI=gtk` and failed unpinned.
   - `M32_DEBUG_ENV=1` makes the runtime hook print its environment.
-  - The operator's default data dir is `/home/cprch/.local/share/the-one`.
+  - The operator's default data dir is `~/.local/share/the-one`.
 - **The pinned tray backend is `gtk`, not `appindicator`** (Flight Director call, after leg 1). A pin to `appindicator` fails on every stock baseline and measures nothing. `PYSTRAY_BACKEND=gtk` measures whether the rest of the desktop shell loads, and the unpinned run measures what a user gets. Read "pinned" below as `PYSTRAY_BACKEND=gtk`.
 - **The tray, decided by measurement, not by choice:**
   - The `baseline` image is whatever the distro's desktop metapackage installs (leg 1, AC2).

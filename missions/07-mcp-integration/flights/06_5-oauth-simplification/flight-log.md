@@ -12,7 +12,7 @@ Flight in `in-flight` state as of 2026-05-08 — design phase + Phase 5b archite
 
 ### 2026-05-08 — Flight kickoff
 
-**Phase file loaded**: `/home/cprch/projects/the-one/.flightops/agent-crews/leg-execution.md` (project-defined, not default fallback). Validated structure: `## Crew`, `## Interaction Protocol`, `## Prompts` all present with fenced code blocks. Crew: Developer (Sonnet, implementation + design review), Reviewer (Haiku, code review), optional Accessibility Reviewer (Sonnet, only if UI changes warrant it).
+**Phase file loaded**: `~/projects/the-one/.flightops/agent-crews/leg-execution.md` (project-defined, not default fallback). Validated structure: `## Crew`, `## Interaction Protocol`, `## Prompts` all present with fenced code blocks. Crew: Developer (Sonnet, implementation + design review), Reviewer (Haiku, code review), optional Accessibility Reviewer (Sonnet, only if UI changes warrant it).
 
 **Orchestration plan**: L0–L3 are standard autonomous legs — design via `/leg`, design review via Developer, implementation via Developer, no per-leg commit. After L3 lands, single Reviewer pass over the entire uncommitted changeset, then commit. L4 is an interactive HAT — Flight Director guides operator step-by-step; no autonomous Developer for verification, but a Developer may be spawned inline to fix any issues the operator surfaces.
 

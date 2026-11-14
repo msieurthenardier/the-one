@@ -180,7 +180,7 @@ Total new tests: **8 + 12 = 20**.
 Static:
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 rg -n "^class (Glob|Grep)Tool\b" the_one/tools/filesystem.py
 # Expected: 2

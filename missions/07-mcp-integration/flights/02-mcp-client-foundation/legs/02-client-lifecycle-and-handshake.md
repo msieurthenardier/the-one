@@ -89,7 +89,7 @@ print('client.py imports SDK lazily: OK')
 "
 
 # Targeted test runs
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 make test ARGS='-k test_init_state'
 make test ARGS='-k test_connect_happy_path'
 make test ARGS='-k test_connect_version_mismatch'

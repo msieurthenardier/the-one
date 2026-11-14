@@ -122,7 +122,7 @@ State changes:
 Static (after edit, before test run):
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # EditFileTool defined
 rg -n "^class EditFileTool\b" the_one/tools/filesystem.py

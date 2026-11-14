@@ -269,7 +269,7 @@
 
 **(a) rebuild-browsers chain verification**: `make -n rebuild-browsers` (dry-run) emits the full `rebuild` body (`docker compose build the-one` + `docker compose up -d the-one` + `verify-serving`) followed by `_ensure-playwright`'s conditional install probe. The real rebuild was not invoked (multi-minute cost; dry-run is the AC bar per upstream brief).
 
-**(b) doctor sub-shell test**: `env -i PATH=/usr/bin:/bin HOME=$HOME bash -c "cd /home/cprch/projects/the-one && make doctor"` → `doctor: ok` exit 0. Confirms the explicit-`.venv/bin/python3` path resolves even when no `python` shim exists on PATH and the parent shell's env is stripped — the foot-gun the F1 debrief flagged is closed.
+**(b) doctor sub-shell test**: `env -i PATH=/usr/bin:/bin HOME=$HOME bash -c "cd ~/projects/the-one && make doctor"` → `doctor: ok` exit 0. Confirms the explicit-`.venv/bin/python3` path resolves even when no `python` shim exists on PATH and the parent shell's env is stripped — the foot-gun the F1 debrief flagged is closed.
 
 **(d) citation fix**: target test at `tests/test_process_and_broadcast_live_read.py:98` verified present (the new citation points at a live test, not another phantom).
 

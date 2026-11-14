@@ -52,7 +52,7 @@ The Flight Director walks the operator through each probe one at a time, waits f
 
 Operator runs:
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 make rebuild
 ```
 

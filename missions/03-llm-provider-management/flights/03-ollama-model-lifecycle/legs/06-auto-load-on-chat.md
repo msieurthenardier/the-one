@@ -44,8 +44,8 @@ When a conversation starts with an unloaded Ollama model, automatically load it 
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && python -m pytest tests/ -x --timeout=30`
-- `cd /home/cprch/projects/the-one && ruff check the_one/`
+- `cd ~/projects/the-one && python -m pytest tests/ -x --timeout=30`
+- `cd ~/projects/the-one && ruff check the_one/`
 
 ## Implementation Guidance
 

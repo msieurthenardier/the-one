@@ -102,7 +102,7 @@ State changes:
 Static (after edit, before test run):
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # Three tools declare FilesystemConfig
 rg -n "Config = FilesystemConfig" the_one/tools/filesystem.py

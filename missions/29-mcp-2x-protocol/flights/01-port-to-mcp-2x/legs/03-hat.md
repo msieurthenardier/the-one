@@ -9,7 +9,7 @@ With the operator, confirm against real servers and the real Windows build that 
 ## Context
 - This is an interactive HAT leg. The Flight Director guides the operator one step at a time and fixes issues inline (spawning a Developer for code changes). Fix-vs-feature calls are made out loud.
 - Apparatus:
-  - A dedicated dev instance run from the worktree: port **8492**, scratch data directory `/tmp/claude-1000/-home-cprch-projects-the-one/875c2e63-eac8-4b6b-9502-e3cecc18639d/scratchpad/hat-data`. It never uses 8484/8485 or the default data dir.
+  - A dedicated dev instance run from the worktree: port **8492**, scratch data directory `/tmp/claude-1000/-home-<user>-projects-the-one/875c2e63-eac8-4b6b-9502-e3cecc18639d/scratchpad/hat-data`. It never uses 8484/8485 or the default data dir.
   - The operator's browser, signed in through a minted handoff URL.
   - The `the-one` Concourse target for the Windows lane.
 - From the flight log, watch for: Test connection with revoked tokens now keeps the stale secrets until the new sign-in replaces them. The operator should still get a fresh consent URL.

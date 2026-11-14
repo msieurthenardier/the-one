@@ -751,8 +751,8 @@ function Invoke-LibSelfTest([string]$Scratch, [string[]]$AstPaths) {
     } finally { $writer.Dispose() }
     [System.IO.File]::WriteAllText($tmp, "new`n")
     & $check ((Read-NewBytes $tmp 999).Text -eq "new`n") 'an offset past the end (rotation) restarts from 0'
-    $kl = Get-KeyLines "a`r`nquit-poll: present`r`nb`r`nquit-poll: gone" 'quit-poll'
-    & $check ($kl.Count -eq 2 -and $kl[0] -eq '2: quit-poll: present') 'Get-KeyLines numbers lines and handles CRLF'
+    $kl = Get-KeyLines "a`r`nquit-check: present`r`nb`r`nquit-check: gone" 'quit-check'
+    & $check ($kl.Count -eq 2 -and $kl[0] -eq '2: quit-check: present') 'Get-KeyLines numbers lines and handles CRLF'
 
     # Wait-Until
     & $check (Wait-Until { $true } 2 50 'always') 'Wait-Until returns true at once'
@@ -765,10 +765,10 @@ function Invoke-LibSelfTest([string]$Scratch, [string[]]$AstPaths) {
     $script:Deadline = (Get-Date).AddSeconds(60)
 
     # log order (the /LOG sequence of an upgrade)
-    $good = "setup quit-call: ExecAsOriginalUser x`nsetup quit-poll: present (iteration 0)`nsetup quit-poll: gone (iteration 3)`nsetup quit-poll: nothing left before KillRunning`nsetup quit-killrunning: calling KillRunning`nDest filename: C:\a"
-    $seq = @('setup quit-call: ExecAsOriginalUser', 'quit-poll: present', 'quit-poll: gone', 'quit-poll: nothing left', 'quit-killrunning: calling', 'Dest filename:')
+    $good = "setup quit-call: ExecAsOriginalUser x`nsetup quit-check: present`nsetup quit-check: gone`nsetup quit-check: nothing left before KillRunning`nsetup quit-killrunning: calling KillRunning`nDest filename: C:\a"
+    $seq = @('setup quit-call: ExecAsOriginalUser', 'quit-check: present', 'quit-check: gone', 'quit-check: nothing left', 'quit-killrunning: calling', 'Dest filename:')
     & $check ((Test-LogOrder $good $seq).Ok) 'Test-LogOrder accepts the right sequence'
-    $swapped = $good -replace 'present', 'XX' -replace 'gone \(iteration 3\)', 'present (iteration 3)'
+    $swapped = $good -replace 'present', 'XX' -replace 'quit-check: gone', 'quit-check: present'
     & $check (-not (Test-LogOrder $swapped $seq).Ok) 'Test-LogOrder rejects a missing step'
     $late = "Dest filename: C:\a`n" + $good
     & $check (-not (Test-LogOrder $late $seq).Ok) 'Test-LogOrder rejects a first copy before the quit'

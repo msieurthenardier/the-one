@@ -135,3 +135,69 @@ def test_a_save_and_the_tile_switch_invalidate_the_agents_store(
     page.wait_for_function(
         "() => window.__inv.filter((n) => n === 'agents').length === 2", timeout=8000
     )
+
+
+def _enabled(base: str) -> bool:
+    r = httpx.get(
+        f"{base}/api/tools/configs/http_request", timeout=5.0, headers=auth_headers_for(base)
+    )
+    return r.json()["enabled"]
+
+
+def test_turning_a_tool_on_lists_the_agents_it_narrows_first(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Squawk 0322: the tile switch runs the impact check before an enabling toggle; Cancel
+    leaves the tool off, confirming turns it on."""
+    base, names = _setup(app_with_agent)
+    seed_tool_config(base, "http_request", enabled=False, config={"extra_allowed_hosts": ["a.com"]})
+    _nav.goto(page, base, "settings/tools")
+    page.locator(f'[data-testid="tab-{_lists.TOOL_TABS["http_request"]}"]').click()
+    toggle = _lists.tool_toggle(page, "http_request")
+    expect(toggle).not_to_be_checked(timeout=8000)
+    held: list = []
+    page.route("**/api/tools/configs/http_request/impact", lambda route: held.append(route))
+    toggle.click(force=True)
+    for _ in range(50):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    assert held, "the impact preview was not requested"
+    # The preview is in flight: the switch is disabled so a second press cannot flip it.
+    expect(toggle).to_be_disabled()
+    held[0].continue_()
+    dialog = page.locator(DIALOG)
+    expect(dialog).to_be_visible(timeout=5000)
+    expect(toggle).to_be_enabled()
+    expect(dialog).to_contain_text("Turning on http_request affects 2 agents")
+    listing = page.locator('[data-testid="tool-impact-list"]')
+    for n in names:
+        expect(listing).to_contain_text(n)
+    page.locator('[data-testid="modal-cancel-btn"]').click()
+    expect(dialog).to_have_count(0)
+    expect(toggle).not_to_be_checked()
+    expect(toggle).to_be_focused()
+    assert _enabled(base) is False
+    page.unroute("**/api/tools/configs/http_request/impact")
+    toggle.click(force=True)
+    expect(dialog).to_be_visible(timeout=5000)
+    page.locator('[data-testid="modal-confirm-btn"]').click()
+    expect(toggle).to_be_checked(timeout=8000)
+    page.wait_for_timeout(500)
+    assert _enabled(base) is True
+
+
+def test_turning_a_tool_on_that_narrows_nobody_has_no_dialog(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base = app_with_agent.base_url
+    seed_tool_config(base, "http_request", enabled=False)
+    _nav.goto(page, base, "settings/tools")
+    page.locator(f'[data-testid="tab-{_lists.TOOL_TABS["http_request"]}"]').click()
+    toggle = _lists.tool_toggle(page, "http_request")
+    expect(toggle).not_to_be_checked(timeout=8000)
+    toggle.click(force=True)
+    expect(toggle).to_be_checked(timeout=8000)
+    assert page.locator(DIALOG).count() == 0
+    page.wait_for_timeout(500)
+    assert _enabled(base) is True

@@ -282,7 +282,9 @@ first call, by part: the platform prompt (one part per section of
 the tool-free configuration; `extract_parts` alone, without a splitter, reports one
 `platform` part), the rules and notes layers minus the operator's rule and
 note texts, the date line, and each starting tool schema (name, description and JSON
-parameters, serialised deterministically). Parts are found structurally (DD10), not by
+parameters, serialised deterministically). The secrets layer of `the_one/db/_secrets.py` is
+platform prompt text too, but it is added only for an agent with secret grants, which no
+measured configuration has, so it is not one of these parts. Parts are found structurally (DD10), not by
 heading: the prompt is split on the product's layer separator and the layers are assigned by
 their known order (platform, persona, rules, notes, date, each present by configuration), the
 persona being located by its own text. A layer no configuration explains becomes
@@ -343,7 +345,7 @@ model's recorded effective values and digest).
 
 ## Convention
 
-A change to platform prompt text lands with an eval run compared against the current baseline, `evals/baselines/notes-platform.json` (`evals/baselines/notes-routines.json` is the separate same-prompt baseline of the routines scenarios, `evals/baselines/notes-visuals.json` that of the visuals scenarios and `evals/baselines/notes-widgets.json` that of the widgets scenarios, never compared across sets; `m35f2b-*`, `m35f2-*`, `m35-*`, `s11-*`, `m30-platform` and `m33-routines` are history; the default eval models are `haiku`, `qwen3-4b` and `lfm3`, `gpt-oss` kept but not default), including its token cost. Platform prompt text is `the_one/agent/platform_prompt.py`, the rules and notes layers in `the_one/db/_rules.py` and `the_one/db/_notes.py`, the date-line templates in `the_one/time_zones.py`, and the starting tool descriptions. Since sortie 11 (DD13) a built-in tool's description and parameter schema is platform prompt text as well: an agent whose enabled toolset fits the exposure budget sends every schema on the first call, so a description edit changes the measured `tools` cost (`THE_ONE_TOOL_EXPOSURE_FRACTION` and `THE_ONE_TOOL_EXPOSURE_CEILING_TOKENS` set the budget, process environment only). `report` and `compare` print a "Tool exposure" line per model (runs exposed, not exposed, no record), and `compare` warns when a run's exposure decision differs from the one the measurement recorded for its configuration (`tool-free` and the `tools_off` scenarios are exempt). Run `measure-prompt`, then `compare --baseline evals/baselines/notes-platform.json <run-dir>...`. Evals stay out of CI and the test gate. A changed scenario set requires a same-prompt re-baseline. The `notes-*` size targets use ratio 1.0 (`derive-bars --size-ratio 1.0`).
+A change to platform prompt text lands with an eval run compared against the current baseline, `evals/baselines/notes-platform.json` (`evals/baselines/notes-routines.json` is the separate same-prompt baseline of the routines scenarios, `evals/baselines/notes-visuals.json` that of the visuals scenarios and `evals/baselines/notes-widgets.json` that of the widgets scenarios, never compared across sets; `m35f2b-*`, `m35f2-*`, `m35-*`, `s11-*`, `m30-platform` and `m33-routines` are history; the default eval models are `haiku`, `qwen3-4b` and `lfm3`, `gpt-oss` kept but not default), including its token cost. Platform prompt text is `the_one/agent/platform_prompt.py`, the rules, notes and secrets layers in `the_one/db/_rules.py`, `the_one/db/_notes.py` and `the_one/db/_secrets.py`, the date-line templates in `the_one/time_zones.py`, and the starting tool descriptions. Since sortie 11 (DD13) a built-in tool's description and parameter schema is platform prompt text as well: an agent whose enabled toolset fits the exposure budget sends every schema on the first call, so a description edit changes the measured `tools` cost (`THE_ONE_TOOL_EXPOSURE_FRACTION` and `THE_ONE_TOOL_EXPOSURE_CEILING_TOKENS` set the budget, process environment only). `report` and `compare` print a "Tool exposure" line per model (runs exposed, not exposed, no record), and `compare` warns when a run's exposure decision differs from the one the measurement recorded for its configuration (`tool-free` and the `tools_off` scenarios are exempt). Run `measure-prompt`, then `compare --baseline evals/baselines/notes-platform.json <run-dir>...`. Evals stay out of CI and the test gate. A changed scenario set requires a same-prompt re-baseline. The `notes-*` size targets use ratio 1.0 (`derive-bars --size-ratio 1.0`).
 
 **`rule-beats-note` on haiku is noisy; read its `notes-platform` cell with that in mind.** The
 `notes-platform` run scored it 4/20, against 11/20 for the re-baseline of the same scenarios on the
@@ -351,6 +353,31 @@ previous prompt (p=0.024, a hold failure). Two repeats of that one cell on each 
 for the new wording and 8 and 6 for the previous one (n=20 each), so the 4/20 was a low draw, not a
 regression; it was accepted by the operator. Its recorded 4/20 is therefore a low anchor: a later
 change that scores this cell under about 8/20 deserves a repeat run before it is called a pass.
+
+### Gating a change that moves the prompt and the scenario set together
+
+`compare` refuses a comparison across scenario sets (`evals/baseline.py::check_comparable`:
+"refusing to compare: the scenarios fingerprints differ from the baseline's"), so a change that
+alters both cannot be compared with a committed baseline. Gate it in two steps. Sets the change
+leaves alone still compare against their committed baselines as usual.
+
+1. Run the new scenario set on the unchanged prompt of `main` (a scratch worktree of the base
+   commit works) and record it as a scratch baseline: `baseline <scratch-name> <run-dir>...`, then
+   `derive-bars <scratch-name> --size-ratio 1.0`. Do not commit it.
+2. Run the new scenario set on the new prompt and `compare` it against that scratch baseline.
+   The prompt fingerprints differ, so `--same-prompt` is not used.
+
+Declare the reading rule for hard failures before any run. A failing hold cell is repeated twice
+on each prompt (n=20) before it is accepted. The repeats are then folded into the baseline, or the
+cell is marked as in the `rule-beats-note` note above, and the reading is written down before the
+result is seen.
+
+Keep the evidence. `evals/runs/` is gitignored and a scratch worktree can be removed, so write
+every number a gate decision rests on (the scratch-baseline cells, the repeat runs, any transcript
+another flight will cite) in full in the flight log. Sortie 15 (Notes as memories) is the worked
+example: the new wording and the new notes scenarios were gated this way (its DD4 and DD6), and the
+scratch baseline and the repeat runs were lost with the scratch worktree because they were not
+written out.
 
 ## Files
 

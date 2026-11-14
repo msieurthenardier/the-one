@@ -43,11 +43,11 @@ Maintenance report findings 8.1, 8.4, 8.10 (see `maintenance/2026-05-04.md`).
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && grep -nE "image:|tag:|^\s+- name:|repository:" ci/pipeline.yml | grep -v "name: source"` — every image reference shows a non-`latest`, non-bare tag (or digest)
-- `cd /home/cprch/projects/the-one && grep "playwright" pyproject.toml` — shows `==1.58.0` pin
-- `cd /home/cprch/projects/the-one && cat .dockerignore` — file exists with the listed excludes
-- `cd /home/cprch/projects/the-one && make rebuild 2>&1 | tail -20` — succeeds; image builds cleanly
-- `cd /home/cprch/projects/the-one && pytest -m browser tests/browser/ -q 2>&1 | tail -10` — all green
+- `cd ~/projects/the-one && grep -nE "image:|tag:|^\s+- name:|repository:" ci/pipeline.yml | grep -v "name: source"` — every image reference shows a non-`latest`, non-bare tag (or digest)
+- `cd ~/projects/the-one && grep "playwright" pyproject.toml` — shows `==1.58.0` pin
+- `cd ~/projects/the-one && cat .dockerignore` — file exists with the listed excludes
+- `cd ~/projects/the-one && make rebuild 2>&1 | tail -20` — succeeds; image builds cleanly
+- `cd ~/projects/the-one && pytest -m browser tests/browser/ -q 2>&1 | tail -10` — all green
 
 ## Implementation Guidance
 

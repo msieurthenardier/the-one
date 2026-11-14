@@ -26,7 +26,7 @@ An agent with notes on keeps the context that will help later chats: it saves a 
 - A platform prompt change lands with an eval comparison, including its token cost (`CLAUDE.md` "Prompt evals").
 - A changed scenario set gets a same-prompt re-baseline first, never a comparison across scenario sets.
 - The wording is the operator's.
-- The main checkout (`/home/cprch/projects/the-one`) is not touched while another session works in it. The work lives in the worktree `/home/cprch/projects/the-one-notes-prompt-wording`.
+- The main checkout (`~/projects/the-one`) is not touched while another session works in it. The work lives in the worktree `~/projects/the-one-notes-prompt-wording`.
 
 ---
 

@@ -42,11 +42,11 @@ The leg's purpose is therefore reduced to a **guardrail comment** preventing fut
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && grep -B 3 -A 1 '"readability-lxml' pyproject.toml` — confirm guardrail comment present immediately above
-- `cd /home/cprch/projects/the-one && grep -A 1 '"markdownify' pyproject.toml` — confirm dep still adjacent in base list
-- `cd /home/cprch/projects/the-one && python -c "import markdownify, readability; print('OK')"` — confirm host env has both deps
-- `cd /home/cprch/projects/the-one && pytest -q --ignore=tests/browser --timeout=120 2>&1 | tail -5`
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/`
+- `cd ~/projects/the-one && grep -B 3 -A 1 '"readability-lxml' pyproject.toml` — confirm guardrail comment present immediately above
+- `cd ~/projects/the-one && grep -A 1 '"markdownify' pyproject.toml` — confirm dep still adjacent in base list
+- `cd ~/projects/the-one && python -c "import markdownify, readability; print('OK')"` — confirm host env has both deps
+- `cd ~/projects/the-one && pytest -q --ignore=tests/browser --timeout=120 2>&1 | tail -5`
+- `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/`
 
 ## Implementation Guidance
 

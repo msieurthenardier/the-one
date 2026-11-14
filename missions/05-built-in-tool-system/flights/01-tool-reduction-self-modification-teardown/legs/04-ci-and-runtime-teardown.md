@@ -174,7 +174,7 @@ rg -n "/workspace" the_one/ tests/ --glob '!*.md' --glob '!test_aiat.py'
 
 ## Implementation Guidance
 
-Work from project root `/home/cprch/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
+Work from project root `~/projects/the-one`. Branch must be `flight/01-tool-reduction-self-modification-teardown`. Leg status `ready` → `in-flight` at start; `landed` at end. **No commit.**
 
 1. **Trim `ci/pipeline.yml`**:
    - Delete lines 1-5 (the `resources:` section).

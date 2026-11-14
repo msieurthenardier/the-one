@@ -59,7 +59,7 @@ echo "=== Mission invariant: no disable_ssrf ==="
 docker exec the-one grep -rn 'disable_ssrf\|ssrf_disabled\|disable_ssrf_protection' the_one/ || echo "(none)"
 
 # Browser tests + AIAT (best-effort)
-cd /home/cprch/projects/the-one && make test-browser 2>&1 | tail -10 || echo "browser test failed (env)"
+cd ~/projects/the-one && make test-browser 2>&1 | tail -10 || echo "browser test failed (env)"
 docker exec the-one pytest -m live tests/test_aiat.py -x -q 2>&1 | tail -5 || echo "aiat live not available (env)"
 ```
 

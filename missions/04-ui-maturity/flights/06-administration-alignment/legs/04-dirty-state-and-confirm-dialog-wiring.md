@@ -398,7 +398,7 @@ When this leg lands the following are all true:
 ### Step 1: Verify pre-conditions
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 wc -l the_one/interfaces/web/static/js/areas/admin.js \
        the_one/interfaces/web/static/js/areas/admin/provider-editor.js \
        the_one/interfaces/web/static/js/areas/studio.js \

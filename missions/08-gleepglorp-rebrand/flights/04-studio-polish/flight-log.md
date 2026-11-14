@@ -246,7 +246,7 @@ Opportunistic functional batch executed alongside the Flight Director's vibe ite
 
 ### Flight design (2026-05-12)
 
-- Loaded flight-design phase file from `/home/cprch/projects/the-one/.flightops/agent-crews/flight-design.md` (project file present).
+- Loaded flight-design phase file from `~/projects/the-one/.flightops/agent-crews/flight-design.md` (project file present).
 - Reconnaissance verified 11 carry-forward items (8 from Flight 3.5 debrief + 3 from Flight 3 debrief + 1 mission Known Issue). All `confirmed-live`. No retirements.
 - Flight scoped as 7 legs: 1 autonomous prep (7-item debt close from Flight 3.5 debrief), 2 vibe page-polish (Agents + MCP Sources), 1 mixed leg for custom dropdown (autonomous helper + vibe popover treatment), 1 autonomous infrastructure (Studio confirmLeave + stale-then + B2 Playwright test), 1 mixed routing-sweep, 1 closing alignment.
 - Scope shaving applied per Flight 3.5 debrief recommendation #8: shell housing inherited from F3.5 → per-page polish operates on `.content-panel` interior only. Saved ~1 vibe leg vs. originally-planned size. Knowledge tab polish-deferred (21-line stub).
@@ -277,7 +277,7 @@ Opportunistic functional batch executed alongside the Flight Director's vibe ite
 
 ### Leg 03 design review (2026-05-13)
 
-- **Design pass 1**: spawned Developer (Sonnet, fresh context, working dir `/home/cprch/projects/the-one`) with the "Review Leg Design" prompt from `.flightops/agent-crews/leg-execution.md`. Verdict: `approve with changes`. 1 high + 2 medium issues:
+- **Design pass 1**: spawned Developer (Sonnet, fresh context, working dir `~/projects/the-one`) with the "Review Leg Design" prompt from `.flightops/agent-crews/leg-execution.md`. Verdict: `approve with changes`. 1 high + 2 medium issues:
   - **(high)** Posture-to-state mapping included a `danger` state with no production cache-write path producing it. Codebase trace (`_build_and_test_no_auth_mcp` ~1083, `_build_and_test_stdio_mcp` ~1171, oauth Phase A ~1389, `_probe_auth_posture` ~1335) confirmed every `_cache` write either populates `tools` OR sets `auth_posture: "oauth"`. **Fix**: collapsed helper to 3 states (success / warning / idle); zero-tools server (`tools: []`) classified as `success` to match the existing `mcp-server-editor.js:444` `Array.isArray(cache.tools)` guard's UX.
   - **(medium)** `data-testid="mcp-source-name"` enumerated in the acceptance-criteria preservation list does not exist in the codebase. **Fix**: removed from the list. Existing hooks: `id="mf-name"` + `data-field="name"` on the name input — no `data-testid` hook present.
   - **(medium)** Prescribed `aria-hidden="true"` on LED span diverged from the canonical pattern at `provider-models.js:347, :376` which omits it. **Fix**: dropped `aria-hidden` from both LED prescriptions (consumer #1 + consumer #3); the three new sites now conform to the existing canonical pattern.

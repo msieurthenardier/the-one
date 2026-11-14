@@ -232,7 +232,7 @@ Both `cap_add: [SYS_ADMIN]` and `security_opt: [seccomp:unconfined]` are require
 Re-run the 5-assertion probe later (e.g., after a kernel upgrade, docker-engine swap, or migration to a different host) by executing the verification block in `legs/01a-ci-compat-probe-and-privilege-model.md` § Verification Steps verbatim from the repo root inside the rebuilt dev container. Quick-reference inline form:
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 docker compose config the-one | grep -E 'cap_add:|security_opt:|SYS_ADMIN|seccomp:unconfined'   # 4 lines
 docker compose exec -T the-one bwrap --version 2>&1                                              # bubblewrap <ver>
 docker compose exec -T the-one unshare -U /bin/echo test                                          # "test"

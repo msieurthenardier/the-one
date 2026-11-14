@@ -95,10 +95,10 @@ How to confirm each criterion is met:
 4. **Transport modules unchanged**: `git diff <l1a-start-sha> -- the_one/mcp/transports/stdio.py the_one/mcp/transports/streamable_http.py` shows no output (zero diff). Both `connect_stdio` and `connect_streamable_http` remain `@asynccontextmanager`-decorated.
 5. **Dispatcher unchanged**: `git diff <l1a-start-sha> -- the_one/mcp/client.py | grep -A 30 "_transport_connect"` shows no functional changes inside `_transport_connect` (only changes are to `MCPClient` methods elsewhere in `client.py`).
 6. **Regression tests unmodified**: against the L1a-start commit (capture via `git rev-parse HEAD` BEFORE the first L1a edit; do NOT use `main` — the flight branch already diverged), `git diff <l1a-start-sha> -- tests/test_mcp_client.py tests/test_mcp_integration.py tests/test_mcp_sandbox_integration.py tests/test_mcp_stdio_sandbox.py tests/test_sandbox_bubblewrap.py tests/test_sandbox_contract.py | grep -E '^-[^-]' | wc -l` shows changes only to ADD the new `TestAsyncExitStackContract` class (and the `_anyio_backed_transport_cm` helper near `_mock_transport_cm`) — no deletions or modifications of existing test methods.
-7. **All tests green**: `cd /home/cprch/projects/the-one && docker compose exec the-one pytest tests/test_mcp_client.py tests/test_mcp_integration.py tests/test_mcp_sandbox_integration.py tests/test_mcp_stdio_sandbox.py tests/test_sandbox_bubblewrap.py tests/test_sandbox_contract.py -q --timeout=30` returns 0 exit; counts: 117 prior + 5 required new (+1 optional `/proc` test if included) = 122-123 passed.
+7. **All tests green**: `cd ~/projects/the-one && docker compose exec the-one pytest tests/test_mcp_client.py tests/test_mcp_integration.py tests/test_mcp_sandbox_integration.py tests/test_mcp_stdio_sandbox.py tests/test_sandbox_bubblewrap.py tests/test_sandbox_contract.py -q --timeout=30` returns 0 exit; counts: 117 prior + 5 required new (+1 optional `/proc` test if included) = 122-123 passed.
 8. **Cross-task warning observed**: `pytest tests/test_mcp_client.py::TestAsyncExitStackContract::test_cross_task_disconnect_logs_via_safety_net -v --log-cli-level=WARNING` shows `WARNING ... MCPClient transport close failed` in captured logs.
 9. **Worker-task pattern silent**: `pytest tests/test_mcp_client.py::TestAsyncExitStackContract::test_worker_task_pattern_no_safety_net_log -v --log-cli-level=WARNING` shows NO `WARNING` log for the swallow message.
-10. **Lint clean**: `cd /home/cprch/projects/the-one && docker compose exec the-one ruff check the_one/mcp/ tests/test_mcp_client.py` returns 0 exit with no new findings vs `git stash; ruff check ...; git stash pop` baseline.
+10. **Lint clean**: `cd ~/projects/the-one && docker compose exec the-one ruff check the_one/mcp/ tests/test_mcp_client.py` returns 0 exit with no new findings vs `git stash; ruff check ...; git stash pop` baseline.
 11. **Flight log updated**: `grep -A 8 "L1a-async-exit-stack\|01a-async-exit-stack" missions/07-mcp-integration/flights/04-idle-ttl-lifecycle/flight-log.md` shows a Leg Progress entry with status `landed` (NOT `completed` — the flight-final commit transitions it later), started/completed timestamps, summary of changes, the test-count reconciliation, and the per-test-method invariant mapping (which test locks each of the four observable invariants).
 
 ## Implementation Guidance
@@ -107,7 +107,7 @@ Work in this order. Each step has a concrete output you can inspect before movin
 
 1. **Run the F2/F3 baseline test suite to capture pre-refactor counts.**
    ```bash
-   cd /home/cprch/projects/the-one
+   cd ~/projects/the-one
    docker compose exec the-one pytest tests/test_mcp_client.py tests/test_mcp_integration.py \
        tests/test_mcp_sandbox_integration.py tests/test_mcp_stdio_sandbox.py \
        tests/test_sandbox_bubblewrap.py tests/test_sandbox_contract.py -q --timeout=30 \

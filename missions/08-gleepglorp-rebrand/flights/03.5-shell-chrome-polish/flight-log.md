@@ -158,7 +158,7 @@ Also captured a pre-Leg-01 sentinel from the Architect's grep verification: `gre
 
 ### Flight design (2026-05-12)
 
-- Loaded flight-design phase file from `/home/cprch/projects/the-one/.flightops/agent-crews/flight-design.md` (project file present).
+- Loaded flight-design phase file from `~/projects/the-one/.flightops/agent-crews/flight-design.md` (project file present).
 - Reconnaissance verified 4 cited shell surfaces + 2 docs items; all `confirmed-live` and citations clean. Playwright test classified as `deferred to Flight 4` (not silently dropped — recorded as a Design Decision with rationale).
 - Flight scoped as 2 legs (operator hinted size: 2-3): 1 interactive vibe leg covering all 4 surfaces + body retune + dark-theme tier-hierarchy establishment, 1 closing alignment leg with 10-step ordered close + agents.md F3.5 subsection codifying any new shell-treatment patterns + the 2 carry-forward Flight 3 debrief docs items.
 - All Open Questions resolved with working assumptions documented inline; concrete shell-treatment values deferred to in-leg vibe resolution per the established operator-pattern.

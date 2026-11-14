@@ -48,29 +48,29 @@ The unifying thread: **don't let F1's tail-end tech-debt rot for a maintenance c
 
 ## Acceptance Criteria
 
-- [ ] `cd /home/cprch/projects/the-one && make help | grep "rebuild-browsers"` matches (target exists)
-- [ ] `cd /home/cprch/projects/the-one && grep -E "^rebuild-browsers: rebuild _ensure-playwright" Makefile` matches — target has both prereqs in order (uses existing `_ensure-playwright` machinery at `Makefile:39-46`, not raw `playwright install chromium`)
-- [ ] `cd /home/cprch/projects/the-one && grep -A2 "^doctor:" Makefile` shows `.venv/bin/python3 -c ...` (NOT bare `python -c ...`; matches `.venv/bin/pip-audit` shape in `audit` target)
-- [ ] `cd /home/cprch/projects/the-one && make audit-bytes` exits 0 (no raw U+2028/U+2029 chars in `the_one/` or `tests/`)
-- [ ] `cd /home/cprch/projects/the-one && grep -A2 "^audit-bytes:" Makefile` shows the target invokes `git grep -lP "[\x{2028}\x{2029}]"` against the appropriate paths
-- [ ] `cd /home/cprch/projects/the-one && grep -n "test_usage_event_reflects_live_max_context_tokens_at_emission" the_one/agents.md` matches inside the `### live-read-across-lazy-resolver-boundary` entry
-- [ ] `cd /home/cprch/projects/the-one && grep -n "test_max_context_tokens_live_read_across_resolver" the_one/agents.md` returns empty (broken citation gone)
-- [ ] `cd /home/cprch/projects/the-one && grep -n "^### \`host-side-bench-drift-detection\`" the_one/agents.md` matches (new convention landed — note the **backtick wrapping** per the section's convention; all five existing entries at L175, 185, 195, 205, 219, 229 use `` ### `slug` `` form)
-- [ ] `cd /home/cprch/projects/the-one && grep -n "_VALID_NPX_PKG_RE\|npm.spec" SECURITY-MODEL.md` matches in `## Tool Execution Boundary` section (security-primitive doc landed in SECURITY-MODEL per Architect F2 review)
-- [ ] `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both exit 0 (F1 baseline preserved)
+- [ ] `cd ~/projects/the-one && make help | grep "rebuild-browsers"` matches (target exists)
+- [ ] `cd ~/projects/the-one && grep -E "^rebuild-browsers: rebuild _ensure-playwright" Makefile` matches — target has both prereqs in order (uses existing `_ensure-playwright` machinery at `Makefile:39-46`, not raw `playwright install chromium`)
+- [ ] `cd ~/projects/the-one && grep -A2 "^doctor:" Makefile` shows `.venv/bin/python3 -c ...` (NOT bare `python -c ...`; matches `.venv/bin/pip-audit` shape in `audit` target)
+- [ ] `cd ~/projects/the-one && make audit-bytes` exits 0 (no raw U+2028/U+2029 chars in `the_one/` or `tests/`)
+- [ ] `cd ~/projects/the-one && grep -A2 "^audit-bytes:" Makefile` shows the target invokes `git grep -lP "[\x{2028}\x{2029}]"` against the appropriate paths
+- [ ] `cd ~/projects/the-one && grep -n "test_usage_event_reflects_live_max_context_tokens_at_emission" the_one/agents.md` matches inside the `### live-read-across-lazy-resolver-boundary` entry
+- [ ] `cd ~/projects/the-one && grep -n "test_max_context_tokens_live_read_across_resolver" the_one/agents.md` returns empty (broken citation gone)
+- [ ] `cd ~/projects/the-one && grep -n "^### \`host-side-bench-drift-detection\`" the_one/agents.md` matches (new convention landed — note the **backtick wrapping** per the section's convention; all five existing entries at L175, 185, 195, 205, 219, 229 use `` ### `slug` `` form)
+- [ ] `cd ~/projects/the-one && grep -n "_VALID_NPX_PKG_RE\|npm.spec" SECURITY-MODEL.md` matches in `## Tool Execution Boundary` section (security-primitive doc landed in SECURITY-MODEL per Architect F2 review)
+- [ ] `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both exit 0 (F1 baseline preserved)
 - [ ] Container pytest unchanged (1700 passed). Host pytest unchanged **relative to Leg 2's landed state** (host has a pre-existing `mcp.client.auth.exceptions` import failure unrelated to F2 — documented in Leg 1's flight-log entry; M10-candidate)
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && make help` — full help listing; `rebuild-browsers`, `audit-bytes` visible
-- `cd /home/cprch/projects/the-one && make doctor` — exit 0 (host); should work even from a sub-shell that lacks bare `python` on PATH
-- `cd /home/cprch/projects/the-one && make audit-bytes` — exit 0 (no LSEP/PSEP source bytes)
+- `cd ~/projects/the-one && make help` — full help listing; `rebuild-browsers`, `audit-bytes` visible
+- `cd ~/projects/the-one && make doctor` — exit 0 (host); should work even from a sub-shell that lacks bare `python` on PATH
+- `cd ~/projects/the-one && make audit-bytes` — exit 0 (no LSEP/PSEP source bytes)
 - **Probe `audit-bytes` correctness**: deliberately write a temporary file with a raw U+2028 byte (`printf 'x\xe2\x80\xa8y' > /tmp/test-lsep.py`) under `the_one/` (or as a probe in `tests/`), run `make audit-bytes`, confirm non-zero exit, delete the probe. Documents the target detects its target class.
-- `cd /home/cprch/projects/the-one && make rebuild-browsers` — runs `make rebuild` then `playwright install chromium`; exit 0 (or surfaces clear error if image missing)
-- `cd /home/cprch/projects/the-one && sed -n '/^### live-read-across-lazy-resolver-boundary/,/^### /p' the_one/agents.md` — shows the entry with the corrected test citation (no `test_max_context_tokens_live_read_across_resolver`; no `tests/test_agent_core.py`)
-- `cd /home/cprch/projects/the-one && sed -n '/^### host-side-bench-drift-detection/,/^### /p' the_one/agents.md` — shows the new convention entry
-- `cd /home/cprch/projects/the-one && pytest --tb=no -q` (host) — 1700 passed unchanged
-- `cd /home/cprch/projects/the-one && docker exec the-one pytest --tb=no -q --ignore=tests/browser` — 1700 passed unchanged
+- `cd ~/projects/the-one && make rebuild-browsers` — runs `make rebuild` then `playwright install chromium`; exit 0 (or surfaces clear error if image missing)
+- `cd ~/projects/the-one && sed -n '/^### live-read-across-lazy-resolver-boundary/,/^### /p' the_one/agents.md` — shows the entry with the corrected test citation (no `test_max_context_tokens_live_read_across_resolver`; no `tests/test_agent_core.py`)
+- `cd ~/projects/the-one && sed -n '/^### host-side-bench-drift-detection/,/^### /p' the_one/agents.md` — shows the new convention entry
+- `cd ~/projects/the-one && pytest --tb=no -q` (host) — 1700 passed unchanged
+- `cd ~/projects/the-one && docker exec the-one pytest --tb=no -q --ignore=tests/browser` — 1700 passed unchanged
 
 ## Implementation Guidance
 
@@ -92,7 +92,7 @@ Six sub-fixes, each its own sub-commit. Order them roughly by isolation (Makefil
    - Edit the `doctor` target (around `Makefile:148`) to change `python -c "..."` → `.venv/bin/python3 -c "..."`.
    - Architect note (F2 design review): `.venv/bin/python` is actually a symlink chain → `python3` → `/bin/python3` (the venv is mostly a directory of site-packages + `pyvenv.cfg`; the interpreter itself is system Python). Use `.venv/bin/python3` directly for explicitness; matches `.venv/bin/pip-audit`'s shape in the `audit` target.
    - The probe content stays identical — same import list (`asgi_lifespan, pytest_asyncio, pytest_timeout, pytest_playwright, pixelmatch, pip_audit`, `from PIL import Image`, `find_spec('playwright')`, `import ruff`).
-   - Test: run `make doctor` from a sub-shell that lacks bare `python` (e.g., `bash -c "cd /home/cprch/projects/the-one && make doctor"`); confirm exit 0. Then deliberately uninstall something (`.venv/bin/pip uninstall -y pixelmatch && make doctor` should exit non-zero; `.venv/bin/pip install pixelmatch` to restore).
+   - Test: run `make doctor` from a sub-shell that lacks bare `python` (e.g., `bash -c "cd ~/projects/the-one && make doctor"`); confirm exit 0. Then deliberately uninstall something (`.venv/bin/pip uninstall -y pixelmatch && make doctor` should exit non-zero; `.venv/bin/pip install pixelmatch` to restore).
    - Sub-commit: `flight/02: make doctor uses .venv/bin/python3 (F1 debrief carry-forward)`
 
 3. **(c) Add `make audit-bytes` target**

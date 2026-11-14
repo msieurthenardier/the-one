@@ -146,7 +146,7 @@ network).
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one`
+- `cd ~/projects/the-one`
 - Preferred (containerized): `docker exec the-one pytest tests/test_anthropic_provider.py
   -x --timeout 30 -q`. **If Docker is unavailable in this environment** (it was during
   leg 01 — daemon not running), fall back to host-native: `.venv/bin/pytest

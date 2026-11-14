@@ -125,7 +125,7 @@ Key design decisions inherited from the flight spec (re-stated here so the imple
 
 ## Verification Steps
 
-Run each command from the project root (`/home/cprch/projects/the-one`). All pytest invocations use `docker exec the-one pytest …` with `-x --timeout 30` (browser-suite invocations drop `-x` so the 2 pre-existing failures don't short-circuit).
+Run each command from the project root (`~/projects/the-one`). All pytest invocations use `docker exec the-one pytest …` with `-x --timeout 30` (browser-suite invocations drop `-x` so the 2 pre-existing failures don't short-circuit).
 
 **Phase 1 — Static gates (run before pytest):**
 

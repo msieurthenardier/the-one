@@ -74,7 +74,7 @@ State changes:
 ## Verification Steps
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # Static regression sweep
 rg -n 'Path\([^)]+\)\.expanduser\(\)\.resolve\(\)' the_one/tools/

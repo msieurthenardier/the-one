@@ -34,7 +34,7 @@ The suite stays green, and `connect` still calls `session.initialize()`.
   - the probe docstring (leg 3).
 
 ## Inputs
-- Worktree `/home/cprch/projects/the-one-sortie-03`, branch `flight/02-auto-negotiation`, at `a203563`. Its `.venv` is synced from `uv.lock` (`mcp` 2.3.0). Never re-resolve dependencies.
+- Worktree `~/projects/the-one-sortie-03`, branch `flight/02-auto-negotiation`, at `a203563`. Its `.venv` is synced from `uv.lock` (`mcp` 2.3.0). Never re-resolve dependencies.
 - Baseline: `make test-unit` (plain mode) gives 6068 passed, 12 skipped, 0 failed.
 
 ## Outputs

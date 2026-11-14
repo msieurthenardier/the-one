@@ -64,15 +64,15 @@ The OpenRouter rebrand strings are bundled here per the flight's design decision
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && grep -n '</script>' the_one/interfaces/web/api.py` → no raw `</script>` strings emitted from json.dumps path
+- `cd ~/projects/the-one && grep -n '</script>' the_one/interfaces/web/api.py` → no raw `</script>` strings emitted from json.dumps path
 - Inspect the OAuth callback page in a controlled local test: trigger an OAuth flow with a mocked error response whose `error_description` contains `</script><script>alert(1)</script>`; confirm the browser does NOT execute the alert (the payload should render as literal text inside the JSON, not as DOM)
-- `cd /home/cprch/projects/the-one && python -c "import asyncio; from the_one.mcp.cache_cleanup import _clean_npx; asyncio.run(_clean_npx('../etc/passwd'))"` — signature is `async def _clean_npx(pkg: str) -> None` (single positional arg; verified at `cache_cleanup.py:215`); raises clear `ValueError` from the allowlist check before reaching the path-join site at `:248`
-- `cd /home/cprch/projects/the-one && pip-audit --skip-editable --strict 2>&1 | head -30` — runs cleanly
-- `cd /home/cprch/projects/the-one && grep -A2 "_init_provider_state\|live-read\|lazy-resolver" the_one/agents.md`
-- `cd /home/cprch/projects/the-one && grep "THE_ONE_DEV_MODE" .env.example`
-- `cd /home/cprch/projects/the-one && grep -i "rotation cadence\|streamable.http" SECURITY-MODEL.md`
-- `cd /home/cprch/projects/the-one && python -c "from the_one.llm.openrouter_provider import _APP_URL, _APP_NAME; print(_APP_URL, _APP_NAME)"` — prints GleepGlorp strings
-- `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/ && pytest --tb=no -q` → all exit 0
+- `cd ~/projects/the-one && python -c "import asyncio; from the_one.mcp.cache_cleanup import _clean_npx; asyncio.run(_clean_npx('../etc/passwd'))"` — signature is `async def _clean_npx(pkg: str) -> None` (single positional arg; verified at `cache_cleanup.py:215`); raises clear `ValueError` from the allowlist check before reaching the path-join site at `:248`
+- `cd ~/projects/the-one && pip-audit --skip-editable --strict 2>&1 | head -30` — runs cleanly
+- `cd ~/projects/the-one && grep -A2 "_init_provider_state\|live-read\|lazy-resolver" the_one/agents.md`
+- `cd ~/projects/the-one && grep "THE_ONE_DEV_MODE" .env.example`
+- `cd ~/projects/the-one && grep -i "rotation cadence\|streamable.http" SECURITY-MODEL.md`
+- `cd ~/projects/the-one && python -c "from the_one.llm.openrouter_provider import _APP_URL, _APP_NAME; print(_APP_URL, _APP_NAME)"` — prints GleepGlorp strings
+- `cd ~/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/ && pytest --tb=no -q` → all exit 0
 
 ## Implementation Guidance
 

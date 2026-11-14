@@ -40,7 +40,7 @@ Add inline VRAM warnings in the Studio agent editor when the selected model on a
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && python -m pytest tests/ -x --timeout=30`
+- `cd ~/projects/the-one && python -m pytest tests/ -x --timeout=30`
 - Manual: Studio -> select ollama provider -> select a large model -> verify warning appears
 - Manual: switch to non-ollama provider -> verify no warning
 

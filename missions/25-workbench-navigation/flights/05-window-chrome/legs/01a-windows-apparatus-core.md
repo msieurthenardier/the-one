@@ -24,7 +24,7 @@ answers spike premises 5, 6, 8, 10 and 12.
     documented when 1a lands.
 - **The operator consented** (2026-10-06) to a test copy on their Windows desktop. Their
   installed `the-one-app.exe` runs on **port 8484 in session 1**, with data in their
-  default Windows data dir (`C:\Users\cprch\AppData\Local\the-one` at planning; resolve
+  default Windows data dir (`C:\Users\<user>\AppData\Local\the-one` at planning; resolve
   it, never assume it). **Nothing in this leg may touch that process, that directory or
   the user or machine environment.**
 - **The host, at planning:**
@@ -55,7 +55,7 @@ answers spike premises 5, 6, 8, 10 and 12.
   `packaging/windows/the-one.spec`.
 - `scripts/webkitgtk_probe.py` and `tests/test_webkitgtk_probe_safety.py`.
 - pywebview 5.4's source, read-only, at
-  `/tmp/claude-1000/-home-cprch-projects-the-one/0eb14466-3200-4ca3-9529-5ff071966eae/scratchpad/pw/x54/webview/`.
+  `/tmp/claude-1000/-home-<user>-projects-the-one/0eb14466-3200-4ca3-9529-5ff071966eae/scratchpad/pw/x54/webview/`.
   It is not in the repo `.venv`; the Windows test-copy venv gets it from the locked
   closure.
 
@@ -75,7 +75,7 @@ answers spike premises 5, 6, 8, 10 and 12.
   - the premise findings for 5, 6, 8, 10 and 12;
   - every Windows session's snapshot result;
   - the setup and freeze times.
-- **The scratch root** `C:\Users\cprch\AppData\Local\Temp\the-one-f5\`, left in place
+- **The scratch root** `C:\Users\<user>\AppData\Local\Temp\the-one-f5\`, left in place
   for legs 1b–4. It holds:
   - `src\` (the copied tree), `venv\` and `src\dist\` (the frozen build);
   - `pids\` (identity records and watchdog scripts), `audit.log`, `last-injection`
@@ -384,7 +384,7 @@ failed snapshot compare exits 4):
    Record anything PyInstaller needed beyond the CI steps. Do not modify `packaging/`.
 6. **The spike for premises 5, 6, 8 and 10.**
    - Write throwaway scripts in
-     `/tmp/claude-1000/-home-cprch-projects-the-one/0eb14466-3200-4ca3-9529-5ff071966eae/scratchpad/f5-spike/`.
+     `/tmp/claude-1000/-home-<user>-projects-the-one/0eb14466-3200-4ca3-9529-5ff071966eae/scratchpad/f5-spike/`.
    - Copy them into `R\spike\` and run them with the venv's Python. Premise 5 uses a
      two-window pywebview spike with a tiny local HTTP page on a port of 8490 or higher.
    - Launch spike windows through the helper's records and refusals, or record their PIDs

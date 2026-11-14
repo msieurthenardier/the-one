@@ -43,6 +43,27 @@
   window.App = window.App || {};
   window.App.admin = window.App.admin || {};
 
+  // The agents-affected body of the impact dialog, shared by this editor's Save and the tool
+  // tile's switch (squawk 0322; `tools-page.js` calls it through `App.admin.toolsImpact`).
+  function impactMessage(agents) {
+    var items = agents.map(function (a) {
+      var parts = a.fields.map(function (f) {
+        var gone = (f.dropped || []).map(function (d) { return String(d); });
+        return f.field_title + (gone.length ? ' (' + gone.join(', ') + ' would no longer apply)'
+          : ' (was any host; it would take the app-wide list)');
+      });
+      return App.ui.util.el('li', { text: a.agent + ': ' + parts.join('; ') });
+    });
+    return App.ui.util.el('div', null, [
+      App.ui.util.el('p', {
+        text: 'These agents hold their own value for this tool that the new setting narrows. ' +
+          'They keep working; each shows a notice on its Tools tab.'
+      }),
+      App.ui.util.el('ul', { 'data-testid': 'tool-impact-list' }, items)
+    ]);
+  }
+  window.App.admin.toolsImpact = { message: impactMessage };
+
   // Tools that ship a connection-test surface (F6 leg 04). Mirrors the backend's
   // `_TESTABLE_TOOLS` frozenset in api.py -- duplicated client-side so the test section's
   // mount is conditional without a backend round-trip. Adding a new testable tool
@@ -407,24 +428,6 @@
     // stays dirty. A failed preview (including its 422) does not block: the PUT is the
     // gate and shows its own errors.
     function plural(n, word) { return n + ' ' + word + (n === 1 ? '' : 's'); }
-
-    function impactMessage(agents) {
-      var items = agents.map(function (a) {
-        var parts = a.fields.map(function (f) {
-          var gone = (f.dropped || []).map(function (d) { return String(d); });
-          return f.field_title + (gone.length ? ' (' + gone.join(', ') + ' would no longer apply)'
-            : ' (was any host; it would take the app-wide list)');
-        });
-        return App.ui.util.el('li', { text: a.agent + ': ' + parts.join('; ') });
-      });
-      return App.ui.util.el('div', null, [
-        App.ui.util.el('p', {
-          text: 'These agents hold their own value for this tool that the new setting narrows. ' +
-            'They keep working; each shows a notice on its Tools tab.'
-        }),
-        App.ui.util.el('ul', { 'data-testid': 'tool-impact-list' }, items)
-      ]);
-    }
 
     function save() {
       if (saving || testing || previewing) return;

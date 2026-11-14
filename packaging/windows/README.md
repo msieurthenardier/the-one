@@ -245,7 +245,7 @@ itself, and force-kills only what is left:
    or the uninstall.
 
 `CloseApplications=force` and `RestartApplications=no` stay as the backstop. Every stage writes a
-`/LOG` line (`setup quit-call`, `quit-poll: present|gone|nothing left`, `quit-killrunning`, with
+`/LOG` line (`setup quit-call`, `quit-check: present|gone|nothing left` (one check after the quit call, no poll loop), `quit-killrunning`, with
 `uninstall` in place of `setup` for the uninstaller), which is what the lifecycle rows L7 and L9 read.
 An app older than this version (v0.11.8 has no `quit` command) is closed by the force step once.
 

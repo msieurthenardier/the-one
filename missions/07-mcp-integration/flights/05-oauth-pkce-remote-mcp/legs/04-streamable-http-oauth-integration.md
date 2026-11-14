@@ -432,10 +432,10 @@ What exists after this leg completes:
    ```
 
 7. **Pre-implementation citation audit** (per `leg/SKILL.md` Phase 2 item 7) — RUN BEFORE writing code:
-   - `cd /home/cprch/projects/the-one && grep -rn "MCPClient\.call_tool\b\|connect_streamable_http\b\|_open_streamable_http_transport_stack\b" tests/ the_one/`
-   - `cd /home/cprch/projects/the-one && grep -rn "_test_http_client_override" tests/ the_one/`
-   - `cd /home/cprch/projects/the-one && grep -rn "_execute_tool\b" tests/ the_one/`
-   - `cd /home/cprch/projects/the-one && grep -rn "MCPClient(" tests/ the_one/`
+   - `cd ~/projects/the-one && grep -rn "MCPClient\.call_tool\b\|connect_streamable_http\b\|_open_streamable_http_transport_stack\b" tests/ the_one/`
+   - `cd ~/projects/the-one && grep -rn "_test_http_client_override" tests/ the_one/`
+   - `cd ~/projects/the-one && grep -rn "_execute_tool\b" tests/ the_one/`
+   - `cd ~/projects/the-one && grep -rn "MCPClient(" tests/ the_one/`
    - Record results in flight log.
 
 8. **Tests** (~9 functions across 3 files):

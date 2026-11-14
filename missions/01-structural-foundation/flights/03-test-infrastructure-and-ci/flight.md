@@ -37,7 +37,7 @@ Add comprehensive unit tests for all core modules (agent loop, tool registry, LL
 - Rationale: The current pipeline has the same 15-line env var block duplicated 3 times. A change to one must be manually replicated. DRYing up reduces maintenance risk.
 - Trade-off: Slightly more indirection in the pipeline — you need to read `deploy.sh` to understand what env vars are set.
 
-**Concourse path variable**: Replace hardcoded `/home/cprch/projects/the-one` with a `((workspace-path))` Concourse variable, injected into tasks via `params: { WORKSPACE_PATH: ((workspace-path)) }` and referenced as `$WORKSPACE_PATH` in shell scripts. The `((...))` syntax is interpolated at `fly set-pipeline` time into the task params, then available as an env var at runtime.
+**Concourse path variable**: Replace hardcoded `~/projects/the-one` with a `((workspace-path))` Concourse variable, injected into tasks via `params: { WORKSPACE_PATH: ((workspace-path)) }` and referenced as `$WORKSPACE_PATH` in shell scripts. The `((...))` syntax is interpolated at `fly set-pipeline` time into the task params, then available as an env var at runtime.
 - Rationale: 5 occurrences of a hardcoded absolute path. If the project moves, the pipeline breaks.
 - Trade-off: One more secret to manage.
 
@@ -111,7 +111,7 @@ A `conftest.py` provides shared fixtures: `tmp_path` for filesystem tests, `Fake
 - [x] `test-registries-and-store` — Unit tests for `ToolRegistry` (register, get, schemas, unknown tool), LLM registry (register_provider, get_provider, lazy loading, unknown provider), `FilesystemConfigStore` (CRUD, missing files, invalid JSON), and `BuiltinToolProvider` (tool count, protocol compliance).
 - [x] `test-factory-and-agent-loop` — Unit tests for `AgentFactory` (default agent, named agent, unknown agent, tool filtering) and `Agent.step()` (normal flow, direct action bypass, continue signal, max iterations, tool execution, tool errors, text-embedded tool call extraction).
 - [x] `aiat-conversion` — Rename `tests/iaat.py` to `tests/test_aiat.py`. Convert to pytest functions with `@pytest.mark.live`. Register the `live` marker in `conftest.py` or `pyproject.toml`. Verify AIAT tests are skipped by default and runnable with `pytest -m live`.
-- [x] `ci-pipeline-hardening` — Remove `|| true` from test step. Replace hardcoded `/home/cprch/projects/the-one` with `((workspace-path))`. Extract shared docker run env block into `ci/deploy.sh`. Update deploy, rollback, and auto-rollback jobs to use the script.
+- [x] `ci-pipeline-hardening` — Remove `|| true` from test step. Replace hardcoded `~/projects/the-one` with `((workspace-path))`. Extract shared docker run env block into `ci/deploy.sh`. Update deploy, rollback, and auto-rollback jobs to use the script.
 - [x] `verify-integration` — Run full test suite locally, verify CI pipeline syntax with `fly validate-pipeline`, deploy and confirm the test gate actually blocks on failure.
 
 ---

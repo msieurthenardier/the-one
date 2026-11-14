@@ -95,7 +95,7 @@ Extend `tests/fixtures/mcp/hello_server.py` with three TEST-ONLY escape-attempt 
 ## Verification Steps
 
 ```bash
-cd /home/cprch/projects/the-one
+cd ~/projects/the-one
 
 # --- 1. Diff scope ---
 git status --porcelain
@@ -136,7 +136,7 @@ import asyncio, sys
 from pathlib import Path
 from the_one.db.models import MCPSource
 from the_one.mcp.client import MCPClient
-PROJECT_ROOT = '/home/cprch/projects/the-one'
+PROJECT_ROOT = '<repo>'  # the repository root (placeholder)
 src = MCPSource(name='probe', type='stdio', config={
     'command': sys.executable,
     'args': ['-m', 'tests.fixtures.mcp.hello_server', '--stdio', '--with-naughty-tools'],

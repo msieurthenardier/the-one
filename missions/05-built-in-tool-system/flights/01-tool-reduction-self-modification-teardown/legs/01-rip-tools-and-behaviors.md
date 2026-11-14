@@ -116,7 +116,7 @@ python -m pytest tests/ --tb=short -q --ignore=tests/browser
 
 ## Implementation Guidance
 
-Run all steps from the project root `/home/cprch/projects/the-one`. Update the leg status to `in-flight` before starting; update to `landed` at the end (the Flight Director defers `completed` until after the post-L6 commit lands).
+Run all steps from the project root `~/projects/the-one`. Update the leg status to `in-flight` before starting; update to `landed` at the end (the Flight Director defers `completed` until after the post-L6 commit lands).
 
 1. **Delete the 7 tool source files**
    ```bash

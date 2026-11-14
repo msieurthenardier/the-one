@@ -113,7 +113,7 @@ Each maps to a unit test in `tests/test_schema_sanitize.py`.
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one`
+- `cd ~/projects/the-one`
 - `python -c "import the_one.llm._schema_sanitize"` — module imports with **stdlib only**
   (no `the_one.llm` imports; grep the file to confirm: `grep -n "^from\|^import" the_one/llm/_schema_sanitize.py` shows only stdlib like `copy`).
 - `pytest tests/test_schema_sanitize.py -q` — all tests pass.

@@ -729,6 +729,38 @@ def test_payload_10_edit_during_an_in_flight_save_stays_dirty(app_clean: str, pa
 
 
 @pytest.mark.browser
+def test_edit_right_after_a_save_keeps_save_enabled(app_clean: str, page: Page) -> None:
+    """Squawk 0279: an edit made the moment a held save lands (toast still showing) leaves the
+    form dirty with Save and Cancel enabled; no busy flag outlives the response."""
+    sid = _seed_mcp_source(app_clean, _http_source("after-save", headers={"X-A": "a"}))
+    held: list = []
+
+    def handle(route):
+        if route.request.method == "PUT":
+            held.append(route)
+        else:
+            route.continue_()
+
+    page.route(f"**/api/mcp-sources/{sid}", handle)
+    _open_source(page, app_clean, sid)
+    _kv_val(_kv_row_by_key(page, "X-A")).fill("a1")
+    save = page.locator('[data-testid="save-mcp-source-btn"]')
+    save.click()
+    for _ in range(40):
+        if held:
+            break
+        page.wait_for_timeout(100)
+    assert held, "the PUT was not issued"
+    expect(save).to_be_disabled()
+    held[0].continue_()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+    _kv_val(_kv_row_by_key(page, "X-A")).fill("a2")
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("Unsaved changes")
+    expect(save).to_be_enabled()
+    expect(page.locator('[data-testid="cancel-mcp-source-btn"]')).to_be_enabled()
+
+
+@pytest.mark.browser
 @pytest.mark.parametrize(
     "case",
     [

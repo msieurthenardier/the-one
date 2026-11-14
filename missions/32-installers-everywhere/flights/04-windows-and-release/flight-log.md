@@ -257,7 +257,7 @@ Status: landed (Developer pass; outward steps AC10 are the Flight Director's).
   - Low: bind the policy once in `run()`; a fuller guard; the test list; AC12's exact commands.
   - All applied. 2a and 2b are separate spawns, with 2a reviewed and committed before 2b. 2b is one flag (`splash_hidden_until_loaded`), so the spare macOS run can bisect. A blank L1 screenshot reads as inconclusive, and 0261 then waits for the contributors.
   - The changes are the reviewer's own recommendations, so no second cycle.
-- **A rule slip, recorded:** the leg 2 design reviewer ran one `ls` on a `site-packages` directory under `/home/cprch/projects/the-one/.venv` (Mission 31's checkout) before noticing. It listed a directory; nothing was read, run or changed. Later spawns are told again to use only the worktree's `.venv`.
+- **A rule slip, recorded:** the leg 2 design reviewer ran one `ls` on a `site-packages` directory under `~/projects/the-one/.venv` (Mission 31's checkout) before noticing. It listed a directory; nothing was read, run or changed. Later spawns are told again to use only the worktree's `.venv`.
 
 ### desktop-boot-policy (leg 2), phase 2a
 
@@ -347,7 +347,7 @@ Squawk 0261 (blank macOS splash). Diff confined to the darwin splash path, one f
   - Before the macOS dispatch, the Flight Director sent back three non-blocking items: the non-atomic show-once, a bound-thread start that could raise into `_boot`, and two test names that did not match their guards. A boot-error note goes in the squawk.
 - **Host-policy breach, recorded:** the phase 2b Developer ran `make test-unit` and the AC12 build and smoke while another session's browser lanes ran. It had waited about 45 minutes with no gap, past its 30-minute bound. Both passed (7476 passed, 12 skipped; `OVERALL PASS`). The rule stands. Later spawns that cannot find a quiet host stop and report, and the Flight Director runs the gate when the host is free.
 - **The operator's go for macOS run 1 (2026-10-25):** "Yes, run it": the standalone `macos-packages.yml` lifecycle for leg 2's AC13. Using the spare to bisect 2a from 2b needs another ask.
-- **Noticed, not ours:** the 2b Developer saw two root-owned paths under `$HOME` (`/home/cprch/projects/epipen`, `/home/cprch/.config/claude`). This flight created neither and leaves them alone. The operator was told.
+- **Noticed, not ours:** the 2b Developer saw two root-owned paths under `$HOME` (`~/projects/epipen`, `~/.config/claude`). This flight created neither and leaves them alone. The operator was told.
 
 
 **2b review fixes**: `_show_splash` now claims the show under a `threading.Lock` (set-once, `show()` called outside it); the bound-thread start is wrapped in try/except (warning, then `_show_splash()` directly) so nothing new raises into `_boot`. Tests: bound test is event-driven (no 0.05/0.4 s timing); separate cases for the destroyed, `_main_shown` (main shown at the fallback bound, splash not closed) and `quit_requested` (not the `_splash_blocked` flags) guards; concurrent double-show shows once; thread-start failure shows directly with no boot error. Squawk 0261 notes the boot-error-before-loaded edge.
