@@ -2810,9 +2810,9 @@
      Cascade notes for those legs (the old look leaned on .area-chat specificity):
        - .msg.user.msg-from-peer beat .msg.user by source order; here the peer and api looks
          are compound selectors (.ui-message--user.ui-message--peer), so order does not matter.
-       - the tool-in-trace override (.trace-shell .trace-body .msg.tool, 0,5,0) beat
-         .msg.msg-operator-only (0,3,0); here .ui-trace-body .ui-message--tool (0,2,0) ties
-         .ui-message.ui-message--operator-only (0,2,0) and is declared AFTER it to win.
+       - the tool-row override inside the work group (.ui-turn-work-tool .ui-message--tool,
+         0,2,0) ties .ui-message.ui-message--operator-only (0,2,0) and is declared AFTER it
+         to win.
        - the markdown descendant rules are scoped under .ui-message--assistant only.
        - no @layer areas rule targets an element inside .area-chat, so none beats these. */
 
@@ -2849,9 +2849,6 @@
   .ui-message-operator-label { display: inline-block; margin-right: 4px; font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-tertiary); }
   .ui-message-operator-chip { display: inline-block; margin-right: 6px; white-space: normal; }
   .ui-message-marker-chip { display: inline-block; margin-right: 6px; white-space: normal; }
-  /* max-width 100% (the old rule said none): a tool message with an unbreakable word wraps inside the trace. */
-  .ui-trace-body .ui-message--tool { max-width: 100%; border-left: 2px solid var(--accent); }
-  .ui-trace-body .ui-message--tool.ui-message--error { border-left-color: var(--status-danger); }
   /* The markdown inside an assistant bubble. */
   .ui-message--assistant > :first-child { margin-top: 0; }
   .ui-message--assistant > :last-child { margin-bottom: 0; }
@@ -2922,12 +2919,11 @@
   .ui-message--assistant.ui-thinking { color: var(--fg-muted); font-style: italic; }
   .ui-message--assistant.ui-thinking .ui-thinking-text { letter-spacing: 0.02em; }
 
-  /* --- Chart (M35 F1 L1: App.ui.chart, its table, tooltip, error block and placeholder) ---
+  /* --- Chart (M35 F1 L1: App.ui.chart, its table, tooltip, and error block) ---
      Colour is CSS only: a series class sets --chart-c from the --chart-N token, so a theme
      change repaints with no JavaScript. The bubble's table rules are out-scoped by the
      .ui-chart ancestor (the chart sits inside .ui-message--assistant). */
-  .ui-chart,
-  .ui-chart-placeholder {
+  .ui-chart {
     box-sizing: border-box;
     width: 100%;
     max-width: 100%;
@@ -2944,10 +2940,8 @@
   }
   /* In a reply the bubble is shrink-to-fit and the chart has no intrinsic width, so ask for the
      bubble's own cap (46rem, see .ui-message--assistant above; keep the two equal) and let
-     max-width shrink it in a narrow pane. The placeholder gets the same width so the swap does
-     not jump. The sparkline stays compact; a chart outside a bubble still fills its container. */
-  .ui-message--assistant .ui-chart:not(.ui-chart--spark),
-  .ui-message--assistant .ui-chart-placeholder { width: 46rem; }
+     max-width shrink it in a narrow pane. The sparkline stays compact; a chart outside a bubble still fills its container. */
+  .ui-message--assistant .ui-chart:not(.ui-chart--spark) { width: 46rem; }
   .ui-message--assistant .ui-widget { width: 46rem; }
   .ui-chart--spark { display: flex; align-items: center; gap: 10px; width: auto; padding: 0; border: 0; background: none; }
   .ui-chart--spark .ui-chart-caption { margin: 0; }
@@ -3019,88 +3013,67 @@
   .ui-visual-notice-head { font-weight: var(--font-weight-semibold); }
   .ui-visual-notice-reason { margin-top: 2px; }
   .ui-visual-notice .ui-disclosure { margin-top: 8px; }
-  .ui-chart-ph-head { display: flex; align-items: baseline; gap: 2px; color: var(--fg-secondary); }
-  .ui-chart-ph-title { width: 40%; height: 14px; margin: 10px 0 12px; border-radius: var(--radius-sm); }
-  .ui-chart-ph-plot { height: 160px; margin-bottom: 12px; }
-  .ui-chart-ph-shape { height: 100%; }
-  .ui-chart-ph-glimmer {
-    background: linear-gradient(90deg, var(--border) 0%, var(--border-hover) 50%, var(--border) 100%);
-    background-size: 200% 100%;
-    animation: ui-chart-glimmer 1.6s linear infinite;
-  }
-  @keyframes ui-chart-glimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-  @media (prefers-reduced-motion: reduce) {
-    .ui-chart-ph-glimmer { animation: none; background: var(--border); }
-  }
-  .ui-chart-ph-block { display: block; height: 100%; border-radius: var(--radius-sm); }
-  .ui-chart-ph-shape--bars { display: flex; align-items: flex-end; gap: 10px; }
-  .ui-chart-ph-bar { flex: 1; border-radius: 3px 3px 0 0; }
-  .ui-chart-ph-bar:nth-child(1) { height: 40%; }
-  .ui-chart-ph-bar:nth-child(2) { height: 70%; }
-  .ui-chart-ph-bar:nth-child(3) { height: 55%; }
-  .ui-chart-ph-bar:nth-child(4) { height: 90%; }
-  .ui-chart-ph-bar:nth-child(5) { height: 65%; }
-  .ui-chart-ph-bar:nth-child(6) { height: 80%; }
-  .ui-chart-ph-shape--line { position: relative; }
-  .ui-chart-ph-seg { position: absolute; width: 21%; height: 5px; border-radius: 3px; transform-origin: left center; }
-  .ui-chart-ph-seg:nth-child(1) { left: 0; bottom: 20%; transform: rotate(-16deg); }
-  .ui-chart-ph-seg:nth-child(2) { left: 20%; bottom: 40%; transform: rotate(14deg); }
-  .ui-chart-ph-seg:nth-child(3) { left: 40%; bottom: 25%; transform: rotate(-26deg); }
-  .ui-chart-ph-seg:nth-child(4) { left: 60%; bottom: 52%; transform: rotate(18deg); }
-  .ui-chart-ph-seg:nth-child(5) { left: 80%; bottom: 35%; transform: rotate(-9deg); }
-  .ui-chart-ph-shape--disc { display: flex; justify-content: center; align-items: center; }
-  .ui-chart-ph-disc { display: block; width: 150px; height: 150px; border-radius: 50%; }
-  .ui-chart-ph-shape--row { display: flex; align-items: center; }
-  .ui-chart-ph-row { display: block; width: 140px; height: 24px; border-radius: var(--radius-sm); }
 
-  /* --- Trace (and the thinking disclosure) --- */
-  .ui-trace { align-self: flex-start; max-width: 85%; margin-top: -4px; font-size: var(--font-size-body-sm); }
-  .ui-trace-details { border-left: 2px solid var(--border); padding-left: 8px; }
-  .ui-trace-toggle,
-  .ui-trace-thinking-toggle {
-    cursor: pointer;
-    color: var(--fg-muted);
-    font-family: var(--font-family-mono);
-    letter-spacing: 0.02em;
-    padding: 4px 0;
-    user-select: none;
-    list-style: none;
-    display: inline-flex;
+  /* --- Turn work group (Sortie 16 L01) --- */
+  .ui-turn-work { align-self: stretch; max-width: min(100%, 46rem); }
+  .ui-turn-work-toggle {
+    display: flex;
     align-items: center;
-    gap: 6px;
-  }
-  .ui-trace-toggle::-webkit-details-marker,
-  .ui-trace-thinking-toggle::-webkit-details-marker { display: none; }
-  .ui-trace-toggle::before,
-  .ui-trace-thinking-toggle::before {
-    content: '\25b8';
-    transition: transform 0.15s ease;
-    color: var(--accent);
-    font-size: 0.85em;
-  }
-  .ui-trace-details[open] > .ui-trace-toggle::before,
-  .ui-trace-thinking[open] > .ui-trace-thinking-toggle::before { transform: rotate(90deg); }
-  .ui-trace--icon-chevron .ui-trace-toggle::before { content: none; }
-  .ui-trace-chevron { display: inline-flex; color: var(--accent); transition: transform 0.15s ease; }
-  .ui-trace-chevron svg { width: 14px; height: 14px; }
-  .ui-trace-details[open] > .ui-trace-toggle .ui-trace-chevron { transform: rotate(90deg); }
-  .ui-trace-toggle:focus-visible,
-  .ui-trace-thinking-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
-  .ui-trace-count { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
-  .ui-trace-body { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 4px 0; }
-  .ui-trace-thinking {
-    align-self: flex-start;
-    max-width: 85%;
-    margin-top: -4px;
+    gap: 8px;
+    min-height: 28px;
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
     font-size: var(--font-size-body-sm);
-    border-left: 2px solid var(--border);
-    padding-left: 8px;
+    font-weight: 500;
+    color: var(--fg-secondary);
   }
-  .ui-trace-thinking-body {
-    padding: 8px 0 4px 0;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+  .ui-turn-work-toggle::-webkit-details-marker { display: none; }
+  .ui-turn-work-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  .ui-turn-work-lead { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; color: var(--accent); }
+  .ui-turn-work-lead svg { width: 14px; height: 14px; transition: transform var(--motion-fast) var(--ease-tactile); }
+  .ui-turn-work-details[open] > .ui-turn-work-toggle .ui-turn-work-lead svg { transform: rotate(90deg); }
+  /* The working indicator is drawn, not typed: three boxes that pulse in sequence, so no font
+     fallback can move it. The slot sets no font-size or line-height of its own. */
+  .ui-turn-work-spin { display: inline-flex; align-items: center; gap: 3px; flex: none; height: 14px; font-size: 0; line-height: 0; }
+  .ui-turn-work-dot { display: block; flex: none; width: 4px; height: 4px; border-radius: 50%; background: var(--accent); animation: ui-turn-work-pulse 1.2s ease-in-out infinite; }
+  .ui-turn-work-dot:nth-child(2) { animation-delay: 0.2s; }
+  .ui-turn-work-dot:nth-child(3) { animation-delay: 0.4s; }
+  .ui-turn-work-spin[data-stopped] .ui-turn-work-dot { animation: none; opacity: 0.4; }
+  @keyframes ui-turn-work-pulse { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .ui-turn-work-dot, .ui-turn-work-spin[data-stopped] .ui-turn-work-dot { animation: none; opacity: 0.7; }
+  }
+  .ui-turn-work-count { font-weight: 400; color: var(--fg-tertiary); font-variant-numeric: tabular-nums; }
+  .ui-turn-work-now { font-family: var(--font-family-mono); font-weight: 400; color: var(--fg-tertiary); }
+  .ui-turn-work-chip { display: inline-block; }
+  .ui-turn-work-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 4px 0 4px 7px;
+    padding: 4px 0 4px 15px;
+    border-left: 1px solid var(--border);
+  }
+  .ui-turn-work-narration { font-size: var(--font-size-body); color: var(--fg-secondary); overflow-wrap: anywhere; }
+  .ui-turn-work-narration--plain { white-space: pre-wrap; }
+  .ui-turn-work-thinking { font-size: var(--font-size-body-sm); font-style: italic; color: var(--fg-muted); overflow-wrap: anywhere; }
+  .ui-turn-work-thinking-label { display: block; font-style: normal; font-weight: 500; color: var(--fg-tertiary); }
+  .ui-turn-work-thinking-text { white-space: pre-wrap; }
+  .ui-turn-work-tool .ui-message--tool { max-width: 100%; border-left: 2px solid var(--accent); }
+  .ui-turn-work-tool .ui-message--tool.ui-message--error { border-left-color: var(--status-danger); }
+  /* The pending text: its end, two lines at most, overflow cut at the top. */
+  .ui-turn-work-preview {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    overflow: hidden;
+    max-height: 3em;
+    line-height: 1.5;
+    padding-left: 22px;
+    font-size: var(--font-size-body);
     color: var(--fg-muted);
+    overflow-wrap: anywhere;
   }
 
   /* --- Telemetry (resting opacity 0.7 is pinned by the contrast audit) --- */

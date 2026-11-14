@@ -1,12 +1,12 @@
 # ruff: noqa: E501  (inline JS snippets are evaluated verbatim; wrapping them hurts readability)
 """Browser flow tests for charts in chat (M35 F1 L2, flight DD6, DD8, DD10, DD14).
 
-A ``chart`` fenced block in an assistant reply is drawn as a chart, live (the streaming
-placeholder, then the chart the moment the closing fence line arrives) and in history. The mock
-provider streams explicit ``stream_chunks`` so the opener, the ``"type"`` key and the closing
-fence fall in separate chunks. Streamed replies are compared with a non-streamed render of the
-same text after normalising each chart subtree (parser-confirmed boundaries must never split a
-fence). Assertions are structural; no pixels and no snapshots.
+A ``chart`` fenced block in an assistant reply is drawn as a chart when the reply lands at
+``done`` (sortie 16: while the turn runs the work group's preview reads "Drawing a chart" and
+nothing of the block is in the log) and in history. The mock provider streams explicit
+``stream_chunks`` so the opener, the ``"type"`` key and the closing fence fall in separate
+chunks. A landed reply is compared with a direct render of the same text after normalising each
+chart subtree. Assertions are structural; no pixels and no snapshots.
 """
 
 from __future__ import annotations
@@ -26,39 +26,22 @@ LINE = json.dumps(json.loads((CORPUS / "line-minimal.json").read_text(encoding="
 BAR = json.dumps(json.loads((CORPUS / "bar-minimal.json").read_text(encoding="utf-8")))
 PIE = json.dumps(json.loads((CORPUS / "pie-minimal.json").read_text(encoding="utf-8")))
 
-PLACEHOLDER = '[data-testid="chat-chart-placeholder"]'
 CHART = '[data-testid="chat-chart"]'
 CHART_ERROR = '[data-testid="chat-chart-error"]'
 SEND = '[data-testid="chat-send-btn"]'
-
-# Notes a page-side watcher keeps: how many placeholders were ever added, and parse calls.
-WATCH_JS = """() => {
-  window.__ph = 0;
-  new MutationObserver((recs) => {
-    for (const r of recs) for (const n of r.addedNodes) {
-      if (n.nodeType !== 1) continue;
-      if (n.matches('[data-testid="chat-chart-placeholder"]') || n.querySelector('[data-testid="chat-chart-placeholder"]')) window.__ph++;
-    }
-  }).observe(document.body, {childList: true, subtree: true});
-  window.__parses = 0;
-  const real = App.markdown.parse;
-  App.markdown.parse = function (t) { window.__parses++; return real.call(App.markdown, t); };
-}"""
 
 
 def _chunks(text: str, size: int) -> list[str]:
     return [text[i : i + size] for i in range(0, len(text), size)]
 
 
-def _open(page: Page, base_url: str, chunks: list[str], delay_ms: int = 0, watch: bool = False):
+def _open(page: Page, base_url: str, chunks: list[str], delay_ms: int = 0):
     provider_id = seed_mock_provider(
         base_url, config={"stream_chunks": chunks, "delay_ms": delay_ms}
     )
     agent = seed_mock_agent(base_url, provider_id)
     page.goto(base_url)
     _chats.start_chat(page, agent)
-    if watch:
-        page.evaluate(WATCH_JS)
     return agent
 
 
@@ -87,9 +70,11 @@ def _child_tags(page: Page) -> list[str]:
 # ── AC8.1: streaming a chart ──────────────────────────────────────────────────
 
 
-def test_streamed_chart_shows_the_placeholder_then_the_chart_before_the_stream_ends(
+def test_a_streaming_chart_shows_only_the_drawing_phrase_until_the_reply_lands(
     app_clean: str, page: Page
 ) -> None:
+    """Flight DD3: while the block streams the preview reads "Drawing a chart" and nothing of
+    the block (no source, no chart) is in the log; the chart is drawn when the reply lands."""
     chunks = [
         "Intro paragraph.\n\n",
         "```ch",
@@ -102,31 +87,76 @@ def test_streamed_chart_shows_the_placeholder_then_the_chart_before_the_stream_e
         "Closing words.",
     ]
     _open(page, app_clean, chunks, delay_ms=700)
+    # A page-side watch (flight DD3): before any reply bubble exists, record any moment the
+    # chart's source text is anywhere in the log (the work group included, hence textContent).
+    page.evaluate(
+        """() => {
+          window.__leaks = [];
+          const log = document.querySelector('.area-chat .messages');
+          new MutationObserver(() => {
+            if (log.querySelector('.ui-message--assistant')) return;
+            const t = log.textContent;
+            if (t.indexOf('```') >= 0 || t.indexOf('"values"') >= 0 || t.indexOf('"series"') >= 0 || t.indexOf('{"ty') >= 0) window.__leaks.push(t);
+          }).observe(log, {childList: true, subtree: true, characterData: true, attributes: true});
+        }"""
+    )
     _send(page)
-    bubble = _bubble(page)
-    # the text before the fence is committed as markdown
-    expect(bubble.locator("p")).to_have_count(1, timeout=10000)
-    ph = page.locator(PLACEHOLDER)
-    expect(ph).to_be_visible(timeout=10000)
-    expect(ph).to_contain_text("Rendering chart")
-    # no raw fence or JSON is visible while the placeholder shows (the source well is closed)
-    visible = bubble.evaluate("(el) => el.innerText")
-    assert "```" not in visible and '{"type"' not in visible
-    expect(ph).to_contain_text("Rendering line chart", timeout=10000)
-    # "Show source" holds the partial JSON
-    ph.locator("summary").click()
-    expect(page.locator('[data-testid="chat-chart-placeholder-source"]')).to_contain_text('"line"')
-    # the chart replaces the placeholder at the closing fence, while the text after still streams
-    expect(page.locator(CHART)).to_have_count(1, timeout=15000)
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
-    assert "Closing words" not in bubble.inner_text()
+    expect(_chats.working_turns(page)).to_have_count(1, timeout=10000)
+    preview = _chats.turn_preview(_chats.turn_group(page))
+    expect(preview).to_have_text("Drawing a chart", timeout=10000)
+    visible = page.locator(".area-chat .messages").evaluate("(el) => el.innerText")
+    assert "```" not in visible and '{"ty' not in visible and "line" not in visible, visible
+    expect(page.locator(CHART)).to_have_count(0)
+    expect(_chats.replies(page)).to_have_count(0)
     expect(page.locator(SEND)).to_be_disabled()
+    # The chart is drawn only when the reply lands, with the text before and after it.
     _done(page)
+    assert page.evaluate("() => window.__leaks") == [], "chart source was visible before done"
+    expect(page.locator(CHART)).to_have_count(1)
     assert _child_tags(page) == ["p", "figure", "p"]
-    expect(bubble.locator("p").last).to_have_text("Closing words.")
+    expect(_bubble(page).locator("p").last).to_have_text("Closing words.")
+    expect(_chats.turn_groups(page)).to_have_count(0)
 
 
-def test_chart_and_placeholder_fill_the_reply_width(app_clean: str, page: Page) -> None:
+_WATCH_NESTED_JS = """() => {
+  window.__leaks = [];
+  const log = document.querySelector('.area-chat .messages');
+  new MutationObserver(() => {
+    if (log.querySelector('.ui-message--assistant')) return;
+    const t = log.textContent;
+    if (t.indexOf('```') >= 0 || t.indexOf('SECRET_') >= 0) window.__leaks.push(t);
+  }).observe(log, {childList: true, subtree: true, characterData: true, attributes: true});
+}"""
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        # a chart inside a blockquote
+        ["Quote:\n\n> ```ch", "art\n> SECRET_Q1 ", '{"type": "bar"}\n', "> ```\n", "After."],
+        # a body with fence-like lines: an indented fence and a fence with text
+        [
+            "Go:\n\n```chart\nSECRET_F1\n",
+            "  ```x\nSECRET_F2\n",
+            "```js\nSECRET_F3\n",
+            "```\n",
+            "After.",
+        ],
+    ],
+    ids=["blockquote", "fence-like-body"],
+)
+def test_a_nested_or_tricky_chart_never_shows_source_while_streaming(
+    app_clean: str, page: Page, chunks: list[str]
+) -> None:
+    _open(page, app_clean, chunks, delay_ms=300)
+    page.evaluate(_WATCH_NESTED_JS)
+    _send(page)
+    expect(_chats.working_turns(page)).to_have_count(1, timeout=10000)
+    _done(page)
+    assert page.evaluate("() => window.__leaks") == [], "chart source was visible before done"
+
+
+def test_a_chart_in_a_landed_reply_fills_the_reply_width(app_clean: str, page: Page) -> None:
     chunks = [
         "Short.\n\n",
         "```chart\n",
@@ -134,25 +164,20 @@ def test_chart_and_placeholder_fill_the_reply_width(app_clean: str, page: Page) 
         "```\n",
         "Done.",
     ]
-    _open(page, app_clean, chunks, delay_ms=900)
+    _open(page, app_clean, chunks, delay_ms=50)
     _send(page)
-    ph = page.locator(PLACEHOLDER)
-    expect(ph).to_be_visible(timeout=10000)
+    _done(page)
+    expect(page.locator(CHART)).to_have_count(1)
     # expected width: the bubble's computed cap, limited by the pane it sits in
     measure = """() => {
       const b = document.querySelector('.ui-message--assistant');
       const cap = parseFloat(getComputedStyle(b).maxWidth) || Infinity;
       const pane = b.parentElement.getBoundingClientRect().width;
-      const f = document.querySelector('[data-testid="chat-chart"], [data-testid="chat-chart-placeholder"]');
+      const f = document.querySelector('[data-testid="chat-chart"]');
       return {w: f.getBoundingClientRect().width, cap: Math.min(cap, pane)};
     }"""
-    ph_m = page.evaluate(measure)
-    assert ph_m["w"] >= 0.9 * ph_m["cap"] - 24, ph_m
-    expect(page.locator(CHART)).to_have_count(1, timeout=15000)
     ch_m = page.evaluate(measure)
     assert ch_m["w"] >= 0.9 * ch_m["cap"] - 24, ch_m
-    assert abs(ch_m["w"] - ph_m["w"]) <= 3, (ph_m, ch_m)
-    _done(page)
 
 
 # ── AC8.2-8.4 ─────────────────────────────────────────────────────────────────
@@ -164,7 +189,6 @@ def test_a_reply_ending_with_a_chart_draws_it_at_finalize(app_clean: str, page: 
     _send(page)
     _done(page)
     expect(page.locator(CHART)).to_have_count(1)
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
     assert _child_tags(page) == ["p", "figure"]
 
 
@@ -184,7 +208,6 @@ def test_a_broken_chart_shows_the_error_notice_and_the_rest_of_the_reply(
     bubble = _bubble(page)
     expect(bubble.locator("p").first).to_have_text("Before.")
     expect(bubble.locator("p").last).to_have_text("Rest of the reply.")
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
 
 
 def test_a_stream_that_ends_inside_the_block_shows_the_cut_off_notice(
@@ -200,7 +223,6 @@ def test_a_stream_that_ends_inside_the_block_shows_the_cut_off_notice(
     expect(err.locator(".ui-visual-notice-head")).to_have_text(
         "This chart was cut off before it finished."
     )
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
     expect(page.locator(CHART)).to_have_count(0)
 
 
@@ -212,12 +234,13 @@ def test_complete_valid_json_without_a_closing_fence_still_draws(
     _send(page)
     _done(page)
     expect(page.locator(CHART)).to_have_count(1)
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
 
 
-def test_stop_in_the_middle_of_a_block_leaves_the_cut_off_notice(
+def test_a_stopped_turn_folds_an_unclosed_chart_block_into_the_group_with_the_cut_off_notice(
     app_clean: str, page: Page
 ) -> None:
+    """Flight DD5: a stop folds the pending text into the group; the unclosed chart block there
+    shows the cut-off notice (the kept `closed: false` handling) and no reply is built."""
     chunks = [
         "Before.\n\n",
         "```chart\n",
@@ -228,12 +251,19 @@ def test_stop_in_the_middle_of_a_block_leaves_the_cut_off_notice(
     ]
     _open(page, app_clean, chunks, delay_ms=900)
     _send(page)
-    expect(page.locator(PLACEHOLDER)).to_be_visible(timeout=10000)
+    expect(_chats.working_turns(page)).to_have_count(1, timeout=10000)
+    expect(_chats.turn_preview(_chats.turn_group(page))).to_have_text(
+        "Drawing a chart", timeout=10000
+    )
     page.locator('[data-testid="chat-stop-btn"]').click()
     err = page.locator(CHART_ERROR)
     expect(err).to_have_count(1, timeout=10000)
     assert "ui-notice--muted" in err.get_attribute("class")
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
+    # The notice lives inside the stopped group, not in a reply bubble.
+    expect(page.locator(f'[data-testid="turn-work"] {CHART_ERROR}')).to_have_count(1)
+    assert _chats.turn_state(_chats.turn_group(page)) == "stopped"
+    expect(_chats.replies(page)).to_have_count(0)
+    expect(page.locator(CHART)).to_have_count(0)
     expect(page.locator(SEND)).to_be_enabled(timeout=10000)
 
 
@@ -251,7 +281,6 @@ def test_reopening_the_chat_draws_the_same_charts_and_copy_keeps_the_raw_block(
     page.reload()
     _chats.expect_chat(page, agent)
     expect(page.locator(CHART)).to_have_count(2, timeout=10000)
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
     types = page.evaluate(
         "() => Array.from(document.querySelectorAll('[data-testid=\"chat-chart\"]')).map((c) => c.getAttribute('data-chart-type'))"
     )
@@ -346,54 +375,18 @@ CASES = {
 
 
 @pytest.mark.parametrize("name", list(CASES))
-def test_streamed_reply_matches_a_non_streamed_render(
-    app_clean: str, page: Page, name: str
-) -> None:
+def test_a_landed_reply_matches_a_direct_render(app_clean: str, page: Page, name: str) -> None:
+    """The reply the turn lands (built once at `done` from the streamed chunks) is the same DOM
+    as rendering the whole text directly, fence cases included. (Before sortie 16 this compared a
+    reply committed piece by piece while it streamed.)"""
     text, _ = CASES[name]
-    # 5 characters every 100 ms is slower than the 16 ms pacing drains, so every tick sees the
-    # tail grow by a little and the commit logic runs at each boundary (a fast stream would be
-    # drained in one go at `done`, exercising nothing).
-    _open(page, app_clean, _chunks(text, 5), delay_ms=100, watch=True)
+    _open(page, app_clean, _chunks(text, 40), delay_ms=10)
     _send(page)
     _done(page)
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
     page.evaluate("(t) => { window.__raw = t; }", text)
     out = page.evaluate(NORMALIZE_JS)
     assert out["streamed"]["types"] == out["reference"]["types"]
     assert out["streamed"]["html"] == out["reference"]["html"], name
-    if name in (
-        "chart-line-inside-an-open-fence-stays-code",
-        "charts-opener-is-a-code-block",
-        "chart-in-a-list-item",
-        "chart-fence-quoted-in-a-blockquote",
-        "cycle-2-nested-fence-ended-by-a-column-0-line",
-    ):
-        assert page.evaluate("() => window.__ph") == 0, "no placeholder for a non-top-level chart"
-
-
-# ── AC6 perf: the parser is not called per tick ───────────────────────────────
-
-
-def test_parse_count_stays_bounded_after_a_nested_fence_the_parser_leaves_open(
-    app_clean: str, page: Page
-) -> None:
-    text = "- Step:\n  ```python\n  x = 1\n```\n\n" + "Para.\n\n" * 30
-    _open(page, app_clean, _chunks(text, 5), delay_ms=100, watch=True)
-    _send(page)
-    _done(page)
-    parses = page.evaluate("() => window.__parses")
-    assert parses <= 8, parses
-
-
-def test_one_long_unclosed_top_level_fence_never_asks_the_parser(
-    app_clean: str, page: Page
-) -> None:
-    text = "```text\n" + "code\n\n" * 30
-    _open(page, app_clean, _chunks(text, 5), delay_ms=100, watch=True)
-    _send(page)
-    _done(page)
-    assert page.evaluate("() => window.__parses") == 0
-    expect(_bubble(page).locator("pre")).to_have_count(1)
 
 
 # ── AC8.8 and AC9: theme and the table style ──────────────────────────────────
@@ -449,15 +442,22 @@ def test_a_pinned_transcript_stays_at_the_bottom_across_a_chart(app_clean: str, 
 def test_a_reader_who_scrolled_up_is_never_pulled_down_by_a_chart(
     app_clean: str, page: Page
 ) -> None:
-    chunks = [PARAS, "More text.\n\n", "```chart\n", BAR + "\n", "```\n", "Tail text.\n"]
-    _open(page, app_clean, chunks, delay_ms=500)
+    # The reader scrolls up while a turn runs; when its reply (a chart) lands at `done`, the
+    # transcript must not pull them down. The first turn makes the log overflow.
+    _open(page, app_clean, [PARAS, "More text.\n\n"], delay_ms=10)
     _send(page)
-    expect(_bubble(page)).to_contain_text("Paragraph number 39", timeout=20000)
+    _done(page)
     assert page.evaluate(DIST_JS)[1] > page.evaluate(DIST_JS)[2] + 300, (
         "must overflow well past 80px"
     )
     page.evaluate("() => { document.querySelector('.messages').scrollTop = 0; }")
+    for f in (
+        {"type": "user", "content": "again"},
+        {"type": "assistant", "content": "A chart:\n\n```chart\n" + BAR + "\n```\n"},
+    ):
+        _chats.emit_frame(page, f)
+    expect(_chats.working_turns(page)).to_have_count(1)
+    _chats.emit_frame(page, {"type": "done"})
     expect(page.locator(CHART)).to_have_count(1, timeout=20000)
-    _done(page)
     page.wait_for_timeout(400)
     assert page.evaluate(DIST_JS)[3] <= 8

@@ -578,11 +578,11 @@ def test_keyboard_log_in_moves_focus_to_the_sign_in_link(
 
 
 @pytest.mark.browser
-def test_sign_in_group_sits_after_the_trace_shell_not_inside_it(
+def test_sign_in_group_sits_after_the_work_group_not_inside_it(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     """Operator HAT decision (sortie 04): the sign-in control must not hide in the
-    collapsible "Tool activity" panel. It is the trace shell's next sibling."""
+    collapsible work group. It is the group's next sibling (sortie 16 L02)."""
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     _emit_ws_event(
         page,
@@ -594,28 +594,30 @@ def test_sign_in_group_sits_after_the_trace_shell_not_inside_it(
             "parent_message_id": "pm-1",
         },
     )
-    shell = page.locator('[data-testid="trace-shell"]')
-    expect(shell).to_have_count(1)
+    work = _chats.turn_groups(page)
+    expect(work).to_have_count(1)
     frame = _auth_frame("src-t1") | {"parent_message_id": "pm-1"}
     _emit_ws_event(page, frame)
     group = page.locator(".login-required-group")
     expect(group).to_have_count(1)
-    expect(page.locator('[data-testid="trace-shell"] .login-required-group')).to_have_count(0)
-    adjacent = page.locator('[data-testid="trace-shell"] + .login-required-group')
+    expect(page.locator('[data-testid="turn-work"] .login-required-group')).to_have_count(0)
+    adjacent = page.locator('[data-testid="turn-work"] + .login-required-group')
     expect(adjacent).to_have_count(1)
-    # The trace's item count is the tool activity only (the one tool call).
-    expect(page.locator('[data-testid="trace-shell"] summary')).to_contain_text("Tool activity · 1")
-    # Collapsing the trace leaves the control visible.
+    # The group is paused on the sign-in, and counts the tool activity only (the one tool call).
+    assert _chats.turn_state(work) == "sign-in"
+    assert _chats.turn_line(work) == "Waiting for sign-in · 1 tool call"
+    # Collapsing the work group leaves the control visible.
     page.evaluate(
-        "() => { document.querySelector('[data-testid=\\\"trace-shell\\\"] details').open = false; }"
+        "() => { document.querySelector('[data-testid=\\\"turn-work\\\"] details').open = false; }"
     )
     expect(page.locator(".login-required-btn")).to_be_visible()
     # A replay keeps exactly one group, in the same place.
     _emit_ws_event(page, frame)
     expect(group).to_have_count(1)
     expect(adjacent).to_have_count(1)
-    expect(page.locator('[data-testid="trace-shell"] .login-required-group')).to_have_count(0)
-    expect(page.locator('[data-testid="trace-shell"] summary')).to_contain_text("Tool activity · 1")
+    expect(work).to_have_count(1)
+    expect(page.locator('[data-testid="turn-work"] .login-required-group')).to_have_count(0)
+    assert _chats.turn_line(work) == "Waiting for sign-in · 1 tool call"
 
 
 def _hold_oauth_start(page: Page) -> dict:

@@ -505,6 +505,14 @@ from a widget arrives with origin `"null"`, which the OAuth listener
 (`areas/studio/mcp-oauth-consent.js`, `evt.origin !== window.location.origin`) drops
 (`tests/browser/test_flow_chat_widgets.py`).
 
+A widget is never built from text that is still arriving: while a turn runs, the pending text is
+shown only as plain text in the work group's preview (`textContent`, and a fixed phrase such as
+"Building a widget" in place of an open `widget` block's source), and a widget is mounted only when
+its text is rendered once, when the reply lands or its narration can no longer become the reply. A
+stopped, errored or step-limited turn folds its text into the group with the block marked unclosed,
+so an unclosed `widget` block shows the cut-off notice and its source never runs
+(`tests/browser/test_flow_chat_widgets.py`).
+
 ### What a widget cannot do
 
 Reach the network (HTTP, WebSocket, beacon, images, CSS `url()`, workers, `import()`, WebRTC STUN,

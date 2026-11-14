@@ -39,7 +39,6 @@ SEND = '[data-testid="chat-send-btn"]'
 STOP = '[data-testid="chat-stop-btn"]'
 INPUT = '[data-testid="chat-input"]'
 COPY = '[data-testid="message-copy"]'
-THINKING = '[data-testid="thinking-indicator"]'
 STOPPED = '[data-testid="chat-stopped"]'
 DISCARDED = '[data-testid="chat-discarded"]'
 AGENT_ERROR = '[data-testid="chat-agent-error"]'
@@ -68,14 +67,22 @@ _CLIPBOARD_SPY = """() => {
 # The log's direct children as a compact kind list, in DOM order.
 _KINDS_JS = """() => Array.from(document.querySelector('.area-chat .messages').children).map(e => {
   const t = e.getAttribute('data-testid');
-  if (t === 'thinking-disclosure') return 'think:' + e.textContent.replace('Thinking', '').trim();
+  if (t === 'turn-work') return 'work';
   if (t === 'message') {
     const role = e.className.match(/ui-message--(user|assistant|tool|system)/)[1];
     return role + ':' + e.textContent.trim().slice(0, 24);
   }
-  if (t === 'trace-shell') return 'trace';
   if (e.classList.contains('ui-message-attribution')) return 'attr';
   return e.getAttribute('data-testid') || e.className || e.tagName;
+})"""
+
+# The items of the log's turn work groups as a compact list, in DOM order (the group is
+# collapsed, so textContent, not visible text).
+_WORK_ITEMS_JS = """() => Array.from(document.querySelectorAll('[data-testid="turn-work"] [data-kind]')).map(e => {
+  const k = e.getAttribute('data-kind');
+  if (k === 'thinking') return 'thinking:' + e.textContent.replace('Thinking', '').trim();
+  if (k === 'narration') return 'narration:' + e.textContent.trim();
+  return 'tool';
 })"""
 
 _TELEMETRY_MAX_JS = """() => {
@@ -143,14 +150,18 @@ def test_model_loading_dots_are_static_under_reduced_motion(app_clean: str, page
     expect(page.locator('[data-testid="model-loading"]')).to_have_text("Model loaded.")
 
 
-def test_the_thinking_label_and_its_static_ellipsis(app_clean: str, page: Page) -> None:
-    """A8: the indicator reads "Thinking…" (the label plus the control's dots)."""
+def test_the_working_label_and_its_static_dots(app_clean: str, page: Page) -> None:
+    """A8: the running work line reads "Working" with the control's dots (static under
+    reduced motion)."""
     page.emulate_media(reduced_motion="reduce")
     agent = _agent(app_clean, delay_ms=3000)
     page.goto(app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "hi")
-    expect(page.locator(THINKING)).to_have_text(re.compile(r"^Thinking\s?…$"), timeout=5000)
+    working = _chats.working_turns(page)
+    expect(working).to_have_count(1, timeout=5000)
+    expect(working).to_contain_text("Working")
+    assert _chats.turn_name(working) == "Working"
 
 
 # ── DD11 5 and 0.3: the context-window fetch ───────────────────────────────────
@@ -247,9 +258,12 @@ def test_copy_reply_copies_the_stored_content_live_and_on_replay(
     page.goto(app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "go")
-    assistant = _chats.messages(page, "assistant")
-    expect(assistant.first).to_contain_text("Here is code", timeout=8000)
-    # There is no Copy while the reply streams.
+    expect(_chats.working_turns(page)).to_have_count(1, timeout=8000)
+    expect(_chats.turn_preview(_chats.turn_group(page))).to_contain_text(
+        "Here is code", timeout=8000
+    )
+    # Until the turn ends the text is only a preview: no reply bubble, so no Copy.
+    expect(_chats.replies(page)).to_have_count(0)
     expect(page.locator(COPY)).to_have_count(0)
     expect(page.locator(SEND)).to_be_enabled(timeout=15000)
     expect(page.locator(COPY)).to_have_count(1)
@@ -306,32 +320,51 @@ def test_an_empty_reply_has_no_copy_and_delivered_results_have_none(
 ) -> None:
     _joined(page, app_clean, _agent(app_clean))
     before = page.locator(COPY).count()
-    _chats.emit_frame(page, {"type": "assistant", "content": ""})
-    _chats.emit_frame(page, {"type": "assistant", "content": "filled"})
+    # A turn whose only text is empty builds no reply, so it has no Copy.
+    for f in (
+        {"type": "user", "content": "q1"},
+        {"type": "assistant", "content": ""},
+        {"type": "done"},
+    ):
+        _chats.emit_frame(page, f)
+    expect(_chats.working_turns(page)).to_have_count(0)
+    expect(page.locator(COPY)).to_have_count(before)
+    # Nor does a whole `assistant` frame before `done`: the reply lands (with its Copy) at `done`.
+    for f in ({"type": "user", "content": "q2"}, {"type": "assistant", "content": "filled"}):
+        _chats.emit_frame(page, f)
+    expect(page.locator(COPY)).to_have_count(before)
+    _chats.emit_frame(page, {"type": "done"})
     expect(page.locator(COPY)).to_have_count(before + 1)
 
 
-def test_a_stopped_streaming_reply_keeps_every_received_character(
+def test_a_stopped_turn_keeps_every_received_character_inside_the_group(
     app_clean: str, page: Page
 ) -> None:
-    """drainPacing hands the whole queue to the bubble before it is finalized: Stop does not
-    drop characters still waiting to be paced, and Copy copies the received text."""
+    """Flight DD5: a stop drops no received character. The text goes into the work group (not a
+    reply bubble), so there is no Copy; the whole text is there."""
     _joined(page, app_clean, _agent(app_clean))
     text = "x" * 3000
-    _chats.emit_frame(page, {"type": "assistant_chunk", "content": text})
-    _chats.emit_frame(page, {"type": "cancelled"})
-    page.evaluate(_CLIPBOARD_SPY)
-    assistant = _chats.messages(page, "assistant").last
-    assert len((assistant.text_content() or "").strip()) == 3000
-    page.locator(COPY).last.click()
-    page.wait_for_function("() => window.__copied.length === 1")
-    assert page.evaluate("() => window.__copied[0]") == text
+    for f in (
+        {"type": "user", "content": "go"},
+        {"type": "assistant_chunk", "content": text},
+        {"type": "cancelled"},
+    ):
+        _chats.emit_frame(page, f)
+    expect(page.locator(STOPPED)).to_have_count(1)
+    group = _chats.turn_group(page)
+    assert _chats.turn_state(group) == "stopped"
+    assert _chats.turn_texts(group, "narration") == [text]
+    # No reply bubble, so no Copy and no second rendering of the text.
+    expect(_chats.replies(page).filter(has_text="xxx")).to_have_count(0)
+    expect(page.locator(COPY)).to_have_count(1)  # the first turn's reply from `_joined` only
 
 
 # ── B2: the thinking disclosure above its reply ────────────────────────────────
 
 
-def test_thinking_precedes_its_reply_live_and_on_replay(app_clean: str, page: Page) -> None:
+def test_thinking_work_group_precedes_its_reply_live_and_on_replay(
+    app_clean: str, page: Page
+) -> None:
     agent = _agent(
         app_clean,
         response={
@@ -342,34 +375,38 @@ def test_thinking_precedes_its_reply_live_and_on_replay(app_clean: str, page: Pa
     page.goto(app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "q")
-    expect(page.locator('[data-testid="thinking-disclosure"]')).to_have_count(1, timeout=10000)
+    expect(_chats.messages(page, "assistant")).to_have_count(1, timeout=10000)
+    expect(_chats.turn_groups(page)).to_have_count(1, timeout=10000)
 
     def order() -> list[str]:
         return page.evaluate(_KINDS_JS)
 
     live = order()
-    assert live.index("think:pondering") + 1 == live.index("assistant:the answer"), live
+    assert live.index("work") + 1 == live.index("assistant:the answer"), live
+    assert page.evaluate(_WORK_ITEMS_JS) == ["thinking:pondering"]
+    assert _chats.turn_line(_chats.turn_group(page)) == "Work · thinking"
     page.reload()
     _chats.expect_chat(page, agent, timeout=10000)
-    expect(page.locator('[data-testid="thinking-disclosure"]')).to_have_count(1, timeout=10000)
+    expect(_chats.turn_groups(page)).to_have_count(1, timeout=10000)
     replayed = order()
-    assert replayed.index("think:pondering") + 1 == replayed.index("assistant:the answer"), replayed
+    assert replayed.index("work") + 1 == replayed.index("assistant:the answer"), replayed
+    assert page.evaluate(_WORK_ITEMS_JS) == ["thinking:pondering"]
 
 
 _ITERATIONS = [
     "user:go",
     "attr",
-    "think:T1",
-    "assistant:first",
-    "attr",
-    "trace",
-    "think:T2",
+    "work",
     "assistant:second",
     "attr",
 ]
+# Each pass's thinking sits above that pass's own text; the reply is the last text.
+_ITERATION_ITEMS = ["thinking:T1", "narration:first", "tool", "tool", "thinking:T2"]
 
 
-def test_each_iterations_thinking_sits_above_its_own_reply_live(app_clean: str, page: Page) -> None:
+def test_each_iterations_thinking_sits_above_its_own_narration_live(
+    app_clean: str, page: Page
+) -> None:
     _joined(page, app_clean, _agent(app_clean))
     frames = [
         {"type": "user", "content": "go"},
@@ -397,9 +434,10 @@ def test_each_iterations_thinking_sits_above_its_own_reply_live(app_clean: str, 
         _chats.emit_frame(page, f)
     kinds = page.evaluate(_KINDS_JS)
     assert kinds[kinds.index("user:go") :] == _ITERATIONS, kinds
+    assert page.evaluate(_WORK_ITEMS_JS) == _ITERATION_ITEMS
 
 
-def test_each_iterations_thinking_sits_above_its_own_reply_on_replay(
+def test_each_iterations_thinking_sits_above_its_own_narration_on_replay(
     app_clean: str, page: Page
 ) -> None:
     pid = seed_mock_provider(app_clean, name="pr")
@@ -421,9 +459,10 @@ def test_each_iterations_thinking_sits_above_its_own_reply_on_replay(
     )
     page.goto(app_clean)
     _chats.open_chat(page, sid)
-    expect(page.locator('[data-testid="thinking-disclosure"]')).to_have_count(2, timeout=10000)
+    expect(_chats.turn_groups(page)).to_have_count(1, timeout=10000)
     kinds = page.evaluate(_KINDS_JS)
     assert kinds[kinds.index("user:go") :] == _ITERATIONS, kinds
+    assert page.evaluate(_WORK_ITEMS_JS) == _ITERATION_ITEMS
 
 
 # ── B9: Stopped. ────────────────────────────────────────────────────────────────
@@ -434,7 +473,13 @@ def _slow_turn(page: Page, base: str) -> None:
     page.goto(base)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "running")
-    expect(_chats.messages(page, "assistant").first).to_contain_text("alpha", timeout=8000)
+    _wait_running(page)
+
+
+def _wait_running(page: Page) -> None:
+    """The turn is running and its text has begun to arrive (the group's quiet preview)."""
+    expect(_chats.working_turns(page)).to_have_count(1, timeout=8000)
+    expect(_chats.turn_preview(_chats.turn_group(page))).to_contain_text("alpha", timeout=8000)
 
 
 def test_stop_shows_stopped_and_a_discarded_held_message(app_clean: str, page: Page) -> None:
@@ -467,7 +512,7 @@ def test_stop_without_a_held_message_shows_only_stopped_and_consumes_the_flag(
     # A second Stop in a later turn does not inherit anything.
     page.locator(INPUT).fill("again")
     page.locator(INPUT).press("Enter")
-    expect(_chats.messages(page, "assistant").last).to_contain_text("alpha", timeout=8000)
+    _wait_running(page)
     page.locator(STOP).click()
     expect(page.locator(STOPPED)).to_have_count(2, timeout=8000)
     expect(page.locator(DISCARDED)).to_have_count(0)
@@ -570,7 +615,7 @@ def _seed_operator_session(base: str) -> tuple[str, str]:
     return agent, sid
 
 
-def test_operator_only_is_a_chip_and_the_trace_has_a_chevron_and_a_dot_count(
+def test_operator_only_is_a_chip_and_the_work_group_names_its_tool_calls(
     app_clean: str, page: Page
 ) -> None:
     _, sid = _seed_operator_session(app_clean)
@@ -579,14 +624,13 @@ def test_operator_only_is_a_chip_and_the_trace_has_a_chevron_and_a_dot_count(
     chip = page.locator(".ui-message-operator-chip").first
     expect(chip).to_have_text("Operator only", timeout=10000)
     expect(page.locator(MESSAGES)).not_to_contain_text("[operator-only]")
-    trace = page.locator('[data-testid="trace-shell"]')
-    expect(trace.locator("summary")).to_contain_text("Tool activity · 2")
-    expect(trace.locator(".ui-trace-chevron svg")).to_have_count(1)
-    closed = trace.locator(".ui-trace-chevron").evaluate("el => getComputedStyle(el).transform")
-    trace.locator("summary").click()
-    page.wait_for_timeout(300)
-    opened = trace.locator(".ui-trace-chevron").evaluate("el => getComputedStyle(el).transform")
-    assert closed != opened
+    group = _chats.turn_group(page)
+    expect(group).to_have_count(1)
+    assert _chats.turn_line(group).startswith("Work · 1 tool call")
+    # The group carries the chip for its operator-only items (items do not repeat it).
+    assert "Operator only" in (_chats.turn_summary(group).inner_text() or "")
+    # The reply is the last text; the earlier text and the tool rows are in the group.
+    assert page.evaluate(_WORK_ITEMS_JS) == ["narration:checking", "tool", "tool"]
 
 
 def test_timestamps_are_full_strength_and_the_telemetry_focus_offset_is_two_pixels(

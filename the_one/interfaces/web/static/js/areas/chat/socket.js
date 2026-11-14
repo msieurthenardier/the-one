@@ -84,9 +84,9 @@
         // AC6: while starting, keep the held slot, busy and the thinking
         // indicator: the re-sent start_session restores is_processing.
         if (chatState.state().name !== 'starting') {
-          // Drop "thinking…" + re-enable input so a mid-response disconnect doesn't
-          // strand the UI; the auto-reconnect below brings the WS back.
-          ctx.transcript.hideThinking();
+          // Re-enable input so a mid-response disconnect doesn't strand the UI; the
+          // auto-reconnect below brings the WS back. The work group stays as it is (the
+          // re-join's replay rebuilds the log).
           // Disconnect drops every in-flight broadcast — clear both maps so neither
           // the held-message queue nor the stop control get stuck after reconnect.
           for (var k in state.inFlightSessions) delete state.inFlightSessions[k];
@@ -212,13 +212,17 @@
           // to this payload's).
           ctx.renderChatsList();
           ctx.renderPane();
-          ctx.transcript.hideThinking();
           ctx.telemetry.reset();
           // AC2/AC7: the first turn behaves like any turn. A start's join
           // with an empty history keeps the optimistic bubble; any other
           // join renders the history (an in-flight session's history already
-          // holds the user event).
-          if (joinedEff.render === 'history') ctx.transcript.renderHistory(data.history, data.agent_name);
+          // holds the user event). A turn in flight renders its trailing turn
+          // as running (the work group stays open for the live frames).
+          var rendersHistory = joinedEff.render === 'history';
+          if (rendersHistory) {
+            ctx.transcript.renderHistory(data.history, data.agent_name,
+              { trailing: data.is_processing ? 'working' : 'closed' });
+          }
           state.startBubbleNodes = [];
           // M16 F06 L02: synchronously restore persisted last_usage into
           // the overlay so the token counts aren't lost on session reopen.
@@ -249,9 +253,11 @@
           ctx.holdQueue.clearPendingQueued();
           if (data.is_processing) {
             state.inFlightSessions[joinedId] = true;
-            ctx.transcript.showThinking();
+            ctx.turnWork.begin();
           } else {
             delete state.inFlightSessions[joinedId];
+            // A start whose turn never ran leaves no empty "Working" line behind.
+            if (!rendersHistory) ctx.turnWork.dropEmpty();
           }
           var sentHeld = false;
           if (ctx.holdQueue.count(joinedId)) {

@@ -1872,8 +1872,8 @@ class SocketScript:
     """One shared WebSocket helper for every live and sign-in surface. It connects the page's
     socket to the real server (so the join and its history are real), then:
 
-    - ``processing``: rewrites the join reply to ``is_processing`` so Stop and the thinking
-      indicator show, the way a turn in flight does;
+    - ``processing``: rewrites the join reply to ``is_processing`` so Stop and the work
+      group's "Working" line show, the way a turn in flight does;
     - ``empty_list``: blanks the session list frames (the empty and guidance states);
     - swallows every ``message`` and ``cancel`` the page sends, so nothing reaches the agent and
       no session is re-stamped with the real clock;
@@ -2083,22 +2083,93 @@ def _composer_images(ctx: Ctx) -> None:
     ctx.page.wait_for_timeout(600)
 
 
-def _stream_text(ctx: Ctx) -> None:
-    """Three chunk frames, then wait for the client's pacing queue to drain: the state (the full
-    text shown, no ``done``) is what is captured, never a point on a timer."""
+def _work_frames(ctx: Ctx) -> None:
+    """A turn working, scripted: a thinking frame, a tool call that has no result yet (so the
+    running tool's name shows), then three chunk frames of the pass's text. The captured state is
+    the work line (count, tool name) and its two-line preview, with Stop visible and no ``done``:
+    the page waits for the preview to hold the last chunk, never on a timer."""
     page = ctx.page
     sock: SocketScript = ctx.state["sock"]
     page.locator('[data-testid="chat-stop-btn"]').wait_for(state="visible", timeout=10000)
+    sock.send({"type": "thinking", "content": "Read the report first, then summarise it."})
+    sock.send(
+        {
+            "type": "tool_call",
+            "name": "read_file",
+            "arguments": {"path": "/home/user/reports/q3.md"},
+            "tool_call_id": "cap-w1",
+        }
+    )
     for part in CHAT_STREAM_TEXT.replace(". ", ". |").split("|"):
         sock.send({"type": "assistant_chunk", "content": part})
     page.wait_for_function(
-        "t => { const m = Array.from(document.querySelectorAll('.messages [data-testid=\"message\"].ui-message--assistant'));"  # noqa: E501
-        " return m.length && m[m.length - 1].textContent === t; }",
-        arg=CHAT_STREAM_TEXT,
+        "() => { const p = document.querySelector('[data-testid=\"turn-work-preview\"]');"
+        " return p && !p.hidden && p.textContent.indexOf('no end in sight') !== -1; }",
         timeout=30000,
     )
-    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="visible", timeout=10000)
+    state = page.locator('[data-testid="turn-work"]').last.get_attribute("data-state")
+    if state != "working":
+        raise CaptureError(f"turn working: the group is {state!r}, not 'working'")
     _scroll_messages(page, "bottom")
+
+
+def _turn_finished_open(ctx: Ctx) -> None:
+    """A finished turn, scripted end to end: thinking, a narration pass, a tool call and its
+    result, the reply as chunks, then ``done``. The reply lands as a normal bubble below the
+    group; the group is then opened so its narration, thinking and tool rows show."""
+    page = ctx.page
+    sock: SocketScript = ctx.state["sock"]
+    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="visible", timeout=10000)
+    sock.send({"type": "thinking", "content": "Read the report first, then summarise it."})
+    sock.send({"type": "assistant", "content": "I'll start by reading the Q3 report."})
+    sock.send(
+        {
+            "type": "tool_call",
+            "name": "read_file",
+            "arguments": {"path": "/home/user/reports/q3.md"},
+            "tool_call_id": "cap-d1",
+        }
+    )
+    sock.send(
+        {
+            "type": "tool_result",
+            "content": "# Q3\nRevenue up 12%.\nCosts flat.",
+            "is_error": False,
+            "tool_call_id": "cap-d1",
+        }
+    )
+    sock.send({"type": "assistant_chunk", "content": "Revenue rose 12% in Q3 and costs held flat."})
+    sock.send({"type": "done"})
+    group = page.locator('[data-testid="turn-work"]').last
+    page.wait_for_function(
+        "() => { const all = document.querySelectorAll('[data-testid=\"turn-work\"]');"
+        " const g = all[all.length - 1];"
+        " return !!g && g.getAttribute('data-state') === 'done'; }",
+        timeout=15000,
+    )
+    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="hidden", timeout=10000)
+    group.locator("summary").click()
+    if not group.locator("details").first.evaluate("d => d.open"):
+        raise CaptureError("turn finished: the group did not open")
+    _scroll_messages(page, "bottom")
+
+
+def _turn_stopped(ctx: Ctx) -> None:
+    """A stopped turn: the working frames, a real Stop click (swallowed by the helper), then an
+    injected ``cancelled`` frame. The group folds its pending text into narration, reads
+    "Stopped" and no reply bubble is built; the "Stopped." notice follows it."""
+    page = ctx.page
+    _work_frames(ctx)
+    page.locator('[data-testid="chat-stop-btn"]').click()
+    ctx.state["sock"].send({"type": "cancelled"})
+    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="hidden", timeout=10000)
+    page.wait_for_function(
+        "() => { const all = document.querySelectorAll('[data-testid=\"turn-work\"]');"
+        " const g = all[all.length - 1];"
+        " return !!g && g.getAttribute('data-state') === 'stopped'; }",
+        timeout=10000,
+    )
+    page.wait_for_timeout(300)
 
 
 def _queued(ctx: Ctx) -> None:
@@ -2112,15 +2183,6 @@ def _queued(ctx: Ctx) -> None:
     page.locator('[data-testid="pending-queued-region"]').wait_for(state="visible", timeout=10000)
     if ctx.state["sock"].swallowed:
         raise CaptureError("queued: a message reached the socket")
-
-
-def _after_stop(ctx: Ctx) -> None:
-    page = ctx.page
-    _stream_text(ctx)
-    page.locator('[data-testid="chat-stop-btn"]').click()
-    ctx.state["sock"].send({"type": "cancelled"})
-    page.locator('[data-testid="chat-stop-btn"]').wait_for(state="hidden", timeout=10000)
-    page.wait_for_timeout(300)
 
 
 def _agent_error(ctx: Ctx) -> None:
@@ -2298,7 +2360,8 @@ SURFACES += [
     _chat_surface(
         "chat-joined-rich-top",
         _ROUTE,
-        "A joined chat: rich markdown, tool activity and thinking, scrolled to the top",
+        "A joined chat: rich markdown, and a collapsed work group (thinking, two tool calls) above "
+        "its reply, scrolled to the top",
         prepare=_rich_scroll("top"),
     ),
     _chat_surface(
@@ -2316,7 +2379,8 @@ SURFACES += [
     _chat_surface(
         "chat-joined-rich-disclosures-open",
         _ROUTE,
-        "The rich chat with every thinking and tool-activity disclosure open",
+        "The rich chat with its work group open (thinking and tool rows) and every other "
+        "disclosure open",
         prepare=_rich_scroll("top", open_disclosures=True),
     ),
     _chat_surface(
@@ -2385,17 +2449,35 @@ SURFACES += [
         shot=".ui-composer",
     ),
     _chat_surface(
-        "chat-live-streaming",
-        "#chats/{chat_s_week}",
-        "A turn streaming: chunk frames injected, Stop visible, no done (scripted, never sent)",
-        prepare=_stream_text,
+        "chat-turn-working",
+        "#chats/{chat_s_untitled}",
+        "A turn working: the work line with a tool-call count and the running tool's name, and "
+        "the two-line preview of the pass's text (scripted frames, never sent)",
+        prepare=_work_frames,
         setup=_chat_setup(processing=True),
     ),
     _chat_surface(
-        "chat-live-thinking",
+        "chat-turn-finished-open",
+        "#chats/{chat_s_untitled}",
+        "A finished turn with its work group open: thinking, narration and a tool row, then the "
+        "reply bubble (scripted frames, never sent)",
+        prepare=_turn_finished_open,
+        setup=_chat_setup(processing=True),
+    ),
+    _chat_surface(
+        "chat-turn-stopped",
+        "#chats/{chat_s_untitled}",
+        "A stopped turn: the group reads Stopped with its text folded in and no reply bubble, "
+        "then the Stopped. notice (cancelled frame injected)",
+        prepare=_turn_stopped,
+        setup=_chat_setup(processing=True),
+    ),
+    _chat_surface(
+        "chat-live-working-empty",
         "#chats/{chat_s_month}",
-        "The thinking indicator while a turn is in flight (join rewritten to is_processing)",
-        ready='[data-testid="thinking-indicator"]',
+        "The empty work line (Working, dots only) while a turn is in flight (join rewritten to "
+        "is_processing)",
+        ready='[data-testid="turn-work"]',
         setup=_chat_setup(processing=True),
     ),
     _chat_surface(
@@ -2403,13 +2485,6 @@ SURFACES += [
         "#chats/{chat_s_week}",
         "A follow-up held while a turn runs: the queued region above the composer",
         prepare=_queued,
-        setup=_chat_setup(processing=True),
-    ),
-    _chat_surface(
-        "chat-live-after-stop",
-        "#chats/{chat_s_week}",
-        "After Stop: the partial reply kept, Stop gone (cancelled frame injected)",
-        prepare=_after_stop,
         setup=_chat_setup(processing=True),
     ),
     _chat_surface(

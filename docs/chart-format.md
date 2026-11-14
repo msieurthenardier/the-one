@@ -10,7 +10,7 @@ A new rule lands in this document, the corpus and both implementations in the sa
 
 ## The block
 
-A chart is a fenced code block whose info string's first word is exactly `chart` (lowercase). Its body is one JSON object. By convention `type` is the first key: the streaming placeholder reads the type from the start of the object, and an object that puts `type` later is drawn correctly but its placeholder stays generic.
+A chart is a fenced code block whose info string's first word is exactly `chart` (lowercase). Its body is one JSON object. By convention `type` is the first key; an object that puts `type` later is drawn the same. (The chat no longer shows a typed placeholder while a chart streams: its work group's preview reads "Drawing a chart" until the reply lands, so the key order has no visible effect there.)
 
 ````
 ```chart

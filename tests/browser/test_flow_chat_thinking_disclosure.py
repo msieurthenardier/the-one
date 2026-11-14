@@ -1,17 +1,17 @@
-"""M16 F10 L05 — Playwright browser flow: extended-thinking disclosure.
+"""M16 F10 L05 — Playwright browser flow: extended-thinking disclosure
+(sortie 16 L02: the thinking is an item of the turn's work group).
 
 Drives a real Chromium session through the full emit → codec-replay → render
 path using the MockProvider thinking seam (no live Anthropic key). Proves:
 
-  1. A turn that produces thinking + a tool call renders a
-     ``thinking-disclosure`` <details> that is COLLAPSED by default.
+  1. A turn that produces thinking + a tool call renders ONE work group
+     (``turn-work``) that is COLLAPSED by default, holding the thinking and the
+     tool call as items in stream order.
   2. It EXPANDS on toggle (native <details>: click the summary), revealing the
      reasoning text.
-  3. The tool trace (``trace-shell``) ALSO renders — the two disclosures
-     coexist (distinct identifiers, no shared toggle).
-  4. After a page reload / chat reopen the disclosure re-renders from history
+  3. After a page reload / chat reopen the group re-renders from history
      replay (the codec re-derives the thinking event from persisted
-     ``msg.thinking``), still collapsed by default.
+     ``msg.thinking``), still collapsed by default, thinking above the tool call.
 
 DOM-shape assertions only — NO committed visual snapshots.
 
@@ -34,7 +34,7 @@ _THINKING_TEXT = "Let me reason step by step about the request."
 
 
 @pytest.mark.browser
-def test_thinking_disclosure_collapsed_expands_coexists_and_survives_reopen(
+def test_thinking_item_in_collapsed_work_group_expands_and_survives_reopen(
     app_clean: str, page: Page
 ) -> None:
     # ── Seed a mock provider that returns thinking + a tool call ──────────────
@@ -70,49 +70,42 @@ def test_thinking_disclosure_collapsed_expands_coexists_and_survives_reopen(
     # ── Send a message ───────────────────────────────────────────────────────
     _chats.send_first(page, "please think then act")
 
-    # ── (1) The thinking disclosure renders, collapsed by default ────────────
-    disclosure = page.locator('[data-testid="thinking-disclosure"]')
-    expect(disclosure).to_be_visible(timeout=10000)
-    # <details> is collapsed by default: the `open` property is False and the
-    # body content is not visible.
-    assert disclosure.evaluate("el => el.open") is False, (
-        "thinking disclosure should be collapsed (not open) by default"
-    )
-    body = disclosure.locator(".ui-trace-thinking-body")
-    expect(body).to_be_hidden()
-
-    # ── (3) The tool trace coexists (distinct disclosure) ────────────────────
-    trace = page.locator('[data-testid="trace-shell"]')
-    expect(trace.first).to_be_visible(timeout=10000)
-    # The two are distinct DOM subtrees — the thinking body is NOT inside the
-    # trace shell (it is its own disclosure, not a tool-trace child).
-    assert (
-        page.locator('[data-testid="trace-shell"] [data-testid="thinking-disclosure"]').count() == 0
-    ), "thinking disclosure must not be nested inside the tool-trace shell"
+    # ── (1) One work group renders, collapsed by default ─────────────────────
+    expect(_chats.turn_groups(page)).to_have_count(1, timeout=10000)
+    group = _chats.turn_group(page)
+    expect(group).to_be_visible(timeout=10000)
+    # The turn ends (no `working` line left); the group never opens on its own.
+    expect(group).not_to_have_attribute("data-state", "working", timeout=10000)
+    assert not _chats.turn_is_open(group), "the work group should be collapsed by default"
+    # The thinking and the tool call are items of the same group, in stream order
+    # (the live frames send the thinking before the tool call).
+    kinds = group.locator("[data-kind]").evaluate_all("els => els.map(e => e.dataset.kind)")
+    assert kinds[:2] == ["thinking", "tool"], kinds
+    thinking = _chats.turn_items(group, "thinking")
+    expect(thinking).to_be_hidden()
 
     # ── (2) It expands on toggle, revealing the reasoning text ───────────────
-    disclosure.locator("summary.ui-trace-thinking-toggle").click()
-    assert disclosure.evaluate("el => el.open") is True, (
-        "thinking disclosure should be open after clicking its summary"
-    )
-    expect(body).to_be_visible()
-    expect(body).to_contain_text(_THINKING_TEXT)
+    _chats.open_turn(group)
+    assert _chats.turn_is_open(group), "the work group should be open after a click"
+    expect(thinking).to_be_visible()
+    expect(thinking).to_contain_text(_THINKING_TEXT)
     # The opaque signature never reaches the client.
-    assert "sig-abc" not in (disclosure.text_content() or "")
+    assert "sig-abc" not in (group.text_content() or "")
 
-    # ── (4) Survives a chat reopen (history replay) ──────────────────────────
+    # ── (3) Survives a chat reopen (history replay) ──────────────────────────
     page.reload()
     _chats.expect_chat(page, agent_name, timeout=10000)
 
-    replayed = page.locator('[data-testid="thinking-disclosure"]')
+    expect(_chats.turn_groups(page)).to_have_count(1, timeout=10000)
+    replayed = _chats.turn_group(page)
     expect(replayed).to_be_visible(timeout=10000)
-    # Collapsed again on replay (renderThinking builds a fresh collapsed
-    # <details> — no persisted open-state).
-    assert replayed.evaluate("el => el.open") is False, (
-        "replayed thinking disclosure should be collapsed by default"
+    assert replayed.get_attribute("data-state") == "done"
+    # Collapsed again on replay (a fresh group — no persisted open-state).
+    assert not _chats.turn_is_open(replayed), "the replayed group should be collapsed"
+    # Thinking above the tool call, as live; expanding reveals the reasoning text.
+    replayed_kinds = replayed.locator("[data-kind]").evaluate_all(
+        "els => els.map(e => e.dataset.kind)"
     )
-    # The tool trace also replays (codec emits thinking before the tool_call).
-    expect(page.locator('[data-testid="trace-shell"]').first).to_be_visible(timeout=10000)
-    # Expanding the replayed disclosure still reveals the reasoning text.
-    replayed.locator("summary.ui-trace-thinking-toggle").click()
-    expect(replayed.locator(".ui-trace-thinking-body")).to_contain_text(_THINKING_TEXT)
+    assert replayed_kinds[:2] == ["thinking", "tool"], replayed_kinds
+    _chats.open_turn(replayed)
+    expect(_chats.turn_items(replayed, "thinking")).to_contain_text(_THINKING_TEXT)

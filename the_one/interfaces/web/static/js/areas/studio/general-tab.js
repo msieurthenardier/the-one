@@ -49,7 +49,7 @@
       provider_config_id: providers && providers.length > 0 ? providers[0].id : null,
       llm_model: '',
       system_prompt: '',
-      max_iterations: 20,
+      max_iterations: 50,
       chat_history_retention_days: 30,
       rich_visuals: true
     };

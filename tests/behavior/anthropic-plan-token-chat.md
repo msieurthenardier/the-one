@@ -3,12 +3,12 @@
 **Slug**: `anthropic-plan-token-chat`
 **Status**: active
 **Last Run**: 2026-10-12-17-04-32 (PASS 7/7 on claude-haiku-4-5-20251001 — see `anthropic-plan-token-chat/runs/2026-10-12-17-04-32.md`)
-**Updated**: 2026-10-12 (sortie 03 Architect cycle 1: `mask_ok` instead of the mask, a longer step-6 reply, a new chat in step 7)
+**Updated**: 2026-11-14 (sortie 16: step 6 reads the work line's moving preview, then the whole reply, instead of growing reply text); 2026-10-12 (sortie 03 Architect cycle 1: `mask_ok` instead of the mask, a longer step-6 reply, a new chat in step 7)
 **Created**: 2026-10-12 (sortie 03)
 
 ## Intent
 
-Verify that a Claude Plan (Token) provider, created with a real token from `claude setup-token`, connects, lists models and runs a streamed chat turn on the operator's subscription, and that the token never comes back unmasked. This needs a behavior test because it exercises live inference against Anthropic with a real subscription credential, which unit and browser tests replace with stubs.
+Verify that a Claude Plan (Token) provider, created with a real token from `claude setup-token`, connects, lists models and runs a long chat turn on the operator's subscription, and that the token never comes back unmasked. This needs a behavior test because it exercises live inference against Anthropic with a real subscription credential, which unit and browser tests replace with stubs.
 
 ## Preconditions
 
@@ -31,7 +31,7 @@ Verify that a Claude Plan (Token) provider, created with a real token from `clau
 | 3 | Browser: open Library › Model providers, open "Plan token (HAT)", press Test. | The editor shows the Token field (masked), no sign-in section, and `provider-token-expiry` reading "Token added {today} · expires around {date ~1 year on}" with no warning style. Test reports success; no error text. |
 | 4 | Browser: on the Agents destination, create (or open) an agent bound to "Plan token (HAT)", open the model picker, choose the operator's named model, save. | The model picker lists Claude models; the save completes with no error. |
 | 5 | Browser: on Chats, start a new chat with that agent (New chat, then pick it) and send "Reply with exactly the word PONG." | A reply containing "PONG" appears; no error banner or toast. |
-| 6 | Browser: send "Write about 600 words on why the sky is blue, in five paragraphs." Capture the transcript at least twice while the reply is being produced, then once after it completes (with the last message bubble scrolled into view: the transcript scrolls inside its own panel). | Successive in-flight captures show strictly growing reply text (streaming), and the final reply is complete; no error. |
+| 6 | Browser: send "Write about 600 words on why the sky is blue, in five paragraphs." Capture the transcript at least twice while the reply is being produced, then once after it completes (with the last message bubble scrolled into view: the transcript scrolls inside its own panel). | In-flight captures show the turn's work line (`turn-work`, `data-state="working"`, "Working") with a quiet preview (`turn-work-preview`) whose text differs between captures, and no reply bubble yet; the capture after the turn ends shows the whole reply as one complete assistant bubble and the work line gone (a plain reply has no tool call or thinking); no error. |
 | 7 | Browser: on the agent editor, switch the agent's model to `claude-sonnet-4-6` and save. On Chats, start a **new** chat with the agent (New chat, then pick it): an open chat keeps the agent it was built with at join, so the old chat would still use the step-4 model. Send "Reply with exactly the word PONG." and wait up to 30 s (the SDK retries a 429 twice before giving up). Then switch the model back to the step-4 model and save. | The chat shows the plan-refusal message, containing "Your Claude plan didn't allow this request to claude-sonnet-4-6" (the chat prefixes every agent error with "Agent error: ") (exact wording after that is an acceptable variation), not a bare "Error" or a raw 429. (If the plan does allow Sonnet at run time and a reply arrives, record that in the run log and mark the step inconclusive, not failed.) |
 
 ## Out of Scope

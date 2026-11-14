@@ -18,10 +18,10 @@ specification of what the block may contain and what the frame does with it. The
 - The language is exactly `widget`, case-sensitive. `html`, `javascript` and any other language are
   ordinary code blocks and never run.
 - Only an **assistant reply** can carry a widget. A user message, a routine-run message, a tool result
-  and the thinking disclosure show the same text as a plain code block.
+  and a thinking item show the same text as a plain code block.
 - A block with an empty or whitespace-only body is a plain code block.
-- A block whose closing fence never arrives (the stream was stopped or cut off) is not run. The chat
-  shows "This widget was cut off before it finished." with the source under "Widget source".
+- A block whose closing fence never arrives (the turn was stopped or cut off, or the reply ends inside the fence) is not run. The chat
+  shows "This widget was cut off before it finished." with the source under "Widget source", in the reply or, for a stopped turn, in the turn's work group.
 - Copy reply copies the raw markdown, widget source included.
 
 ## The body
@@ -143,7 +143,7 @@ again in the same page starts at the real heights.
 Each card has a key, `{session id}:{hash of the source}:{n}`, where `n` counts the earlier **closed**
 widgets with the same source in the same transcript (the second copy of a widget is `…:1`). The
 chat exposes it as `data-widget-key`. The hang guard uses it to recognise the same widget after a
-reload. A reply that is streamed and the same reply opened later get the same keys.
+reload. A reply that is received live and the same reply opened later get the same keys, because every text is rendered once.
 
 ## On chat platforms
 

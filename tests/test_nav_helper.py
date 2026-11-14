@@ -406,6 +406,10 @@ def test_settings_providers_guard_self_test():
 # union with ``RETIRED_EXACT`` against ``docs/ui-testid-registry.md``'s
 # "Retired testids" table.
 RETIRED_SELECTORS = (
+    "chat-chart-placeholder",  # sortie 16 L04: no streaming placeholder (the -source id too)
+    "chat-chart-placeholder-source",
+    "chat-widget-placeholder",
+    "chat-widget-placeholder-source",
     "mcp-source-self-configuration-hint-",  # sortie 08: the Tools tab shows no surface row
     "base-prompt-content",
     "platform-variant-",
@@ -468,6 +472,11 @@ RETIRED_SELECTORS = (
     # M31 F3 HAT: "Other items" is renamed "Individual files"
     # (``kb-individual-files-panel``).
     "kb-other-items-panel",
+    # Sortie 16 L02: one work group per turn (``turn-work``) replaces the per-pass trace shell,
+    # the thinking disclosure and the "Thinking" line.
+    "trace-shell",
+    "thinking-disclosure",
+    "thinking-indicator",
     # M31 F4 L08a: the Appearance page's segmented toggle host is replaced by the
     # ``theme-picker`` radio group.
     "admin-theme-toggle-mount",

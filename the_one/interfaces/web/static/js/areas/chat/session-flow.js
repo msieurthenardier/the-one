@@ -332,6 +332,7 @@
       if (eff.noop) return false;
       if (payload.images) ctx.attachments.clearStagedImages();
       var before = messagesEl.lastChild;
+      ctx.turnWork.onUserEvent();
       ctx.transcript.addMsg('user', displayText, 'You');
       state.startBubbleNodes = [];
       for (var n = before ? before.nextSibling : messagesEl.firstChild; n; n = n.nextSibling) {
@@ -342,7 +343,7 @@
       ctx.send.updateStopControl();
       // pending -> starting: the new-chat state gives way to the log.
       ctx.renderPane();
-      ctx.transcript.showThinking();
+      ctx.turnWork.begin();
       return true;
     }
 
@@ -354,7 +355,7 @@
         if (node.parentNode) node.parentNode.removeChild(node);
       }
       state.startBubbleNodes = [];
-      ctx.transcript.hideThinking();
+      ctx.turnWork.dropEmpty();
       var held = [];
       if (eff.clientId) {
         delete state.inFlightSessions[eff.clientId];

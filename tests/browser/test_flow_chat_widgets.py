@@ -1,10 +1,10 @@
 # ruff: noqa: E501  (inline JS snippets and widget sources are evaluated verbatim)
 """Browser flow tests for widgets in chat (M35 F2 L6, flight DD1, DD7, DD9, DD12, DD17).
 
-A ``widget`` fenced block in an assistant reply is a managed ``App.ui.widget`` card, live (the
-"Rendering widget" placeholder, then the card at the closing fence) and in history. Streaming
-tests pace the mock stream slower than the 16 ms tick (one chunk per 700 ms through
-``delay_ms``). Assertions are structural; no pixels. Chromium. The ``chats-widgets`` lane.
+A ``widget`` fenced block in an assistant reply is a managed ``App.ui.widget`` card, mounted when
+the reply lands at ``done`` (sortie 16: while the turn runs the work group's preview reads
+"Building a widget" and the block's source is nowhere in the log) and in history. Assertions are
+structural; no pixels. Chromium. The ``chats-widgets`` lane.
 """
 
 from __future__ import annotations
@@ -14,6 +14,16 @@ import json
 import pytest
 from browser import _chats, _nav
 from browser.seeders import seed_mock_agent, seed_mock_provider, seed_session
+from browser.test_flow_chat_turn_work import (
+    DONE,
+    TOOL_CALL,
+    TOOL_RESULT,
+    _chunk,
+    _frames,
+    _Script,
+    _text,
+    _user,
+)
 from playwright.sync_api import Page, expect
 
 from the_one.db.codec import encode_messages
@@ -23,7 +33,6 @@ pytestmark = pytest.mark.browser
 
 CARD = '[data-testid="chat-widget"]'
 FRAME = '[data-testid="chat-widget-frame"]'
-PLACEHOLDER = '[data-testid="chat-widget-placeholder"]'
 NOTICE = '[data-testid="chat-widget-notice"]'
 SEND = '[data-testid="chat-send-btn"]'
 
@@ -213,22 +222,6 @@ def test_the_same_source_twice_gets_keys_0_and_1_and_a_reload_keeps_them(
 
 # ── AC2: streaming ────────────────────────────────────────────────────────────
 
-WATCH_JS = """() => {
-  window.__flash = 0; window.__ph = 0; window.__phLive = false;
-  new MutationObserver(() => {
-    const ph = document.querySelector('[data-testid="chat-widget-placeholder"]');
-    const card = document.querySelector('[data-testid="chat-widget"]');
-    if (ph && !window.__phLive) { window.__phLive = true; window.__ph++; }
-    if (!ph) window.__phLive = false;
-    if (ph && !card) {
-      const b = Array.from(document.querySelectorAll('[data-testid="message"].ui-message--assistant')).pop();
-      // everything in the bubble except the placeholder itself (whose source well the test opens)
-      const t = b ? Array.from(b.children).filter((c) => !c.matches('[data-testid="chat-widget-placeholder"]') && !c.querySelector('[data-testid="chat-widget-placeholder"]')).map((c) => c.innerText).join('\\n') : '';
-      if (t.indexOf('```') >= 0 || t.indexOf('setInterval') >= 0 || t.indexOf('<script') >= 0) window.__flash++;
-    }
-  }).observe(document.body, {childList: true, subtree: true, characterData: true});
-}"""
-
 STREAM = [
     "Intro paragraph.\n\n",
     "```wid",
@@ -240,29 +233,87 @@ STREAM = [
 ]
 
 
-def test_streamed_widget_shows_the_placeholder_then_the_card(app_clean: str, page: Page) -> None:
+# A page-side watch (flight DD3): on every mutation of the log, before any reply bubble exists,
+# record any moment the block's source text is anywhere in the log's text (the work group's
+# preview and its closed items included, hence textContent).
+SOURCE_WATCH_JS = """() => {
+  window.__leaks = [];
+  const log = document.querySelector('.area-chat .messages');
+  new MutationObserver(() => {
+    if (log.querySelector('.ui-message--assistant')) return;
+    const t = log.textContent;
+    if (t.indexOf('```') >= 0 || t.indexOf('setInterval') >= 0 || t.indexOf('<script') >= 0) window.__leaks.push(t);
+  }).observe(log, {childList: true, subtree: true, characterData: true, attributes: true});
+}"""
+
+
+def test_a_streaming_widget_shows_only_the_building_phrase_until_the_reply_lands(
+    app_clean: str, page: Page
+) -> None:
+    """Flight DD3: while the block streams the preview reads "Building a widget" and no card,
+    frame or source is in the log; the card is mounted when the reply lands."""
     _stream(page, app_clean, STREAM, delay_ms=700)
-    page.evaluate(WATCH_JS)
+    page.evaluate(SOURCE_WATCH_JS)
     _chats.send_first(page, "go")
-    bubble = _chats.messages(page, "assistant").last
-    expect(bubble.locator("p")).to_have_count(1, timeout=10000)
-    ph = page.locator(PLACEHOLDER)
-    expect(ph).to_be_visible(timeout=10000)
-    expect(ph).to_contain_text("Rendering widget")
-    ph.locator("summary").click()
-    expect(page.locator('[data-testid="chat-widget-placeholder-source"]')).to_have_count(1)
-    # the card replaces the placeholder at the closing fence, while the text after still streams
-    expect(page.locator(CARD)).to_have_count(1, timeout=15000)
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
-    assert "Closing words" not in bubble.inner_text()
+    expect(_chats.working_turns(page)).to_have_count(1, timeout=10000)
+    expect(_chats.turn_preview(_chats.turn_group(page))).to_have_text(
+        "Building a widget", timeout=10000
+    )
+    visible = page.locator(".area-chat .messages").evaluate("(el) => el.innerText")
+    assert "```" not in visible and "setInterval" not in visible and "<script" not in visible
+    expect(page.locator(CARD)).to_have_count(0)
+    expect(page.locator("iframe")).to_have_count(0)
+    expect(_chats.replies(page)).to_have_count(0)
     _done(page)
-    assert page.evaluate("() => window.__ph") == 1
-    assert page.evaluate("() => window.__flash") == 0
+    assert page.evaluate("() => window.__leaks") == [], "block source was visible before done"
+    expect(page.locator(CARD)).to_have_count(1)
     expect(page.locator(FRAME)).to_have_count(1, timeout=10000)
+    bubble = _chats.messages(page, "assistant").last
+    expect(bubble.locator("p").first).to_have_text("Intro paragraph.")
     expect(bubble.locator("p").last).to_have_text("Closing words.")
 
 
-def test_a_chart_and_a_widget_stream_in_one_reply(app_clean: str, page: Page) -> None:
+_WATCH_NESTED_JS = """() => {
+  window.__leaks = [];
+  const log = document.querySelector('.area-chat .messages');
+  new MutationObserver(() => {
+    if (log.querySelector('.ui-message--assistant')) return;
+    const t = log.textContent;
+    if (t.indexOf('```') >= 0 || t.indexOf('SECRET_') >= 0) window.__leaks.push(t);
+  }).observe(log, {childList: true, subtree: true, characterData: true, attributes: true});
+}"""
+
+
+@pytest.mark.parametrize(
+    "chunks",
+    [
+        # a widget inside a blockquote
+        ["Quote:\n\n> ```wid", "get\n> SECRET_Q1 <b>x</b>\n", "> SECRET_Q2\n", "> ```\n", "After."],
+        # a body with a fence-like line and a template-literal line
+        [
+            "Go:\n\n```widget\n<script>\nSECRET_F1 = `\n",
+            "```js\nSECRET_F2\n",
+            "`;</script>\n",
+            "```\n",
+            "After.",
+        ],
+    ],
+    ids=["blockquote", "fence-like-body"],
+)
+def test_a_nested_or_tricky_widget_never_shows_source_while_streaming(
+    app_clean: str, page: Page, chunks: list[str]
+) -> None:
+    _stream(page, app_clean, chunks, delay_ms=300)
+    page.evaluate(_WATCH_NESTED_JS)
+    _chats.send_first(page, "go")
+    expect(_chats.working_turns(page)).to_have_count(1, timeout=10000)
+    _done(page)
+    assert page.evaluate("() => window.__leaks") == [], "block source was visible before done"
+
+
+def test_a_chart_and_a_widget_in_one_streamed_reply_are_drawn_when_it_lands(
+    app_clean: str, page: Page
+) -> None:
     chunks = [
         "First:\n\n",
         "```chart\n",
@@ -276,41 +327,45 @@ def test_a_chart_and_a_widget_stream_in_one_reply(app_clean: str, page: Page) ->
     ]
     _stream(page, app_clean, chunks, delay_ms=600)
     _chats.send_first(page, "go")
-    expect(page.locator('[data-testid="chat-chart-placeholder"]')).to_be_visible(timeout=10000)
-    expect(page.locator('[data-testid="chat-chart"]')).to_have_count(1, timeout=15000)
-    expect(page.locator(PLACEHOLDER)).to_be_visible(timeout=15000)
-    expect(page.locator('[data-testid="chat-chart-placeholder"]')).to_have_count(0)
-    expect(page.locator(CARD)).to_have_count(1, timeout=15000)
+    preview = _chats.turn_preview(_chats.turn_group(page))
+    expect(preview).to_have_text("Drawing a chart", timeout=10000)
+    expect(preview).to_have_text("Building a widget", timeout=15000)
+    # Nothing is drawn until the reply lands.
+    expect(page.locator('[data-testid="chat-chart"]')).to_have_count(0)
+    expect(page.locator(CARD)).to_have_count(0)
     _done(page)
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
     expect(page.locator('[data-testid="chat-chart"]')).to_have_count(1)
+    expect(page.locator(CARD)).to_have_count(1)
 
 
-def test_stop_in_the_middle_of_a_widget_leaves_the_cut_off_notice_and_it_never_runs(
+def test_a_stopped_turn_folds_an_unclosed_widget_block_into_the_group_and_it_never_runs(
     app_clean: str, page: Page
 ) -> None:
+    """Flight DD5: a stop folds the pending text into the group; the unclosed widget block there
+    shows the cut-off notice and no frame is ever created."""
     chunks = [
         "Before.\n\n",
-        "```widget\n",
-        '<div style="height:100px">w</div>',
+        # The opener and some body arrive together (an empty cut-off block has nothing to show).
+        '```widget\n<div style="height:100px">w</div>',
         "<script>window.parent.postMessage(1, '*');",
         " setInterval(function () {}, 20);</script>\n",
         "```\n",
     ]
     _stream(page, app_clean, chunks, delay_ms=900)
     _chats.send_first(page, "go")
-    expect(page.locator(PLACEHOLDER)).to_be_visible(timeout=10000)
-    # stop once some of the widget's body has arrived (an empty cut-off block has nothing to show)
-    page.wait_for_function(
-        "() => (document.querySelector('[data-testid=\"chat-widget-placeholder-source\"]') || {}).textContent?.includes('postMessage')",
-        timeout=10000,
+    expect(_chats.working_turns(page)).to_have_count(1, timeout=10000)
+    expect(_chats.turn_preview(_chats.turn_group(page))).to_have_text(
+        "Building a widget", timeout=10000
     )
     page.locator('[data-testid="chat-stop-btn"]').click()
     err = page.locator(NOTICE)
     expect(err).to_have_count(1, timeout=10000)
     assert "ui-notice--muted" in err.get_attribute("class")
     expect(err).to_contain_text("This widget was cut off before it finished.")
-    expect(page.locator(PLACEHOLDER)).to_have_count(0)
+    # The notice is inside the stopped group; no reply, no card, no frame.
+    expect(page.locator(f'[data-testid="turn-work"] {NOTICE}')).to_have_count(1)
+    assert _chats.turn_state(_chats.turn_group(page)) == "stopped"
+    expect(_chats.replies(page)).to_have_count(0)
     expect(page.locator(CARD)).to_have_count(0)
     expect(page.locator("iframe")).to_have_count(0)
     expect(page.locator(SEND)).to_be_enabled(timeout=10000)
@@ -451,3 +506,138 @@ def test_a_widgets_forged_oauth_message_arrives_with_origin_null(
     ev = page.evaluate("() => window.__oauth[0]")
     assert ev["origin"] == "null"
     assert ev["origin"] != ev["here"]
+
+
+# ── Sortie 16 L03: widgets and the turn work group (flow items 19 and 20) ──────
+
+_W = "Here:\n\n" + _widget()
+_T2 = {
+    "type": "tool_call",
+    "name": "shell",
+    "arguments": {"command": "pwd"},
+    "tool_call_id": "t2",
+    "parent_message_id": "pm-2",
+}
+_R2 = {
+    "type": "tool_result",
+    "content": "/x",
+    "is_error": False,
+    "tool_call_id": "t2",
+    "parent_message_id": "pm-2",
+}
+# One turn: a widget in the first narration, a second narration, and a final reply.
+_TURN = [
+    _user("show"),
+    _text(_W),
+    TOOL_CALL,
+    TOOL_RESULT,
+    _text("Then more."),
+    _T2,
+    _R2,
+]
+_HISTORY = [
+    {"type": "user", "content": "show"},
+    {"type": "assistant", "content": _W},
+    TOOL_CALL,
+    TOOL_RESULT,
+    {"type": "assistant", "content": "Then more."},
+    _T2,
+    _R2,
+    {"type": "assistant", "content": "Final."},
+]
+
+
+def _joined_chat(page: Page, base: str, script: _Script | None = None) -> str:
+    provider_id = seed_mock_provider(base)
+    agent = seed_mock_agent(base, provider_id)
+    sid = seed_session(base, agent, "widget turn", "2026-10-27T09:00:00+00:00")
+    if script is not None:
+        script.install(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.goto(base)
+    _chats.open_chat(page, sid)
+    return sid
+
+
+def test_a_widget_in_a_reply_is_mounted_when_the_reply_lands(app_clean: str, page: Page) -> None:
+    _joined_chat(page, app_clean)
+    _frames(page, _user("show"), _chunk("Here it is:\n\n" + _widget() + "\nEnjoy."))
+    expect(page.locator(CARD)).to_have_count(0)
+    expect(page.locator("iframe")).to_have_count(0)
+    _frames(page, DONE)
+    expect(_chats.replies(page).locator(CARD)).to_have_count(1)
+    expect(page.locator(FRAME)).to_have_count(1, timeout=10000)
+    expect(_chats.turn_groups(page)).to_have_count(0)
+
+
+def test_a_reply_that_ends_inside_an_open_widget_fence_shows_the_cut_off_notice_and_runs_nothing(
+    app_clean: str, page: Page
+) -> None:
+    _joined_chat(page, app_clean)
+    _frames(
+        page, _user("show"), _chunk("Before.\n\n```widget\n<div>w</div><script>window.__ran = 1;")
+    )
+    _frames(page, DONE)
+    err = page.locator(NOTICE)
+    expect(err).to_have_count(1)
+    expect(err).to_contain_text("This widget was cut off before it finished.")
+    expect(_chats.replies(page).locator(NOTICE)).to_have_count(1)
+    expect(page.locator(CARD)).to_have_count(0)
+    page.wait_for_timeout(300)
+    expect(page.locator("iframe")).to_have_count(0)
+
+
+def test_a_widget_in_narration_is_not_mounted_while_its_group_is_closed_and_mounts_once_on_open(
+    app_clean: str, page: Page
+) -> None:
+    _joined_chat(page, app_clean)
+    _frames(page, *_TURN)
+    group = _chats.turn_group(page)
+    # The first narration was rendered when the second text arrived; its group is closed.
+    expect(page.locator(CARD)).to_have_count(1)
+    assert not _chats.turn_is_open(group)
+    page.wait_for_timeout(600)
+    expect(page.locator("iframe")).to_have_count(0)
+    _chats.open_turn(group)
+    expect(page.locator(FRAME)).to_have_count(1, timeout=10000)
+    page.wait_for_timeout(300)
+    expect(page.locator("iframe")).to_have_count(1)
+    a = _frame_n(page)
+    page.wait_for_timeout(300)
+    assert _frame_n(page) > a
+
+
+def test_a_widgets_key_is_the_same_live_and_after_a_reload(app_clean: str, page: Page) -> None:
+    script = _Script()
+    sid = _joined_chat(page, app_clean, script)
+    _frames(page, *_TURN, _text("Final."), DONE)
+    expect(page.locator(CARD)).to_have_count(1)
+    live = _keys(page)
+    assert len(live) == 1 and live[0].startswith(sid + ":") and live[0].endswith(":0"), live
+    # The reload replays the same turn from stored history.
+    script.history = _HISTORY
+    page.reload()
+    _chats.expect_chat(page, "test-agent", timeout=10000)
+    expect(page.locator(CARD)).to_have_count(1, timeout=10000)
+    expect(_chats.replies(page)).to_have_text(["Final."])
+    assert _keys(page) == live
+
+
+def test_a_widget_in_the_latest_narration_that_becomes_the_reply_is_drawn_exactly_once(
+    app_clean: str, page: Page
+) -> None:
+    sid = _joined_chat(page, app_clean)
+    # The turn ends on a tool call: the latest narration (with the widget, still plain text in
+    # the group) becomes the reply at `done`.
+    _frames(page, _user("show"), _text(_W), TOOL_CALL, TOOL_RESULT)
+    expect(page.locator(CARD)).to_have_count(0)
+    _frames(page, DONE)
+    expect(_chats.replies(page).locator(CARD)).to_have_count(1)
+    page.wait_for_timeout(500)  # a sweep of any wrongly built second card would have run
+    expect(page.locator(CARD)).to_have_count(1)
+    keys = _keys(page)
+    assert len(keys) == 1 and keys[0].startswith(sid + ":") and keys[0].endswith(":0"), keys
+    assert page.evaluate("() => App.ui.widget._counts().cards") == 1
+    group = _chats.turn_group(page)
+    assert _chats.turn_item_list(group) == ["tool", "tool"]
+    expect(page.locator(FRAME)).to_have_count(1, timeout=10000)

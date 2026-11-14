@@ -50,6 +50,7 @@
         displayText = text ? text + ' [image]' : '[image]';
         ctx.attachments.clearStagedImages();
       }
+      ctx.turnWork.onUserEvent();
       ctx.transcript.addMsg('user', displayText, 'You');
       ctx.ws().send(JSON.stringify(payload));
       // Keyed on activeId() (AC6): the joined session (the `done` handler's
@@ -60,7 +61,7 @@
         state.ownTurn[active] = true;
       }
       updateStopControl();
-      ctx.transcript.showThinking();
+      ctx.turnWork.begin();
     }
 
     // Send the held message of a session through the normal send path. Shared

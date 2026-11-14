@@ -9,8 +9,10 @@ Agent and Purge now. Falls in the ``agents`` lane via the ``test_flow_agent_*`` 
 
 from __future__ import annotations
 
+import httpx
 import pytest
 from browser import _nav
+from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -160,3 +162,25 @@ def test_create_mode_has_no_danger_zone(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-field="name"]')).to_be_attached(timeout=8000)
     expect(page.locator(".danger-zone")).to_have_count(0)
     expect(page.locator('[data-testid="test-provider-btn"]')).to_be_visible()
+
+
+def test_a_new_agent_starts_at_50_steps_and_stores_50(app_clean: str, page: Page) -> None:
+    """Rider (sortie 16 L04): the new-agent form starts at 50 steps and a created agent keeps
+    it; the server default and a stored agent's fallback stay 20 (browser-only change)."""
+    seed_mock_provider(app_clean)
+    _nav.goto(page, app_clean, "agents/~new")
+    expect(page.locator('[data-field="name"]')).to_be_attached(timeout=8000)
+    expect(page.locator("#studio-max-iterations")).to_have_value("50")
+    expect(page.locator("#studio-model option[value='mock-default']")).to_be_attached(timeout=8000)
+    page.locator('[data-field="name"]').fill("fifty-steps")
+    page.locator("#studio-model").select_option("mock-default")
+    with page.expect_response(
+        lambda r: r.request.method == "POST" and r.url.endswith("/api/agents")
+    ):
+        page.locator(SAVE).click()
+    stored = httpx.get(
+        f"{app_clean}/api/agents/fifty-steps", headers=auth_headers_for(app_clean), timeout=5
+    ).json()
+    assert stored["max_iterations"] == 50
+    page.reload()
+    expect(page.locator("#studio-max-iterations")).to_have_value("50", timeout=8000)

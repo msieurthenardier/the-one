@@ -12,9 +12,6 @@
   //   App.ui.chart.formatTick(value, unit) / formatFull(value, unit)   locale-neutral numbers
   //   App.ui.chart({spec, testid}) -> {el, destroy()}
   //   App.ui.chart.block(source, {closed, testid}) -> Node  (the chart, or the error notice)
-  //   App.ui.chart.placeholder({type, label, sourceLabel, shape, testid})
-  //                              -> {el, setType, setSource, destroy}
-  //                                               (js/ui/chart-placeholder.js)
   //
   // Since M35 F2 L2 the control is four files, loaded in this order: chart-parse.js (numbers
   // and validation), chart-scale.js (SVG and text helpers with measured text width, scales,

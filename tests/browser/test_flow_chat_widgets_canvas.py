@@ -1,7 +1,8 @@
 # ruff: noqa: E501  (inline widget sources and JS snippets are evaluated verbatim)
 """Canvas widgets written like a real model writes them (M35 F2 HAT step 9), on the real chat page,
 in Chromium and WebKit: a widget that sizes its canvas from ``offsetWidth`` when it starts must
-paint without a Restart, live-streamed and from history, and its frame must never scroll. The
+paint without a Restart, in a reply that lands at the end of a streamed turn (sortie 16: it is
+mounted when the reply lands) and from history, and its frame must never scroll. The
 ``chats-widgets`` lane."""
 
 from __future__ import annotations
@@ -81,9 +82,11 @@ def _check(page: Page) -> None:
     assert p["sw"] <= p["cwid"] and p["sh"] <= p["ch"] and p["bsw"] <= p["iw"], p  # no scrollbars
 
 
-def test_streamed_canvas_widget_paints_and_does_not_scroll(app_clean: str, page: Page) -> None:
+def test_a_canvas_widget_in_a_streamed_reply_paints_when_it_lands_and_does_not_scroll(
+    app_clean: str, page: Page
+) -> None:
     chunks = [REPLY[i : i + 40] for i in range(0, len(REPLY), 40)]
-    agent = _agent(app_clean, {"stream_chunks": chunks, "delay_ms": 60})
+    agent = _agent(app_clean, {"stream_chunks": chunks, "delay_ms": 10})
     page.goto(app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "go")

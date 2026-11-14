@@ -419,9 +419,9 @@ def test_thinking_indicator_appears_and_clears(app_clean: str, page: Page) -> No
     _chats.send_first(page, "ping")
 
     # Indicator must appear within the delay window.
-    thinking = page.locator('[data-testid="thinking-indicator"]')
-    expect(thinking).to_be_visible(timeout=2000)
+    working = _chats.working_turns(page)
+    expect(working).to_be_visible(timeout=2000)
 
-    # And must be cleared once the assistant reply lands.
+    # And must be gone once the assistant reply lands (a plain reply leaves no work line).
     expect(_chats.messages(page, "assistant")).to_be_visible(timeout=10000)
-    expect(thinking).to_have_count(0)
+    expect(_chats.turn_groups(page)).to_have_count(0)

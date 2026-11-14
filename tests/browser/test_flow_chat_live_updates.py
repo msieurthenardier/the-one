@@ -218,7 +218,7 @@ def test_an_armed_delete_survives_a_push(
 # ── Leg 3: the open connector chat follows its turns ─────────────────────────
 
 MESSAGES = ".messages"
-THINKING = '[data-testid="thinking-indicator"]'
+WORKING = '[data-testid="turn-work"][data-state="working"]'  # the running work group
 
 
 def _set_delay(app: StubConnectorApp, ms: int) -> None:
@@ -248,7 +248,7 @@ def _join_mid_turn(page: Page, app: StubConnectorApp, sid: str) -> None:
     while time.monotonic() < deadline:
         _nav.goto(page, app.base_url, f"chats/{_nav.seg(sid)}")
         try:
-            expect(page.locator(THINKING)).to_be_visible(timeout=2500)
+            expect(page.locator(WORKING)).to_be_visible(timeout=2500)
             return
         except AssertionError:
             continue
@@ -278,7 +278,7 @@ def test_an_open_connector_chat_shows_a_new_turn_without_a_reload(
     expect(box).to_be_focused()
 
 
-def test_joining_mid_turn_clears_the_thinking_indicator_after_the_turn(
+def test_joining_mid_turn_ends_the_running_work_line_after_the_turn(
     app_with_stub_connector: StubConnectorApp, page: Page
 ) -> None:
     app = app_with_stub_connector
@@ -288,7 +288,7 @@ def test_joining_mid_turn_clears_the_thinking_indicator_after_the_turn(
     worker = _background_dm(app, "slow dm")
     try:
         _join_mid_turn(page, app, sid)
-        expect(page.locator(THINKING)).to_be_hidden(timeout=20000)
+        expect(page.locator(WORKING)).to_be_hidden(timeout=20000)
         expect(page.locator(MESSAGES)).to_contain_text("slow dm", timeout=5000)
         state = _chats.session_state(page) or {}
         assert (state.get("name"), state.get("id")) == ("joined", sid)

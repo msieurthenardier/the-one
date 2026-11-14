@@ -149,3 +149,49 @@ def test_destroy_stops_the_interval_and_is_idempotent(engine_page: Page) -> None
     text = page.evaluate("() => __t.el.querySelector('.ui-thinking-dots').textContent")
     page.clock.run_for(500)
     assert page.evaluate("() => __t.el.querySelector('.ui-thinking-dots').textContent") == text
+
+
+# --- App.ui.thinking.dots (the standalone piece; moved from the chart placeholder's contract
+# when that control was retired, sortie 16 leg 4) ---------------------------------------------
+
+
+def test_dots_is_a_standalone_piece_with_one_interval_each(engine_page: Page) -> None:
+    page = engine_page
+    _load(page)
+    page.evaluate(
+        """() => {
+          window.__a = App.ui.thinking.dots();
+          window.__b = App.ui.thinking.dots();
+          document.getElementById('harness-root').append(__a.el, __b.el);
+        }"""
+    )
+    assert page.evaluate("() => __live.size") == 2
+    assert page.evaluate(
+        "() => [__a.el.className, __a.el.getAttribute('aria-hidden'), __a.el.tagName]"
+    ) == [
+        "ui-thinking-dots",
+        "true",
+        "SPAN",
+    ]
+    before = page.evaluate("() => __a.el.textContent")
+    page.clock.run_for(130)
+    after = page.evaluate("() => __a.el.textContent")
+    assert after.startswith(" ") and after.strip() and after != before
+    page.evaluate("() => { __a.destroy(); __a.destroy(); }")
+    assert page.evaluate("() => __live.size") == 1
+    assert page.evaluate("() => __a.el.isConnected") is True
+    page.evaluate("() => __b.el.remove()")
+    page.clock.run_for(130)
+    assert page.evaluate("() => __live.size") == 0
+
+
+def test_dots_never_attached_keep_ticking_and_reduced_motion_is_static(engine_page: Page) -> None:
+    page = engine_page
+    _load(page)
+    page.evaluate("() => { window.__d = App.ui.thinking.dots(); }")
+    page.clock.run_for(500)
+    assert page.evaluate("() => __live.size") == 1
+    _load(page, reduced=True)
+    page.evaluate("() => { window.__d = App.ui.thinking.dots(); }")
+    assert page.evaluate("() => __live.size") == 0
+    assert page.evaluate("() => __d.el.textContent") == " …"
