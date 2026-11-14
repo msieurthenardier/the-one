@@ -323,6 +323,21 @@ async def _teardown_entry(key: tuple[str, str], entry: _RegistryEntry) -> None:
         entry.worker.cancel()
         with contextlib.suppress(BaseException):
             await entry.worker
+    except asyncio.CancelledError:
+        # Squawk 0354: awaiting a worker that ended cancelled raises
+        # CancelledError into THIS task. That is the worker's outcome, not a
+        # cancel of the caller: a done worker counts as torn down. A genuine
+        # cancel of the calling task (cancelling() > 0), or a worker that is
+        # not done, propagates.
+        task = asyncio.current_task()
+        if task is not None and task.cancelling() > 0:
+            raise
+        if not entry.worker.done():
+            raise
+        logger.info("MCP pool worker for %r had already ended cancelled; torn down", key)
+    except Exception:
+        # The worker's own error: the entry is gone either way.
+        logger.warning("MCP pool worker for %r ended with an error", key, exc_info=True)
 
 
 async def _evict_all_for_source(source_id: str) -> None:

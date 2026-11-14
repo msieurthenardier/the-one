@@ -714,3 +714,120 @@ class TestCancelInConnectorChat:
 
         assert len(agent.messages) >= 2
         assert all(m.visibility == OPERATOR_VISIBILITY for m in agent.messages)
+
+
+class _TurnAgent(_SlowStreamAgent):
+    """Streams text per iteration, yields stored assistant messages, then hangs.
+
+    ``script`` is a list of steps: ``("text", str)`` streams a chunk,
+    ``("assistant", Message)`` appends and yields that message (as ``Agent``
+    does). The agent hangs after the last step, like a running tool or stream.
+    """
+
+    def __init__(self, script: list[tuple[str, Any]]) -> None:
+        super().__init__()
+        self._script = script
+
+    async def step(self, user_input, on_chunk=None, on_usage=None):  # noqa: ARG002
+        self.messages.append(Message.user(user_input))
+        for kind, value in self._script:
+            if kind == "text":
+                await on_chunk(value)
+            else:
+                self.messages.append(value)
+                yield value
+        self._started.set()
+        await self._hang_event.wait()
+
+
+async def _cancel_turn(monkeypatch, agent, sid) -> Session:
+    session = _make_session(sid)
+    session.agent = agent  # type: ignore[assignment]
+    saves: list[list[Message]] = []
+
+    async def capture_save(sess) -> None:
+        saves.append(list(sess.agent.messages))
+
+    monkeypatch.setattr(web_app, "_send_to_session", _noop_send)
+    monkeypatch.setattr(web_app, "_save_session_to_db", capture_save)
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", _noop_load)
+    task = asyncio.create_task(_process_and_broadcast(session, "trigger", source="web"))
+    await agent._started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    session.saves = saves  # type: ignore[attr-defined]
+    return session
+
+
+class TestCancelKeepsToolCallsAnswered:
+    """Squawk 0353: a cancel mid-tool-call must not leave an unanswered call."""
+
+    async def test_saved_history_has_a_result_for_every_tool_call(self, monkeypatch) -> None:
+        from the_one.llm.base import ToolCall, ToolResult
+
+        calls = [
+            ToolCall(id="a", name="shell", arguments={}),
+            ToolCall(id="b", name="x", arguments={}),
+        ]
+        agent = _TurnAgent(
+            [
+                ("assistant", Message.assistant("", tool_calls=calls)),
+                ("assistant", Message.tool(ToolResult(tool_call_id="a", content="ok"))),
+            ]
+        )
+        session = await _cancel_turn(monkeypatch, agent, "s-tool-answered")
+        saved = session.saves[-1]  # type: ignore[attr-defined]
+        answered = [m.tool_result.tool_call_id for m in saved if m.tool_result is not None]
+        assert answered == ["a", "b"]
+        assert saved[-1].tool_result.is_error is True
+
+    async def test_live_auth_pause_is_not_repaired_on_cancel(self, monkeypatch) -> None:
+        from the_one.llm.base import ToolCall
+
+        agent = _TurnAgent(
+            [("assistant", Message.assistant("", tool_calls=[ToolCall("a", "shell", {})]))]
+        )
+        agent._deferred_tool_calls = [ToolCall("a", "shell", {})]  # type: ignore[assignment]
+        session = await _cancel_turn(monkeypatch, agent, "s-paused")
+        assert all(m.tool_result is None for m in session.saves[-1])  # type: ignore[attr-defined]
+
+    async def test_next_turn_repairs_history_left_broken(self, monkeypatch) -> None:
+        from the_one.llm.base import ToolCall
+
+        agent = _QuickAgent()
+        agent.messages = [
+            Message.user("old"),
+            Message.assistant("", tool_calls=[ToolCall("z", "shell", {})]),
+        ]
+        session = _make_session("s-next-repair")
+        session.agent = agent  # type: ignore[assignment]
+        monkeypatch.setattr(web_app, "_send_to_session", _noop_send)
+        monkeypatch.setattr(web_app, "_save_session_to_db", _noop_save)
+        monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", _noop_load)
+        await _process_and_broadcast(session, "again", source="web")
+        assert [m.role.value for m in agent.messages][:3] == ["user", "assistant", "tool"]
+
+
+class TestInterruptedMessageHoldsOnlyTheCutOffReply:
+    """Squawk 0355: earlier iterations' text is not repeated in the interrupted message."""
+
+    async def test_only_text_since_last_assistant_message(self, monkeypatch) -> None:
+        agent = _TurnAgent(
+            [
+                ("text", "First reply."),
+                ("assistant", Message.assistant("First reply.")),
+                ("text", "Second, cut off"),
+            ]
+        )
+        session = await _cancel_turn(monkeypatch, agent, "s-interrupt-only-new")
+        last = session.agent.messages[-1]
+        assert last.content == "Second, cut off\n\n_[interrupted]_"
+        assert sum("First reply." in (m.content or "") for m in session.agent.messages) == 1
+
+    async def test_no_interrupted_message_when_nothing_streamed_since(self, monkeypatch) -> None:
+        agent = _TurnAgent(
+            [("text", "Done thinking."), ("assistant", Message.assistant("Done thinking."))]
+        )
+        session = await _cancel_turn(monkeypatch, agent, "s-interrupt-none")
+        assert not any("_[interrupted]_" in (m.content or "") for m in session.agent.messages)

@@ -45,6 +45,7 @@ from the_one.agent.factory import (
 from the_one.agent.factory import (
     set_factory as _set_module_factory,
 )
+from the_one.agent.history_repair import repair_unanswered_tool_calls
 from the_one.agent.platform_prompt import platform_sections_for_ui
 from the_one.api_credential import IdentifiedCaller, resolve_caller
 from the_one.config import settings
@@ -1913,6 +1914,8 @@ async def _restore_session(session_id: str) -> RestoredSession:
         )
 
     messages = decode_messages(db_session.messages)
+    # Squawk 0353: a chat stored with an unanswered tool call heals on load.
+    repair_unanswered_tool_calls(messages)
     if messages:
         # Keep the freshly-built Agent's system message (reflects current
         # agent_config); append only the non-system messages from the DB.
@@ -1996,6 +1999,7 @@ async def _resync_session_from_db(session: Session) -> None:
     if fp == session.db_fingerprint:
         return
     messages = decode_messages(row.messages)
+    repair_unanswered_tool_calls(messages)  # squawk 0353
     non_system = [m for m in messages if m.role != Role.SYSTEM]
     session.agent.messages = session.agent.messages[:1] + non_system
     session.history = messages_to_ui_events(messages)
@@ -2635,6 +2639,9 @@ async def _process_and_broadcast(
     # invokes send_to_platform_channel — that tool's successful
     # tool_result is the only path to visibility=None / peer-
     # visible from this WS write path.
+    # Squawk 0353: this new step supersedes any auth pause (Agent.step clears
+    # the deferred calls), so answer calls an earlier cancel or pause left open.
+    repair_unanswered_tool_calls(session.agent.messages)
     pre_step_len = len(session.agent.messages)
 
     # M25 F6 L2 (0120): from here a cancel is answered by the `except` below.
@@ -2675,6 +2682,9 @@ async def _process_and_broadcast(
             on_usage=_broadcast_usage,
         ):
             if msg.role == Role.ASSISTANT:
+                # Squawk 0355: this reply is stored now; a later cancel's
+                # interrupted message holds only text streamed after it.
+                partial_text = ""
                 if msg.usage:
                     # Per-step usage accumulators are tracked here (NOT in
                     # ``_broadcast_one``) because they are step-scoped —
@@ -2877,6 +2887,12 @@ async def _process_and_broadcast(
         if partial_text:
             interrupted_msg = Message.assistant(content=partial_text + "\n\n_[interrupted]_")
             session.agent.messages.append(interrupted_msg)
+        # Squawk 0353: a cancel mid-tool-call leaves the assistant's tool calls
+        # unanswered; every provider rejects such a history. A live auth pause
+        # keeps its deferred calls for resume_after_auth, so leave those alone
+        # (the next step repairs them once it supersedes the pause).
+        if getattr(session.agent, "_deferred_tool_calls", None) is None:
+            repair_unanswered_tool_calls(session.agent.messages)
         # Best-effort save and notify — wrapped in suppress so lifespan
         # teardown (closing DB / sockets) can't turn a clean shutdown
         # cancel into an unhandled exception. Re-raise preserves the
