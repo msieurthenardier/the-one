@@ -2,7 +2,7 @@
 
 **Status**: in-flight
 
-> **Backported (2026-11-13).** This sortie was chartered after the work was done. The wording, the eval changes and the eval runs were done directly in an operator session as PR #364, outside Flight Control. The charter, this design record and the legs were written afterwards from what was built and measured. The flight review that never ran is run now, before landing. See the flight log, Deviations.
+> **Backported (2026-11-13).** This sortie was chartered after the work was done. The wording, the eval changes and the eval runs were done directly in an operator session as PR #364 (now #369; see the flight log, Deviations), outside Flight Control. The charter, this design record and the legs were written afterwards from what was built and measured. The flight review that never ran is run now, before landing. See the flight log, Deviations.
 
 ## Charter
 

@@ -138,7 +138,7 @@ The problem itself remains. In this sortie's round 2, qwen3-4b passes `planted-c
 
 ### Branch and commit naming
 **Planned**: Branch `sortie/15-notes-as-memories`, commit subject `sortie/15: …`.
-**Actual**: The branch was created as `notes-prompt-wording` with plain commit subjects. It is renamed, and the PR retitled, at the backport, so the squash-merge subject follows the convention.
+**Actual**: The branch was created as `notes-prompt-wording` with plain commit subjects. At the backport it was renamed to `sortie/15-notes-as-memories` through the GitHub branch-rename API. That closed PR #364 (not merged) and dropped its head branch instead of moving the PR. With the operator's choice, the work continues as PR #369 from the sortie branch, titled `sortie/15: notes as memories`, so the squash-merge subject follows the convention. #364 has a comment pointing to #369.
 **Reason**: Backport.
 
 ---
