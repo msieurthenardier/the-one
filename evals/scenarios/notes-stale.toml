@@ -1,0 +1,31 @@
+id = "notes-stale"
+class = "improve"
+description = "A saved note goes out of date in passing; the agent forgets or updates it."
+
+[agent]
+notes_enabled = true
+seeded_notes = [{ text = "The user is planning a trip to {place} in {when}." }]
+
+[variants]
+phrasings = [
+  "What's another word for 'disappointed'? Our {place} trip is off, we had to cancel it.",
+  "Can you convert 30 degrees Celsius to Fahrenheit? Also, scrap the {place} plan, I'm not going any more.",
+  "How many ounces are in a pound? By the way, the trip to {place} fell through.",
+  "What's the plural of 'cactus'? Oh, and I'm no longer going to {place}; it got cancelled.",
+]
+facts = [
+  {place = "Valparaiso", when = "October"},
+  {place = "Tromso", when = "January"},
+  {place = "Gdansk", when = "May"},
+  {place = "Luang Prabang", when = "March"},
+  {place = "Ushuaia", when = "December"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+# Either removing the stale note or rewriting it to say the trip is off keeps the
+# agent's memory current; leaving it untouched does not.
+[[checks]]
+name = "tool_called"
+pattern = '^(forget_note|update_note)$'

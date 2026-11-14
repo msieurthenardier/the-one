@@ -106,13 +106,24 @@ def _hook():
     )
 
 
+# No shipped scenario is judge-scored since notes-as-told was retired; this test-only
+# scenario keeps the judge path (labelled-set gate, scoring, exclusion) exercised.
+JUDGED = h.simple_scenario(
+    "judged",
+    agent="[agent]\nnotes_enabled = true\n",
+    turns='["Please remember this: I plan to go."]',
+    checks='[[checks]]\nname = "judge"\nrubric = "as-told"\n',
+)
+
+
 async def _go(tmp, client):
+    sdir = h.make_tree(tmp / "tree", {"judged": JUDGED})
     return await run(
         tmp,
-        SCENARIOS,
+        sdir,
         _hook(),
-        scenarios=["notes-as-told"],
-        scenarios_dir=SCENARIOS,
+        scenarios=["judged"],
+        scenarios_dir=sdir,
         n=1,
         token_file=h.token_file(tmp),
         hook_kw={"judge_client": client},

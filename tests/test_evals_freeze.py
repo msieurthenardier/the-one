@@ -4,7 +4,8 @@ Flight 2 changes the platform prompt and re-measures it against ``m30-today``; t
 yardstick must not move meanwhile. Content hashes (not git history) pin:
 
 * the scenarios, fixtures and judge files, through a pinned ``scenarios`` fingerprint literal
-  (it was ``m30-today``'s until sortie 11 leg 1; since leg 2 it is ``s11-platform.json``'s);
+  (it was ``m30-today``'s until sortie 11 leg 1, then ``s11-platform.json``'s; since the notes
+  prompt rewording it is ``notes-platform.json``'s);
 * ``evals/measure/`` (the three measured configurations and their KB fixture);
 * the scoring modules ``checks.py``, ``outcomes.py``, ``judge.py`` and ``harness.py``.
 
@@ -63,7 +64,9 @@ SCORING_DIGESTS = {
 # Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
 # `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must
 # not move it: a changed scenario set needs a same-prompt re-baseline, never a comparison.
-S11_PLATFORM = EVALS / "baselines" / "s11-platform.json"
+# Notes prompt rewording (2026-11-13, operator-approved): notes-as-told is retired and
+# notes-stale added, so the pin moves to the re-baselined `notes-platform.json`.
+PLATFORM_BASELINE = EVALS / "baselines" / "notes-platform.json"
 MEASURE_DIGESTS = {
     "all-on.toml": "b5a2276d0717896ec1103ba7a2a1e6f2f2927672b27249543818439e1d35f8db",
     "bare.toml": "599799154b0ecc42afe18e414dde5b380469436bf58c286eeb84ce0074d1c7fd",
@@ -80,9 +83,9 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_scenarios_fixtures_and_judge_match_the_s11_platform_baseline():
+def test_scenarios_fixtures_and_judge_match_the_platform_baseline():
     got = fp.scenarios_fingerprint(EVALS / "scenarios", EVALS / "fixtures", EVALS / "judge")
-    pinned = json.loads(S11_PLATFORM.read_text())["fingerprints"]["scenarios"]
+    pinned = json.loads(PLATFORM_BASELINE.read_text())["fingerprints"]["scenarios"]
     assert got == pinned, UPDATE_HINT
 
 
