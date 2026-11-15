@@ -35,3 +35,5 @@ Expected: thinking follows the model, not the provider. A model that cannot thin
 
 ## Disposition
 **Escalated**: it fails two of the squawk criteria. **No design decisions** fails: where the setting should live (the provider, the agent, or a per-model capability check) and what to do for a model that cannot think (drop the option silently, refuse on save, or fall back after the 400) are open choices. **Bounded blast radius** fails: any of them changes a provider or agent configuration shape that the API, the editors and stored rows share. It is one self-contained outcome with one cluster of decisions, so the right vehicle is a sortie (`/mission-control:sortie`), not yet chartered. Logged here at the operator's request so it has an id and is not lost; link the sortie from this file when it exists.
+
+**Sortie**: [17, Extended thinking follows the model](../sorties/17-thinking-follows-the-model/flight.md), chartered 2026-11-14.

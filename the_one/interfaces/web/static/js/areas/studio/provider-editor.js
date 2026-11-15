@@ -41,7 +41,7 @@
   var slot = window.App.ui.util.mountSlot();
   var DEFAULT_NUM_CTX = 32768;
   var NUM_CTX_DESC = 'A larger window allows longer conversations but will slow down on partial-GPU setups because fewer layers fit in VRAM';
-  var THINKING_DESC = 'When on, a model reasons step-by-step before answering (adaptive thinking). Requires Claude Sonnet 4.6 or newer.';
+  var THINKING_DESC = 'When on, models that support adaptive thinking (Claude models from version 4.6 on) reason step by step before answering. Older models on this provider answer without it.';
   var EFFORT_DESC = 'Guides how much the model reasons before answering (reasoning-capable models). Leave on Provider default to omit.';
   var EFFORT_OPTIONS = [
     { value: '', label: 'Provider default' },
@@ -182,7 +182,7 @@
     // The native checkbox drives collect and dirty through .checked.
     h.thinking = App.ui.toggle({
       id: 'pf-thinking-enabled', label: 'Extended thinking', info: THINKING_DESC,
-      checked: !!(isEdit && provider.config && provider.config.thinking_enabled),
+      checked: isEdit ? !!(provider.config && provider.config.thinking_enabled) : true,
       dataset: { field: 'config.thinking_enabled' }
     });
     watch(h.thinking.control);

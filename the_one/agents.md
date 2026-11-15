@@ -480,6 +480,23 @@ disclosure; the `signature` is identical across display modes, so replay is unaf
 replay-when-on, strip-when-off (DD8). The field is provider-agnostic — Ollama/OpenAI may populate
 it in a later flight with no protocol change.
 
+**Extended thinking follows the model (sortie 17).** Thinking is active on a request only when the
+provider's switch resolves on AND `supports_adaptive_thinking(model)` AND the caller did not pass
+`enable_thinking=False` (`_build_kwargs`' one `thinking_active`, which also gates replay). The rule
+is by model id (`claude-{family}-{major}[-{minor}][-{date}]`, 4.6 or newer is true, `-latest` and an
+8-digit date are not versions, the version-first `claude-3-…` form is false, an id it cannot parse is
+treated as capable). A model that is sent the option and answers 400 "adaptive thinking is not
+supported" is added to a process-wide, never-persisted set (`_NO_THINKING_MODELS`, consulted first by
+the rule), and `_strip_for_bad_request` (after the temperature branch, only while `thinking` is in
+`kwargs`) pops `thinking` and filters thinking blocks out of the assistant messages in place, then
+retries once; a thinking-only assistant message left empty is dropped (the API rejects an empty
+content list). A restart forgets the set. A new Claude provider starts with the switch on:
+`create_provider` stamps `config.thinking_enabled = true` when absent or null (route only, never the
+model or repository, so the evals stay off) and the create form shows the switch checked; **new
+providers only**, a stored provider keeps its value and nothing runs at startup. Adaptive only:
+fixed-budget models (Haiku 4.5, Sonnet 4.5) get no thinking. `resolve_extended_thinking` and the
+`THE_ONE_ANTHROPIC_EXTENDED_THINKING` precedence are unchanged.
+
 ### `provider-request-param-config-surface` (M16 F11)
 
 Per-request LLM params that not every provider needs, and that don't warrant a change to the

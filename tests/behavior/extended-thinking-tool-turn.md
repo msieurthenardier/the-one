@@ -4,7 +4,7 @@
 **Status**: active
 **Created**: 2026-07-02
 **Last Run**: 2026-07-03-12-14-26 (PASS 6/6 — see `runs/2026-07-03-12-14-26.md`)
-**Updated**: 2026-11-14 (sortie 16: steps 3-6 read the turn's work group (`turn-work`, its thinking item and tool rows) instead of the Thinking disclosure and "Tool activity" trace); 2026-10-27 (M31 F6 L05c: step 4 states the disclosure's place above its own iteration's reply (B2); step 5 reads the trace summary "Tool activity · N" and the `chat-telemetry` readout); 2026-10-05 (M25 F4 leg 8: step 1 starts the chat through New chat and the agent picker, as a pending chat with no telemetry; step 5's baseline is the first joined reading)
+**Updated**: 2026-11-14 (sortie 17: the Extended thinking switch is on by default for a new Claude provider; edge case added below the step table; step table unchanged); 2026-11-14 (sortie 16: steps 3-6 read the turn's work group (`turn-work`, its thinking item and tool rows) instead of the Thinking disclosure and "Tool activity" trace); 2026-10-27 (M31 F6 L05c: step 4 states the disclosure's place above its own iteration's reply (B2); step 5 reads the trace summary "Tool activity · N" and the `chat-telemetry` readout); 2026-10-05 (M25 F4 leg 8: step 1 starts the chat through New chat and the agent picker, as a pending chat with no telemetry; step 5's baseline is the first joined reading)
 
 ## Intent
 
@@ -71,6 +71,11 @@ point. `[a11y]` marks the work group's accessibility check.
 - Provider-editor field mechanics (covered by the browser provider-editor unit/flow test).
 
 ## Variants (optional)
+
+- **Model that cannot think (sortie 17):** a provider with the switch ON (the default for a
+  provider created since sortie 17) used by an agent on a model without adaptive thinking (for
+  example Haiku 4.5) completes a tool turn with **no thinking item** in its work group and **no
+  error**; the request carries no thinking option.
 
 - **Thinking OFF (disabled), fresh chat:** the same prompt in a new chat with the **Extended
   thinking toggle OFF** → the turn still completes, no thinking item appears in its work group, and behavior

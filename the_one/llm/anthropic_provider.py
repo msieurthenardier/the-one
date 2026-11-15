@@ -157,6 +157,63 @@ def resolve_extended_thinking(configured: bool | None) -> bool:
     return env if env is not None else False
 
 
+# Sortie 17 (DD1/DD2): adaptive thinking is sent only to models that support it.
+# The set holds model ids a live 400 showed unable to think (process-wide, never
+# persisted); ``supports_adaptive_thinking`` consults it first.
+_NO_THINKING_MODELS: set[str] = set()
+
+_MODEL_VERSION_RE = re.compile(r"^claude-[a-z]+-(\d+)(?:-(\d{1,3}))?(?:-(?:\d{8}|latest))?$")
+_LEGACY_MODEL_RE = re.compile(r"^claude-\d")
+
+
+def _clear_no_thinking_models() -> None:
+    """Forget every model id found unable to think (tests)."""
+    _NO_THINKING_MODELS.clear()
+
+
+def supports_adaptive_thinking(model: str) -> bool:
+    """True when ``model`` can take ``thinking: {"type": "adaptive"}``.
+
+    Claude 4.6 and newer can; older ids and the version-first form (``claude-3-…``)
+    cannot; an id this cannot parse is treated as capable (the strip-and-retry
+    catches a wrong guess). Never raises.
+    """
+    try:
+        if model in _NO_THINKING_MODELS:
+            return False
+        if _LEGACY_MODEL_RE.match(model):
+            return False
+        m = _MODEL_VERSION_RE.match(model)
+        if m is None:
+            return True
+        version = (int(m.group(1)), int(m.group(2) or 0))
+        return version >= (4, 6)
+    except Exception:
+        return True
+
+
+def _strip_thinking_blocks(kwargs: dict[str, Any]) -> None:
+    """Remove thinking / redacted_thinking blocks from assistant content lists of
+    ``kwargs["messages"]`` in place. An assistant message left with no content is
+    dropped, since the API rejects an empty content list."""
+    kept: list[Any] = []
+    for msg in kwargs.get("messages", []):
+        content = msg.get("content") if isinstance(msg, dict) else None
+        if isinstance(msg, dict) and msg.get("role") == "assistant" and isinstance(content, list):
+            filtered = [
+                b
+                for b in content
+                if not (isinstance(b, dict) and b.get("type") in ("thinking", "redacted_thinking"))
+            ]
+            if len(filtered) != len(content):
+                if not filtered:
+                    continue
+                msg["content"] = filtered
+        kept.append(msg)
+    if "messages" in kwargs:
+        kwargs["messages"] = kept
+
+
 # F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
 # Anthropic's high-level ``client.messages.stream()`` context manager +
 # ``stream.text_stream`` iterator (used in ``_stream_inner`` below) does
@@ -270,6 +327,7 @@ class AnthropicProvider(LLMProvider):
         # ``_to_api_message`` for reasoning replay (DD8) and set enablement below.
         thinking_active = (
             resolve_extended_thinking(self._thinking_enabled_config)
+            and supports_adaptive_thinking(self.model)
             and enable_thinking is not False
         )
         system_prompt = ""
@@ -493,6 +551,17 @@ class AnthropicProvider(LLMProvider):
         if "temperature" in text and "temperature" in kwargs:
             # Newer Claude models (Opus 4.x, Sonnet 4.x) reject `temperature`.
             kwargs.pop("temperature", None)
+            return True
+        if "thinking" in kwargs and "thinking" in text and "not supported" in text:
+            # Sortie 17 DD2: the model cannot think; remember it and retry without.
+            _NO_THINKING_MODELS.add(self.model)
+            kwargs.pop("thinking", None)
+            _strip_thinking_blocks(kwargs)
+            logger.warning(
+                "anthropic: model %r does not support adaptive thinking; "
+                "retrying without it (remembered for this process)",
+                self.model,
+            )
             return True
         if "cache_control" in text:
             return self._strip_cache_markers(kwargs)

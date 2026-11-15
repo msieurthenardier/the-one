@@ -311,6 +311,96 @@ class TestProviderAPI:
         data = get_resp.json()
         assert data["config"]["thinking_enabled"] is True
 
+    @pytest.mark.parametrize(
+        ("ptype", "key"),
+        [
+            ("anthropic", "sk-ant-secret1234"),
+            ("anthropic-plan", ""),
+            ("anthropic-plan-token", "sk-ant-oat01-test-synthetic-token-value"),
+        ],
+    )
+    async def test_create_claude_stamps_thinking_enabled(
+        self, client: AsyncClient, ptype: str, key: str
+    ) -> None:
+        """Sortie 17 DD4: a new Claude provider starts with the switch on when the
+        body has no value (key absent, config absent, or null); an explicit value
+        is kept."""
+        base = {"type": ptype, "base_url": "https://api.anthropic.com", "api_key": key}
+        cases = [
+            ({}, True),
+            ({"config": {}}, True),
+            ({"config": {"thinking_enabled": None}}, True),
+            ({"config": {"thinking_enabled": False}}, False),
+            ({"config": {"thinking_enabled": True}}, True),
+        ]
+        for i, (extra, expected) in enumerate(cases):
+            resp = await client.post("/api/providers", json={**base, "name": f"C{i}", **extra})
+            assert resp.status_code == 201, resp.text
+            assert resp.json()["config"]["thinking_enabled"] is expected
+            got = await client.get(f"/api/providers/{resp.json()['id']}")
+            assert got.json()["config"]["thinking_enabled"] is expected
+
+    async def test_create_non_claude_config_untouched(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "OAI",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-x1234",
+            },
+        )
+        assert resp.status_code == 201
+        assert "thinking_enabled" not in resp.json()["config"]
+
+    async def test_put_stamps_nothing(self, client: AsyncClient) -> None:
+        """Changing a non-Claude provider to a Claude type leaves the key absent; a
+        PUT omitting it on a Claude provider keeps the stored value."""
+        created = await client.post(
+            "/api/providers",
+            json={
+                "name": "Swap",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-x1234",
+            },
+        )
+        pid = created.json()["id"]
+        put = await client.put(
+            f"/api/providers/{pid}",
+            json={
+                "name": "Swap",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "__MASKED__",
+            },
+        )
+        assert put.status_code == 200, put.text
+        assert "thinking_enabled" not in put.json()["config"]
+
+        kept = await client.post(
+            "/api/providers",
+            json={
+                "name": "Kept",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "sk-ant-secret1234",
+                "config": {"thinking_enabled": False},
+            },
+        )
+        kid = kept.json()["id"]
+        put2 = await client.put(
+            f"/api/providers/{kid}",
+            json={
+                "name": "Kept",
+                "type": "anthropic",
+                "base_url": "https://api.anthropic.com",
+                "api_key": "__MASKED__",
+            },
+        )
+        assert put2.status_code == 200, put2.text
+        assert put2.json()["config"]["thinking_enabled"] is False
+
     async def test_update_masked_key_preserves_thinking_config(self, client: AsyncClient) -> None:
         """PUT an anthropic provider with a MASKED api_key and a full config
         (thinking_enabled + a second key) → the stored api_key is preserved
