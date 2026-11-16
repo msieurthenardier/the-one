@@ -1,6 +1,8 @@
 # Sortie: Ollama wire fidelity
 
-**Status**: planning
+**Status**: aborted
+
+> **Aborted on 2026-11-16, before flight design.** The precondition run showed no gain: 199/240 as shipped against 198/240 with the corrected wire, on `qwen3:4b-thinking` at n=20. The charter below is kept as written. See the [flight log](flight-log.md), "2026-11-16, precondition run and abort".
 
 ## Charter
 
@@ -39,7 +41,7 @@ An n=20 A-vs-B comparison on `qwen3:4b-thinking` (A as shipped, B with the corre
 
 ## Pre-Flight
 
-*(Flight design not started; it waits for the precondition. Run `/mission-control:sortie` design for sortie 13 to continue.)*
+*(Flight design never started. The precondition was not met and the sortie was aborted.)*
 
 ### Evidence
 The benchmark arms, all gitignored: `evals/runs/bench-layer`, `bench-confirm` and `bench-arms`. The bench driver is in the sortie 11 session scratchpad and is not in the repo. Bring it in or rebuild it as part of the precondition run.
