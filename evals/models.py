@@ -116,9 +116,14 @@ def effective_values(llm: Any) -> dict[str, Any]:
         "temperature": None,
     }
     if hasattr(llm, "_thinking_enabled_config"):
-        from the_one.llm.anthropic_provider import resolve_extended_thinking
+        from the_one.llm.anthropic_provider import (
+            resolve_extended_thinking,
+            supports_adaptive_thinking,
+        )
 
-        out["thinking"] = resolve_extended_thinking(llm._thinking_enabled_config)
+        out["thinking"] = resolve_extended_thinking(
+            llm._thinking_enabled_config
+        ) and supports_adaptive_thinking(llm.model)
     if hasattr(llm, "_reasoning_effort_config"):
         from the_one.llm._request_params import resolve_reasoning_effort
 

@@ -106,6 +106,17 @@ def _daemonize_aiosqlite_worker_threads() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_thinking_models_isolation():
+    """Sortie 17: the process-wide set of models found unable to think never leaks
+    from one test into another."""
+    from the_one.llm import anthropic_provider
+
+    anthropic_provider._clear_no_thinking_models()
+    yield
+    anthropic_provider._clear_no_thinking_models()
+
+
+@pytest.fixture(autouse=True)
 def _shared_app_isolation():
     """Mission 34 F1 L01 (AC3): after every test, fail if it changed the shared API app.
 

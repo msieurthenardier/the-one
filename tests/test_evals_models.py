@@ -125,6 +125,21 @@ def test_effective_values_read_from_real_providers(monkeypatch):
     assert eff["thinking"] is None  # not exposed by this provider: recorded honestly as None
 
 
+def test_effective_thinking_is_model_aware(monkeypatch):
+    from the_one.llm import get_provider
+
+    monkeypatch.delenv("THE_ONE_ANTHROPIC_EXTENDED_THINKING", raising=False)
+    cfg = {"thinking_enabled": True}
+    old = get_provider(
+        "anthropic-plan-token", model="claude-haiku-4-5", access_token="f", config=cfg
+    )
+    new = get_provider(
+        "anthropic-plan-token", model="claude-sonnet-4-6", access_token="f", config=cfg
+    )
+    assert models.effective_values(old)["thinking"] is False
+    assert models.effective_values(new)["thinking"] is True
+
+
 async def test_ollama_server_info_digest_and_version():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/version":

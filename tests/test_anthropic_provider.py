@@ -779,21 +779,29 @@ async def test_stream_captures_thinking_in_final_message(monkeypatch):
 
 
 async def test_non_thinking_model_error_reraised_unchanged(monkeypatch):
-    """A BadRequestError naming an unsupported-thinking/model condition (not
-    temperature, not tools.N) propagates cleanly out of complete()."""
-    err = make_bad_request("messages: thinking is not supported for model claude-test-nonthinking")
-    rec = _CreateRecorder(side_effects=[err])
+    """Sortie 17: a first unsupported-thinking 400 is stripped and retried once; a
+    second one (no thinking key left to strip) propagates cleanly out of complete()."""
+    msg = "messages: thinking is not supported for model claude-test-nonthinking"
+    err = make_bad_request(msg)
+    rec = _CreateRecorder(side_effects=[make_bad_request(msg), err])
     prov = _provider_with_create_config(monkeypatch, rec, {"thinking_enabled": True})
 
     with pytest.raises(anthropic.BadRequestError) as ei:
         await prov.complete(_user_msg())
 
     assert ei.value is err
+    assert len(rec.calls) == 2
 
 
 async def test_non_thinking_model_error_reraised_unchanged_stream(monkeypatch):
-    err = make_bad_request("messages: thinking is not supported for model claude-test-nonthinking")
-    rec = _StreamRecorder([lambda: _StreamCM([], None, raise_on_enter=err)])
+    msg = "messages: thinking is not supported for model claude-test-nonthinking"
+    err = make_bad_request(msg)
+    rec = _StreamRecorder(
+        [
+            lambda: _StreamCM([], None, raise_on_enter=make_bad_request(msg)),
+            lambda: _StreamCM([], None, raise_on_enter=err),
+        ]
+    )
     prov = AnthropicProvider(model="claude-test", config={"thinking_enabled": True})
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     monkeypatch.setattr(prov.client.messages, "stream", rec)

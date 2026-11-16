@@ -6070,6 +6070,7 @@ _PLAN_OAUTH_MANAGED_KEYS = anthropic_oauth.OAUTH_MANAGED_SECRET_KEYS
 _PLAN_TOKEN_MANAGED_KEYS = ("token_set_at",)
 
 _PLAN_TOKEN_TYPE = "anthropic-plan-token"
+_CLAUDE_PROVIDER_TYPES = ("anthropic", "anthropic-plan", _PLAN_TOKEN_TYPE)
 _PLAN_TOKEN_MISSING_DETAIL = "Paste a token from claude setup-token."
 _PLAN_TOKEN_API_KEY_DETAIL = (
     "That is an Anthropic API key. Use the Anthropic provider type for API keys; "
@@ -6250,6 +6251,12 @@ async def create_provider(request: Request) -> dict[str, Any]:
     if provider.type == _PLAN_TOKEN_TYPE:
         _check_plan_token(provider.api_key)
         provider = provider.model_copy(update={"secrets": {"token_set_at": now_iso()}})
+    # Sortie 17 DD4: a new Claude provider starts with extended thinking on
+    # (new providers only; the route stamps, never the model or repository).
+    if provider.type in _CLAUDE_PROVIDER_TYPES and provider.config.get("thinking_enabled") is None:
+        provider = provider.model_copy(
+            update={"config": {**provider.config, "thinking_enabled": True}}
+        )
     # URL safety: refuse non-https for non-localhost when the provider type
     # actually transmits an API key (skips ``mock`` / ``ollama``).
     if provider.type not in _URL_VALIDATION_SKIPPED_TYPES:

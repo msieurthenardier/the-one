@@ -565,19 +565,52 @@ def test_num_ctx_info_icon_tooltip(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_thinking_toggle_shown_for_anthropic_unchecked_by_default(
-    app_clean: str, page: Page
-) -> None:
-    """Selecting the anthropic type reveals an Extended-thinking checkbox,
-    unchecked by default (off-by-default: operator opts in)."""
+def test_thinking_toggle_shown_for_anthropic_checked_by_default(app_clean: str, page: Page) -> None:
+    """Selecting a Claude type on the create form reveals an Extended-thinking
+    checkbox, checked by default (sortie 17), for every Claude type and after
+    switching type back and forth."""
     _nav.goto(page, app_clean, "library/providers/~new")
     expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic")
     toggle = page.locator("#pf-thinking-enabled")
     expect(toggle).to_be_visible()
     expect(toggle).to_have_attribute("type", "checkbox")
-    expect(toggle).not_to_be_checked()
+    expect(toggle).to_be_checked()
     expect(page.locator('label[for="pf-thinking-enabled"]')).to_have_text("Extended thinking")
+    page.locator("#pf-type").select_option("openai")
+    expect(page.locator(".admin-pf-thinking-enabled")).to_be_hidden()
+    page.locator("#pf-type").select_option("anthropic-plan-token")
+    expect(toggle).to_be_visible()
+    expect(toggle).to_be_checked()
+
+
+@pytest.mark.browser
+def test_create_without_touching_thinking_saves_enabled(app_clean: str, page: Page) -> None:
+    """Saving a new Claude provider without touching the switch stores true."""
+    _nav.goto(page, app_clean, "library/providers/~new")
+    expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
+    page.locator("#pf-type").select_option("anthropic")
+    page.locator("#pf-name").fill("Claude default on")
+    page.locator("#pf-api-key").fill("sk-ant-createkey1234")
+    save_btn = page.locator(".save-btn")
+    expect(save_btn).not_to_be_disabled()
+    save_btn.click()
+    # A create opens the new item (no flash): wait for its editor route.
+    _nav.wait_for_route_prefix(
+        page, "library/providers/", not_equal="library/providers/~new", timeout=8000
+    )
+    r = httpx.get(f"{app_clean}/api/providers", timeout=5.0, headers=auth_headers_for(app_clean))
+    row = next(p for p in r.json() if p["name"] == "Claude default on")
+    assert row["config"]["thinking_enabled"] is True
+
+
+@pytest.mark.browser
+def test_stored_false_thinking_opens_unchecked_and_clean(app_clean: str, page: Page) -> None:
+    provider_id = _seed_anthropic_provider(app_clean, thinking_enabled=False)
+    _nav.goto(page, app_clean, f"library/providers/{_nav.seg(provider_id)}")
+    expect(page.locator(".editor-title")).to_have_text("Claude", timeout=8000)
+    expect(page.locator("#pf-thinking-enabled")).not_to_be_checked()
+    expect(page.locator(".save-btn")).to_be_disabled()
 
 
 @pytest.mark.browser
@@ -597,8 +630,8 @@ def test_thinking_toggle_info_icon_tooltip(app_clean: str, page: Page) -> None:
     expect(page.locator(".editor-title")).to_have_text("New model provider", timeout=8000)
     page.locator("#pf-type").select_option("anthropic")
     desc = (
-        "When on, a model reasons step-by-step before answering "
-        "(adaptive thinking). Requires Claude Sonnet 4.6 or newer."
+        "When on, models that support adaptive thinking (Claude models from version 4.6 on) "
+        "reason step by step before answering. Older models on this provider answer without it."
     )
     icon = page.locator(".admin-pf-thinking-enabled .field-info-icon")
     expect(icon).to_be_visible()
