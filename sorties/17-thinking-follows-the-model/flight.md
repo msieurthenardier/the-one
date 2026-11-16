@@ -1,6 +1,6 @@
 # Sortie: Extended thinking follows the model
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
