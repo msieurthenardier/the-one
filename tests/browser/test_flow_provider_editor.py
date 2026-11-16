@@ -596,7 +596,9 @@ def test_create_without_touching_thinking_saves_enabled(app_clean: str, page: Pa
     expect(save_btn).not_to_be_disabled()
     save_btn.click()
     # A create opens the new item (no flash): wait for its editor route.
-    expect(page).to_have_url(re.compile(r"#library/providers/(?!~new)[0-9a-f]+"), timeout=8000)
+    _nav.wait_for_route_prefix(
+        page, "library/providers/", not_equal="library/providers/~new", timeout=8000
+    )
     r = httpx.get(f"{app_clean}/api/providers", timeout=5.0, headers=auth_headers_for(app_clean))
     row = next(p for p in r.json() if p["name"] == "Claude default on")
     assert row["config"]["thinking_enabled"] is True
