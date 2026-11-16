@@ -1,6 +1,6 @@
 # Sortie: Extended thinking follows the model
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -159,7 +159,7 @@ Gate lanes: `make test-unit`, then the `providers` lane. The Architect's grep un
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
 - [x] `thinking-follows-model` - The capability rule, the retry safety net, the create default (route and form), the wording, tests and docs
-- [ ] `hat-and-alignment` *(required, operator decision 2026-11-14)* - Guided HAT on a dev instance with real models: one provider, a model that thinks and one that does not; also walks sortie 16's unwalked step 8C (thinking inside the work group)
+- [x] `hat-and-alignment` *(required, operator decision 2026-11-14)* - Guided HAT on a dev instance with real models: one provider, a model that thinks and one that does not; also walks sortie 16's unwalked step 8C (thinking inside the work group)
 
 ---
 

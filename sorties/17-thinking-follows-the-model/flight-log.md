@@ -83,3 +83,20 @@ Not re-reviewed: the changes refine the decisions and do not restructure the fli
   - The strip matches "thinking" together with "not supported", which a differently worded future 400 could also trip, marking a model as unable to think until restart. Accepted: the app sends only adaptive thinking, so a "not supported" answer about thinking means this model should not be sent it; an exact-sentence match would break on any rewording by the API. The HAT checks the real text. Carried to the debrief.
   - `_CLAUDE_PROVIDER_TYPES` in `api.py` repeats two type literals beside `_PLAN_TOKEN_TYPE`. Cosmetic; carried to the debrief.
 - Developer spawned to commit; draft PR to follow.
+
+#### 2026-11-14 — committed, draft PR, HAT started
+- Commit `fbb6198a` (one commit for the leg and the planning artifacts), pushed; pushed head checked equal to the local head. Draft PR #373 opened as its own step.
+- HAT leg `legs/02-hat-and-alignment.md` designed (interactive, eight steps as state transitions, one shared-state step).
+- HAT instance: port 8485, data `~/the-one-hat-sortie17/data`, cwd `~/the-one-hat-sortie17/cwd`, PID in `serve.pid` there; `/proc/<pid>/environ` confirms the scratch data directory. The default data directory (`~/.local/share/the-one`) and port 8484 are untouched.
+- Full browser gate (`run-tests.sh --parallel 3`, WebKit required, netns) started in the background on the committed tree while the HAT runs.
+
+#### 2026-11-14 — full browser gate green
+`PARALLEL_RESULT rc=0 total=2349s lanes=20 failed=-` on commit `fbb6198a` (WebKit required, netns). `chats` ran 431 s against its 420 s budget (a warning, not a failure). Not a budget reading: the host was not quiet (the HAT instance and a reviewer's lane were running), so no lane is re-budgeted from this run. The Reviewer agent was stopped after it re-sent its delivered approval several times as leftover wait timers fired.
+
+#### 2026-11-15 — HAT walked; flight landed
+- Results are in `legs/02-hat-and-alignment.md` "Walk Results". Steps 1, 2, 3, 6 (adapted), 7 and 8 passed. Steps 4 and 5 were **not walked**.
+- **The design prerequisite was wrong again.** At design the operator confirmed both HAT models; at the HAT, the operator's Claude plan answered only for Haiku 4.5 through this app, and every other model drew a bare `429 rate_limit_error`. The provider's model list could not have shown this: the live listing failed for the plan provider and the static catalog fallback listed every Claude model. A web search found no documented model limit for plans, only that plan sign-ins are restricted in third-party apps. Lesson for the debrief: a "do you have model X" prerequisite needs one real request at design, not a yes.
+- The adapted step 6 ruled out the new default as the cause: with the switch off, the refused model was refused the same way.
+- Charter criteria: 1 (a model that cannot think completes a turn) **met with a real model**; 2 (a model that can think still thinks) **met by tests only**; 3 (a new provider starts on, off still works) **met** (form and route walked; "off for every model" by tests and the Haiku walk); 4 (wording) **met**.
+- HAT instance stopped by its recorded PID. Its scratch data directory `~/the-one-hat-sortie17/` is left in place (it holds the operator's plan sign-in, encrypted); deleting it is the operator's call.
+- No HAT fix, so no code changed after the reviewed commit `fbb6198a`. Flight status `in-flight` → `landed`.
