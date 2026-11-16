@@ -2,7 +2,7 @@
 
 **Date**: 2026-11-15
 **Flight**: [Extended thinking follows the model](flight.md)
-**Status**: completed
+**Status**: landed
 **Duration**: 2026-11-14 (charter, design, leg 1, reviews, commit) - 2026-11-15 (HAT, debrief, fix pass)
 **Legs Completed**: 2 of 2 (the HAT leg with two of eight steps not walked)
 **Plugin version**: mission-control 1.2.3
