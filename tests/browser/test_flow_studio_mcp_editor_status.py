@@ -945,3 +945,74 @@ def test_clean_test_sets_the_line_from_the_outcome(app_clean: str, page: Page) -
         re.compile(r"Connected · checked \d{1,2}:\d{2} (AM|PM)"), timeout=8000
     )
     expect(page.locator(_STATUS)).to_have_attribute("data-mcp-state", "connected")
+
+
+@pytest.fixture
+def real_http_server():
+    """The rich fixture MCP server on a real loopback socket (a subprocess)."""
+    import os
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    env = dict(os.environ, PYTHONPATH=str(root))
+    proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "tests.fixtures.mcp.rich_http_server",
+            "--mode",
+            "ok",
+            "--port",
+            "0",
+        ],
+        cwd=root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        port = None
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and port is None:
+            line = proc.stdout.readline()
+            if not line and proc.poll() is not None:
+                break
+            if line.startswith("PORT "):
+                port = int(line.split()[1])
+        assert port, "the fixture server did not report a port"
+        yield f"http://127.0.0.1:{port}/mcp"
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+
+
+@pytest.mark.browser
+def test_forget_then_test_brings_the_button_back_at_rest(
+    app_clean: str, page: Page, real_http_server: str
+) -> None:
+    """Squawk 0371: after Forget and a real Test, the button is shown again, at rest."""
+    sid = _seed_state(app_clean, "forget-then-test", url=real_http_server)
+    _open(page, app_clean, sid)
+    test_btn = page.locator('[data-testid="mcp-test-connection"]')
+    forget = page.locator('[data-testid="forget-mcp-connection-btn"]')
+    test_btn.click()
+    expect(page.locator(_STATUS)).to_have_attribute("data-mcp-state", "connected", timeout=15000)
+    expect(forget).to_be_visible()
+    forget.click()
+    forget.click()
+    expect(forget).to_be_hidden(timeout=8000)
+    expect(page.locator(_STATUS)).to_have_attribute("data-mcp-state", "none")
+    test_btn.click()
+    expect(page.locator(_STATUS)).to_have_attribute("data-mcp-state", "connected", timeout=15000)
+    expect(forget).to_be_visible(timeout=8000)
+    expect(forget).to_have_text("Forget tools list")
+    assert "confirm-delete" not in (forget.get_attribute("class") or "")
