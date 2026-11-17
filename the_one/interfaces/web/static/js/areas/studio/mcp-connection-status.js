@@ -289,6 +289,9 @@
           App.store.invalidate('agents');
           if (callbacks.onListStale) callbacks.onListStale();
           if (!mount.alive() || !getSource() || getSource().id !== id) return;
+          // The button is about to be hidden (or stay): put it back at rest so it is
+          // never shown again armed (squawk 0371).
+          revert();
           var s = getSource();
           s.oauth_active = false;
           s.has_access_token = false;
