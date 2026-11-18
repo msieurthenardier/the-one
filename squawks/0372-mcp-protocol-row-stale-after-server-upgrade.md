@@ -1,6 +1,6 @@
 # Squawk 0372: MCP editor keeps showing protocol 2025-11-25 after the server moved to a newer protocol
 
-**Status**: open
+**Status**: escalated
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-11-17
@@ -31,7 +31,7 @@ Scope note: if the cause is the negotiation policy itself (when a failed discove
 - Found beside it: a bare `npx -y <package>` reuses a version already in the npx cache and does not move to the newest release (this host ran 1.0.0 while 2.3.0 was published). That is npx's behaviour, not the app's, and it does not explain a Version row that did change; the Command hint could say so.
 
 ## Disposition
-Recommended for escalation (2026-11-17), awaiting the operator's word; status stays `open` until then. The scope note above applies: the cause is the negotiation policy on the shared connect path. The fix is a design decision with more than one reasonable answer (give a local-command server's first `server/discover` the same time as its start-up, try `server/discover` once more after a fallback handshake, show the operator that a connection fell back), so it fails the "no design decisions" and "bounded blast radius" criteria. Vehicle: a sortie.
+**Escalated** (2026-11-18): the operator confirmed that the affected server is their local-command `mcp-everything` and that Test takes more than 10 seconds on it, which is the reproduced case. The scope note above applies: the cause is the negotiation policy on the shared connect path. The fix is a design decision with more than one reasonable answer (give a local-command server's first `server/discover` the same time as its start-up, try `server/discover` once more after a fallback handshake, show the operator that a connection fell back), so it fails the "no design decisions" and "bounded blast radius" criteria → [Local-command MCP servers: newest protocol and Forget](../sorties/19-local-mcp-servers-newest-protocol/flight.md)
 
 ## Corrective Action
 *(written at completion)*

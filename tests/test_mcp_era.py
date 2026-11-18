@@ -53,3 +53,40 @@ def test_era_module_is_a_leaf() -> None:
     )
     r = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=30)
     assert r.returncode == 0 and "OK" in r.stdout, r.stderr
+
+
+def test_no_answer_fallback_is_remembered_only_the_second_time_in_a_row() -> None:
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    assert _era.era_for("s1") is None
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    assert _era.era_for("s1") == "2025-11-25"
+
+
+def test_first_no_answer_removes_an_already_remembered_revision_but_keeps_the_count() -> None:
+    _era.remember_era("s1", "2025-11-25")
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    assert _era.era_for("s1") is None
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    assert _era.era_for("s1") == "2025-11-25"
+
+
+def test_any_other_result_resets_the_count_and_remembers() -> None:
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    _era.record_result("s1", "2026-07-28", no_answer=False)
+    assert _era.era_for("s1") == "2026-07-28"
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    assert _era.era_for("s1") is None  # the count started over
+
+
+def test_forget_clears_the_count_so_the_two_are_not_in_a_row() -> None:
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    _era.forget_era("s1")
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    assert _era.era_for("s1") is None
+
+
+def test_clear_for_test_empties_the_counts_too() -> None:
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    _era._clear_for_test()
+    _era.record_result("s1", "2025-11-25", no_answer=True)
+    assert _era.era_for("s1") is None

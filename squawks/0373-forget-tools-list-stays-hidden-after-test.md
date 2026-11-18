@@ -1,6 +1,6 @@
 # Squawk 0373: "Forget tools list" stays hidden after a Test on the operator's servers
 
-**Status**: open
+**Status**: escalated
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-11-17
@@ -29,7 +29,12 @@ Untested variants worth trying if the record does not settle it: a server with a
   - The server's process replaced by 2.3.0 under the same saved record, then Test, Forget, Test: the rule is true after every Test (22 tools, protocol `2026-07-28`).
   - A local-command server never satisfies the rule, whatever its cache holds: `type` is `stdio`.
 - Code read of the Test route and the editor (`api.py::_test_mcp_connection_inner`, `::_build_and_test_no_auth_mcp`; `mcp-connection-status.js::syncFromServer`): for an HTTP server every successful Test writes `tools` and the editor re-reads the record afterwards. So with a successful Test the button can be absent only when the server's type is not HTTP, or when `oauth_active` is true (then Reset connection is shown in its place).
-- Still needed from the operator's `mcp-everything` page: the Type field's value; whether a "Reset connection" button is shown; whether the status line reads Connected with tools listed after a Test.
+- **Operator's answers, 2026-11-17:** `mcp-everything` is a Local command server (npx); no second button is shown beside Test; after a Test everything works.
+- **Finding: not a defect on that server.** A local-command server has never had this button. Mission 31 Flight 5 decided it (`missions/31-control-library-everywhere/flights/05-mcp-editor-on-the-library/flight.md`, DD6: "'Forget tools list' for a cached streamable-HTTP server with no sign-in … stdio gets neither"), and the rule in `mcp-connection-status.js::updateButtons` requires `type === 'streamable-http'`. On an HTTP server the button hides after it is pressed (nothing is left to forget) and returns after the next Test that connects; both reproductions above show that.
+- The route itself already accepts a local-command server (`api.py::reset_mcp_connection`: "calling on a stdio source is harmless … but UI hides the affordance"): it drops the tools cache, the per-agent tool lists and the remembered protocol, and closes pooled connections.
+
+## Disposition
+**Escalated** (2026-11-18): the operator wants "Forget tools list" on local-command servers too. That is new behaviour, not a defect: it reverses a recorded design decision and adds something a user would notice, so it fails the squawk gate ("nothing new", "no design decisions") → [Local-command MCP servers: newest protocol and Forget](../sorties/19-local-mcp-servers-newest-protocol/flight.md), design decision DD5.
 
 ## Corrective Action
 *(written at completion)*

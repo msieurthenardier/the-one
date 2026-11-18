@@ -147,6 +147,21 @@ async def test_unexpected_status_falls_through_and_connects_modern(
     assert cache["auth_posture"] == "no_auth"
 
 
+async def test_no_auth_writer_deletes_a_stale_protocol_fallback_note(
+    client_and_repo, monkeypatch
+) -> None:
+    """Sortie 19, DD4: the HTTP writer drops a local-command note left on the row."""
+    c, repo = client_and_repo
+    await repo.merge_cache(SID, {"protocol_fallback": "no_answer"})
+    async with serve_asgi(monkeypatch, make_http_app()):
+        with _probe("no_auth"):
+            resp = await c.post(f"/api/mcp-sources/{SID}/test/connect")
+    assert resp.json()["status"] == "ok", resp.json()
+    cache = (await repo.get(SID)).config["_cache"]
+    assert "protocol_fallback" not in cache
+    assert cache["protocol_version"] == "2026-07-28"
+
+
 # --- AC2 (b): fall-through that needs sign-in ends in Phase B -------------------
 
 

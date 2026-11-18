@@ -35,7 +35,7 @@ from mcp.types.version import HANDSHAKE_PROTOCOL_VERSIONS, MODERN_PROTOCOL_VERSI
 from the_one.db.models import MCPSource
 from the_one.mcp import _era
 from the_one.mcp._arg_coerce import coerce_arguments
-from the_one.mcp._negotiate import DiscoverSignInRequired, negotiate
+from the_one.mcp._negotiate import DiscoverSignInRequired, NegotiationOutcome, negotiate
 from the_one.mcp._signin_record import (
     MAX_SSE_EVENT_BYTES,
     AuthRecord,
@@ -252,6 +252,7 @@ class MCPClient:
         self._session: ClientSession | None = None
         self._capabilities: ServerCapabilities | None = None
         self._protocol_version: str | None = None
+        self._negotiation_fallback: str | None = None
         # F4 L2 (M08): server-declared identity + free-form usage prose from the
         # MCP initialize() response. Optional in the spec (servers MAY omit
         # either); when present they let the agent-editor Tools tab surface a
@@ -296,6 +297,13 @@ class MCPClient:
                 "MCPClient is not connected; cannot read negotiated_protocol_version."
             )
         return self._protocol_version
+
+    @property
+    def negotiation_fallback(self) -> str | None:
+        """``"no_answer"`` when the last connect fell back to the handshake because the
+        discover probe got no answer in its patient window (local-command servers only),
+        else ``None``. Reset by every ``connect()``; a failed connect leaves ``None``."""
+        return self._negotiation_fallback
 
     @property
     def server_capabilities(self) -> dict[str, Any]:
@@ -532,6 +540,7 @@ class MCPClient:
         """
         if self._is_alive:
             raise MCPConnectionError("MCPClient is already connected.")
+        self._negotiation_fallback = None
         try:
             await self._connect_once()
         except asyncio.CancelledError:
@@ -555,6 +564,21 @@ class MCPClient:
         # session exists so the cleanup branches below (which clear
         # ``self._session``) cannot lose it. A fresh record starts at seq 0.
         auth_rec: AuthRecord | None = None
+        # Sortie 19, DD2: a local-command server is spawned inside this block, so a
+        # probe with no answer usually means "still starting"; the discover window
+        # runs until the connect limit less the handshake reserve. Anything else: none.
+        outcome: NegotiationOutcome | None = None
+        deadline: float | None = None
+        limit = self.timeout_seconds
+        if (
+            self.source.type == "stdio"
+            and isinstance(limit, int | float)
+            and not isinstance(limit, bool)
+            and limit > the_one_mcp.HANDSHAKE_RESERVE_SECONDS
+        ):
+            deadline = asyncio.get_running_loop().time() + (
+                limit - the_one_mcp.HANDSHAKE_RESERVE_SECONDS
+            )
         try:
             async with asyncio.timeout(self.timeout_seconds):
                 # Single-line construction-and-enter to make the "stack is
@@ -592,7 +616,16 @@ class MCPClient:
                         remembered = (
                             None if self.fresh_negotiation else _era.era_for(self.source.id)
                         )
-                        await negotiate(session, remembered=remembered)
+                        if deadline is None:
+                            await negotiate(session, remembered=remembered)
+                        else:
+                            outcome = NegotiationOutcome()
+                            await negotiate(
+                                session,
+                                remembered=remembered,
+                                patient_until=deadline,
+                                outcome=outcome,
+                            )
                     except* (OAuthFlowError, OAuthTokenError):
                         # SDK's auth flow failed during initialize (refresh /
                         # discovery / DCR). Translate to MCPAuthRequired so
@@ -758,8 +791,11 @@ class MCPClient:
         # observes the failed state correctly).
         self._capabilities = capabilities
         self._protocol_version = negotiated
+        self._negotiation_fallback = outcome.fallback if outcome is not None else None
         if self.record_era:
-            _era.remember_era(self.source.id, negotiated)
+            _era.record_result(
+                self.source.id, negotiated, no_answer=self._negotiation_fallback == "no_answer"
+            )
         # F4 L2 (M08): capture spec-optional serverInfo + instructions so the
         # agent-editor Tools tab can surface server-declared identity/usage
         # prose without re-probing. Both default to None when omitted.

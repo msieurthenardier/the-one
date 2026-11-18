@@ -33,6 +33,9 @@ Optional flags:
             on any discover and then refuses ``initialize``.
   --close-on-discover : the process exits on ``server/discover`` (pipe close;
             documented as failing plainly with MCPConnectionError).
+  --start-delay=<seconds> : sortie 19 — in ``--stdio`` mode sleep this long
+            before serving anything (a slow-starting local server: requests wait
+            in the pipe). Combines with ``--legacy-only`` and ``--drop-discover``.
   --with-input-required : registers ``needs_input`` (returns an
             ``InputRequiredResult``, DD8).
 
@@ -45,6 +48,7 @@ from __future__ import annotations
 import os
 import socket
 import sys
+import time
 from pathlib import Path
 
 import anyio
@@ -242,11 +246,16 @@ def main(argv: list[str] | None = None) -> int:
     drop_discover = "--drop-discover" in args
     close_on_discover = "--close-on-discover" in args
     with_input_required = "--with-input-required" in args
+    start_delay = 0.0
+    for a in args:
+        if a.startswith("--start-delay="):
+            start_delay = float(a.split("=", 1)[1])
     args = [
         a
         for a in args
         if not (
             a.startswith("--legacy-only")
+            or a.startswith("--start-delay")
             or a in ("--drop-discover", "--close-on-discover", "--with-input-required")
         )
     ]
@@ -268,6 +277,8 @@ def main(argv: list[str] | None = None) -> int:
                 return await call_next(ctx)
 
             low.middleware.insert(0, _discover_middleware)
+        if start_delay > 0:
+            time.sleep(start_delay)  # a slow-starting server: nothing is read until now
         if legacy_revision is not None:
             anyio.run(_run_legacy_only, mcp_app, legacy_revision)
         else:

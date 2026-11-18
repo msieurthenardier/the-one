@@ -515,3 +515,43 @@ async def test_stdio_test_connect_against_mcpserver_fixture_returns_echo_add(
         f"Unexpected MCPClient.disconnect warnings on stdio Test path: "
         f"{[r.message for r in disconnect_warnings]}"
     )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="stdio MCP fixture is POSIX-shell shaped")
+async def test_stdio_test_stores_the_no_answer_fallback_and_a_prompt_test_removes_it(
+    client_and_repo,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sortie 19 (AC13, route part), real client and real fixture: a handshake-only
+    server that starts after the patient window stores ``protocol_fallback`` beside the
+    protocol; a later Test against a prompt start removes the key."""
+    monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
+    monkeypatch.setattr("mcp.client.session.DISCOVER_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr("the_one.mcp.PROBE_NO_ANSWER_FLOOR_SECONDS", 0.2)
+    monkeypatch.setattr("the_one.mcp.HANDSHAKE_RESERVE_SECONDS", 8)
+    # a 6 s window; about 6 s remain after the 6.5 s delay for start-up and handshake
+    monkeypatch.setattr("the_one.mcp.MCP_DEFAULT_TIMEOUT_SECONDS", 14)
+
+    client, repo = client_and_repo
+    base_args = ["-m", "tests.fixtures.mcp.hello_server", "--stdio", "--legacy-only"]
+    await _seed_stdio(
+        repo,
+        "src-slow-legacy",
+        command=sys.executable,
+        args=[*base_args, "--start-delay=6.5"],
+    )
+
+    resp = await client.post("/api/mcp-sources/src-slow-legacy/test/connect", timeout=30.0)
+    assert resp.json()["status"] == "ok", resp.text
+    cache = (await repo.get("src-slow-legacy")).config["_cache"]
+    assert cache["protocol_version"] == "2025-11-25"
+    assert cache["protocol_fallback"] == "no_answer"
+
+    stored = await repo.get("src-slow-legacy")
+    prompt = stored.model_copy(update={"config": {**stored.config, "args": base_args}})
+    await repo.update(prompt)
+    resp = await client.post("/api/mcp-sources/src-slow-legacy/test/connect", timeout=30.0)
+    assert resp.json()["status"] == "ok", resp.text
+    cache = (await repo.get("src-slow-legacy")).config["_cache"]
+    assert cache["protocol_version"] == "2025-11-25"
+    assert "protocol_fallback" not in cache

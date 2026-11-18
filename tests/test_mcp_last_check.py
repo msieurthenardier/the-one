@@ -415,6 +415,107 @@ async def test_put_type_change_drops_check_and_posture(client_and_repo) -> None:
     assert cache["tools"] == FULL_CACHE["tools"]
 
 
+async def test_put_server_change_drops_the_protocol_fallback_note(client_and_repo) -> None:
+    c, repo = client_and_repo
+    stale = {**CACHE_WITH_CHECK, "protocol_fallback": "no_answer"}
+    await _seed(repo, stdio=True, cache=stale)
+    await _put(c, {"config": {"command": "python", "args": ["other"]}})  # same server: kept
+    assert (await repo.get(SID)).config["_cache"]["protocol_fallback"] == "no_answer"
+    await _put(c, {"type": "streamable-http", "config": {"url": "https://x.example/mcp"}})
+    cache = (await repo.get(SID)).config["_cache"]
+    assert "protocol_fallback" not in cache
+    assert cache["tools"] == FULL_CACHE["tools"]
+
+
+async def _stdio_test_with(repo, c, client_cls, cache=None):
+    await _seed(repo, cache=cache)
+    with patch("the_one.mcp.client.MCPClient", client_cls):
+        resp = await c.post(f"/api/mcp-sources/{SID}/test/connect")
+    assert resp.json()["status"] == "ok", resp.text
+    return (await repo.get(SID)).config["_cache"]
+
+
+async def test_stdio_test_stores_the_no_answer_fallback_beside_the_protocol(
+    client_and_repo,
+) -> None:
+    c, repo = client_and_repo
+    base = _ok_client()
+
+    class _Fell(base):
+        negotiation_fallback = "no_answer"
+
+    cache = await _stdio_test_with(repo, c, _Fell)
+    assert cache["protocol_fallback"] == "no_answer"
+    assert cache["protocol_version"] == "2025-06-18"
+
+
+async def test_stdio_test_deletes_a_stale_fallback_note(client_and_repo) -> None:
+    c, repo = client_and_repo
+    base = _ok_client()
+
+    class _Prompt(base):
+        negotiation_fallback = None
+
+    stale = {**FULL_CACHE, "protocol_fallback": "no_answer"}
+    cache = await _stdio_test_with(repo, c, _Prompt, cache=stale)
+    assert "protocol_fallback" not in cache
+    assert cache["protocol_version"] == "2025-06-18"
+
+
+async def test_stdio_test_with_a_fake_that_has_no_property_or_a_mock_writes_no_key(
+    client_and_repo,
+) -> None:
+    c, repo = client_and_repo
+    base = _ok_client()
+    cache = await _stdio_test_with(repo, c, base, cache={**FULL_CACHE, "protocol_fallback": "x"})
+    assert "protocol_fallback" not in cache
+
+    class _Mocky(base):
+        negotiation_fallback = MagicMock()
+
+    cache = await _stdio_test_with_again(repo, c, _Mocky)
+    assert "protocol_fallback" not in cache
+
+
+async def _stdio_test_with_again(repo, c, client_cls):
+    with patch("the_one.mcp.client.MCPClient", client_cls):
+        resp = await c.post(f"/api/mcp-sources/{SID}/test/connect")
+    assert resp.json()["status"] == "ok", resp.text
+    return (await repo.get(SID)).config["_cache"]
+
+
+async def test_stdio_test_with_cache_write_none_writes_nothing_about_the_fallback(
+    client_and_repo,
+) -> None:
+    c, repo = client_and_repo
+    base = _ok_client()
+
+    class _Fell(base):
+        negotiation_fallback = "no_answer"
+
+    await _seed(repo, cache=FULL_CACHE)
+    source = await repo.get(SID)
+    before = dict(source.config["_cache"])
+    with patch("the_one.mcp.client.MCPClient", _Fell):
+        result = await api_mod._build_and_test_stdio_mcp(source, SID, repo, cache_write="none")
+    assert result["status"] == "ok"
+    assert (await repo.get(SID)).config["_cache"] == before
+
+
+async def test_http_phase_a_ok_deletes_a_stale_fallback_note(client_and_repo) -> None:
+    c, repo = client_and_repo
+    await _seed(
+        repo,
+        stdio=False,
+        cache={**FULL_CACHE, "protocol_fallback": "no_answer"},
+        secrets={"dcr_credentials": {"client_id": "cid"}, "access_token": "tok"},
+    )
+    with patch("the_one.mcp.client.MCPClient", _ok_client()):
+        resp = await c.post(f"/api/mcp-sources/{SID}/test/connect")
+    assert resp.json()["status"] == "ok"
+    assert "protocol_fallback" not in (await repo.get(SID)).config["_cache"]
+
+
 async def test_put_name_only_and_headers_only_keep_both(client_and_repo) -> None:
     c, repo = client_and_repo
     await _seed(repo, stdio=False, cache=CACHE_WITH_CHECK)

@@ -431,3 +431,111 @@ def test_forget_hides_server_section_and_tools_show_hint(app_clean: str, page: P
     expect(page.locator('[data-testid="mcp-tools-section"]')).to_contain_text(
         "Press Test to load this server's tools."
     )
+
+
+# ── Sortie 19: the protocol-fallback note ─────────────────────────────────
+
+_NOTE = '[data-testid="mcp-server-protocol-fallback"]'
+_NOTE_TEXT = (
+    "This server did not answer the newer-protocol check in time, so this connection uses "
+    "an older protocol and may offer fewer tools. Press Test again once the server has "
+    "started."
+)
+
+
+@pytest.mark.browser
+def test_protocol_fallback_note_is_shown_in_place(app_clean: str, page: Page) -> None:
+    """AC4: a warning note after the facts and before Instructions, exact text; the
+    Protocol row still shows the stored revision."""
+    cache = _info_cache(protocol_version="2025-06-18", protocol_fallback="no_answer")
+    cache["instructions"] = "Be kind."
+    _open_with_cache(page, app_clean, cache, "note-shown")
+    note = page.locator(_NOTE)
+    expect(note).to_be_visible()
+    expect(note).to_have_text(_NOTE_TEXT)
+    assert note.get_attribute("role") == "note"
+    assert "warning" in (note.get_attribute("class") or "")
+    expect(page.locator('[data-testid="mcp-server-protocol"] dd')).to_have_text("2025-06-18")
+    order = page.evaluate(
+        """() => {
+          const f = document.querySelector('[data-testid="mcp-server-facts"]');
+          const n = document.querySelector('[data-testid="mcp-server-protocol-fallback"]');
+          const i = document.querySelector('[data-testid="mcp-server-instructions"]');
+          const P = Node.DOCUMENT_POSITION_FOLLOWING;
+          return [!!(f.compareDocumentPosition(n) & P), !!(n.compareDocumentPosition(i) & P)];
+        }"""
+    )
+    assert order == [True, True]
+    assert page.locator(_NOTE).count() == 1
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    "cache_kw",
+    [
+        {},
+        {"protocol_fallback": "other"},
+        {"protocol_fallback": "no_answer", "protocol_version": ""},
+    ],
+    ids=["key-absent", "other-value", "no-protocol"],
+)
+def test_protocol_fallback_note_is_hidden(app_clean: str, page: Page, cache_kw: dict) -> None:
+    """AC5: present in the DOM and hidden when the key is absent or another value, or the
+    cache has no protocol_version."""
+    cache = _info_cache(**cache_kw)
+    if cache_kw.get("protocol_version") == "":
+        cache.pop("protocol_version")
+    _open_with_cache(page, app_clean, cache, "note-hidden")
+    expect(page.locator(_SRV)).to_be_visible()
+    assert page.locator(_NOTE).count() == 1
+    expect(page.locator(_NOTE)).to_be_hidden()
+
+
+@pytest.mark.browser
+def test_protocol_fallback_note_follows_the_record_in_place(app_clean: str, page: Page) -> None:
+    """AC6: Forget hides it with the section; a Test whose refetched record has no key hides
+    it, one with the key shows it; the section element is never replaced."""
+    with_key = _info_cache(protocol_version="2025-06-18", protocol_fallback="no_answer")
+    without = _info_cache(protocol_version="2026-07-28")
+    sid = _open_with_cache(page, app_clean, with_key, "note-follow")
+    real = _get_source(app_clean, sid)
+    served = {"cache": without}
+
+    def handle_get(route):
+        if route.request.method != "GET":
+            return route.fallback()
+        body = json.loads(json.dumps(real))
+        body["config"]["_cache"] = served["cache"]
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
+    page.route(re.compile(rf".*/api/mcp-sources/{re.escape(sid)}$"), handle_get)
+    page.route(
+        f"**/api/mcp-sources/{sid}/test/connect",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "ok", "tools": with_key["tools"], "capabilities": {}}),
+        ),
+    )
+    expect(page.locator(_NOTE)).to_be_visible()
+    page.evaluate(
+        "() => { window.__srv = document.querySelector('[data-testid=\"mcp-server-info-section\"]'); }"
+    )
+    test_btn = page.locator('[data-testid="mcp-test-connection"]')
+    test_btn.click()
+    expect(page.locator(_NOTE)).to_be_hidden(timeout=6000)
+    expect(page.locator('[data-testid="mcp-server-protocol"] dd')).to_have_text("2026-07-28")
+    expect(test_btn).not_to_be_disabled(timeout=6000)
+    served["cache"] = with_key
+    test_btn.click()
+    expect(page.locator(_NOTE)).to_be_visible(timeout=6000)
+    expect(test_btn).not_to_be_disabled(timeout=6000)
+    served["cache"] = {}  # what the server holds once the Forget has dropped the record
+    forget = page.locator('[data-testid="forget-mcp-connection-btn"]')
+    forget.click()
+    forget.click()
+    expect(page.locator(_SRV)).to_be_hidden(timeout=6000)
+    expect(page.locator(_NOTE)).to_be_hidden()
+    assert page.evaluate(
+        "() => window.__srv === document.querySelector('[data-testid=\"mcp-server-info-section\"]')"
+    )

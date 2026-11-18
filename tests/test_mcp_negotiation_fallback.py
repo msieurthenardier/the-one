@@ -71,8 +71,17 @@ def discover_spy(monkeypatch):
     return calls
 
 
-async def _connect_list_echo(source: MCPSource) -> str:
-    c = MCPClient(source, timeout_seconds=30)
+def _short_window(monkeypatch, *, reserve: float) -> None:
+    """Shorten the four things a patient local-command connect depends on together
+    (sortie 19): the SDK's probe timeout, the no-answer floor and the handshake
+    reserve; the caller passes the matching ``timeout_seconds`` (window = it - reserve)."""
+    monkeypatch.setattr("mcp.client.session.DISCOVER_TIMEOUT_SECONDS", 0.5)
+    monkeypatch.setattr("the_one.mcp.PROBE_NO_ANSWER_FLOOR_SECONDS", 0.2)
+    monkeypatch.setattr("the_one.mcp.HANDSHAKE_RESERVE_SECONDS", reserve)
+
+
+async def _connect_list_echo(source: MCPSource, timeout: float = 30) -> str:
+    c = MCPClient(source, timeout_seconds=timeout)
     await c.connect()
     try:
         assert c.is_alive is True
@@ -181,15 +190,126 @@ async def test_stdio_fast_error_falls_back_and_second_connect_skips_discover(dis
     await _second_connect_sends_no_discover(source, discover_spy)
 
 
-async def test_stdio_silent_drop_falls_back_and_second_connect_skips_discover(
+async def test_stdio_silent_drop_waits_the_window_is_asked_again_then_remembered(
     monkeypatch, discover_spy
 ) -> None:
-    monkeypatch.setattr("mcp.client.session.DISCOVER_TIMEOUT_SECONDS", 0.5)
+    """A local-command server that ignores ``server/discover`` (sortie 19, DD1/DD3): the
+    first connect asks again for the whole window, falls back and records the
+    no-answer fallback; the second asks again (the first one is not remembered); after
+    the second in a row the handshake revision is remembered and the third sends no probe."""
+    _short_window(monkeypatch, reserve=5)  # a 2 s window of a 7 s limit
     source = _stdio("--legacy-only", "--drop-discover", source_id="fb-drop")
+
+    async def connect() -> MCPClient:
+        c = MCPClient(source, timeout_seconds=7)
+        await c.connect()
+        try:
+            assert c.negotiated_protocol_version == "2025-11-25"
+            assert (await c.call_tool("echo", {"message": "x"})).text == "x"
+        finally:
+            await c.disconnect()
+        return c
+
     async with asyncio.timeout(60):
-        assert await _connect_list_echo(source) == "2025-11-25"
+        c1 = await connect()
+        assert c1.negotiation_fallback == "no_answer"
+        assert len(discover_spy) > 1  # asked again inside the window
+        assert _era.era_for("fb-drop") is None
+
+        discover_spy.clear()
+        c2 = await connect()
+        assert c2.negotiation_fallback == "no_answer"
+        assert len(discover_spy) > 1  # the connect after it probes again
+        assert _era.era_for("fb-drop") == "2025-11-25"
+
+        await _second_connect_sends_no_discover(source, discover_spy)
+
+
+async def test_stdio_slow_dual_era_server_ends_modern_with_more_than_one_probe(
+    monkeypatch, discover_spy
+) -> None:
+    """AC12: a server that starts after the SDK's probe timeout but inside the window."""
+    _short_window(monkeypatch, reserve=3)  # window 5 s of an 8 s limit
+    c = MCPClient(_stdio("--start-delay=1", source_id="slow-dual"), timeout_seconds=8)
+    async with asyncio.timeout(60):
+        await c.connect()
+        try:
+            assert c.negotiated_protocol_version == "2026-07-28"
+            assert c.negotiation_fallback is None
+            assert (await c.call_tool("echo", {"message": "hi"})).text == "hi"
+        finally:
+            await c.disconnect()
+    assert len(discover_spy) > 1
+
+
+async def test_stdio_slow_legacy_server_past_the_window_records_the_fallback(
+    monkeypatch, discover_spy
+) -> None:
+    """AC13 (client part): a handshake-only server that starts after the window ends on
+    the handshake revision with the fallback recorded."""
+    # window 6 s of a 14 s limit: after the 6.5 s delay about 6 s remain for the
+    # interpreter's start-up (slow on a loaded host) and the handshake
+    _short_window(monkeypatch, reserve=8)
+    source = _stdio("--legacy-only", "--start-delay=6.5", source_id="slow-legacy")
+    c = MCPClient(source, timeout_seconds=14)
+    async with asyncio.timeout(60):
+        await c.connect()
+        try:
+            assert c.negotiated_protocol_version == "2025-11-25"
+            assert c.negotiation_fallback == "no_answer"
+            assert (await c.call_tool("echo", {"message": "hi"})).text == "hi"
+        finally:
+            await c.disconnect()
+    assert len(discover_spy) > 1
+
+
+async def test_stdio_a_modern_connect_in_between_resets_the_no_answer_count(
+    monkeypatch, discover_spy
+) -> None:
+    _short_window(monkeypatch, reserve=5)  # a 2 s window of a 7 s limit
+    silent = _stdio("--legacy-only", "--drop-discover", source_id="fb-reset")
+    modern = _stdio(source_id="fb-reset")  # the same source id, now a prompt dual-era server
+    async with asyncio.timeout(60):
+        c = MCPClient(silent, timeout_seconds=7)
+        await c.connect()
+        assert c.negotiation_fallback == "no_answer"
+        await c.disconnect()
+        assert _era.era_for("fb-reset") is None
+
+        c = MCPClient(modern, timeout_seconds=7)
+        await c.connect()
+        assert c.negotiated_protocol_version == "2026-07-28"
+        assert c.negotiation_fallback is None
+        await c.disconnect()
+
+        c = MCPClient(silent, timeout_seconds=7)
+        await c.connect()
+        assert c.negotiation_fallback == "no_answer"
+        await c.disconnect()
+        assert _era.era_for("fb-reset") is None  # the count started over: still the first
+
+
+async def test_stdio_prompt_servers_send_one_probe_and_record_no_fallback(discover_spy) -> None:
+    """AC15: a prompt server is no slower and nothing is recorded for it."""
+    dual = MCPClient(_stdio(source_id="prompt-dual"), timeout_seconds=30)
+    await dual.connect()
+    try:
+        assert dual.negotiated_protocol_version == "2026-07-28"
+        assert dual.negotiation_fallback is None
+    finally:
+        await dual.disconnect()
     assert discover_spy == ["discover"]
-    await _second_connect_sends_no_discover(source, discover_spy)
+
+    discover_spy.clear()
+    legacy = MCPClient(_stdio("--legacy-only", source_id="prompt-legacy"), timeout_seconds=30)
+    await legacy.connect()
+    try:
+        assert legacy.negotiated_protocol_version == "2025-11-25"
+        assert legacy.negotiation_fallback is None  # an error answer is not "no answer"
+    finally:
+        await legacy.disconnect()
+    assert discover_spy == ["discover"]
+    assert _era.era_for("prompt-legacy") == "2025-11-25"  # remembered at once
 
 
 async def test_stdio_pipe_close_fails_plainly_as_connection_error(discover_spy) -> None:

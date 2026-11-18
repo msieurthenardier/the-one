@@ -3785,7 +3785,7 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
         kept = {
             k: v
             for k, v in updated.config["_cache"].items()
-            if k not in ("last_check", "auth_posture")
+            if k not in ("last_check", "auth_posture", "protocol_fallback")
         }
         new_config = {k: v for k, v in updated.config.items() if k != "_cache"}
         if kept:
@@ -4007,7 +4007,9 @@ async def reset_mcp_connection(source_id: str) -> dict[str, str]:
     unchanged shape; eviction is idempotent on no-match).
 
     Out-of-scope: stdio sources have no OAuth state; calling on a stdio
-    source is harmless (zero keys match) but UI hides the affordance.
+    source is harmless (zero keys match). The editor's Forget tools list button
+    uses this route for a local-command source with a stored tools list (the
+    cache, per-agent tool lists and remembered protocol are dropped).
     """
     from the_one.mcp._pool import _evict_all_for_source
 
@@ -4155,7 +4157,7 @@ async def _build_and_test_no_auth_mcp(
                 if cache_write == "shared":
                     cache_fields["auth_posture"] = "no_auth"
                 try:
-                    await repo.merge_cache(source_id, cache_fields)
+                    await repo.merge_cache(source_id, cache_fields, delete=("protocol_fallback",))
                 except Exception:
                     # Best-effort persistence — a write failure must not break the
                     # response contract (mirrors the Phase A persistence pattern).
@@ -4185,6 +4187,15 @@ async def _build_and_test_no_auth_mcp(
         # escape the route as a 500 with HTML body. The frontend's resp.ok
         # check is a parallel guard; this ensures the JSON contract holds.
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+
+
+def _protocol_fallback_of(client: Any) -> str | None:
+    """``"no_answer"`` only when the client reports exactly that (sortie 19, DD4).
+
+    Fakes with no such attribute, and mocks that return a mock, give ``None``.
+    """
+    value = getattr(client, "negotiation_fallback", None)
+    return value if isinstance(value, str) and value == "no_answer" else None
 
 
 async def _build_and_test_stdio_mcp(
@@ -4245,6 +4256,7 @@ async def _build_and_test_stdio_mcp(
             # F4 L3 (M08): _meta — see _build_and_test_no_auth_mcp.
             meta = client.meta
             protocol_version = client.negotiated_protocol_version
+            protocol_fallback = _protocol_fallback_of(client)
             tools_cache_payload = [
                 {
                     "name": t.name,
@@ -4255,18 +4267,20 @@ async def _build_and_test_stdio_mcp(
             ]
             if cache_write != "none":
                 try:
-                    await repo.merge_cache(
-                        source_id,
-                        {
-                            "tools": tools_cache_payload,
-                            "capabilities": capabilities,
-                            "server_info": server_info,
-                            "instructions": instructions,
-                            "meta": meta,
-                            "protocol_version": protocol_version,
-                            "last_updated": time.time(),
-                        },
-                    )
+                    fields: dict[str, Any] = {
+                        "tools": tools_cache_payload,
+                        "capabilities": capabilities,
+                        "server_info": server_info,
+                        "instructions": instructions,
+                        "meta": meta,
+                        "protocol_version": protocol_version,
+                        "last_updated": time.time(),
+                    }
+                    if protocol_fallback is not None:
+                        fields["protocol_fallback"] = protocol_fallback
+                        await repo.merge_cache(source_id, fields)
+                    else:
+                        await repo.merge_cache(source_id, fields, delete=("protocol_fallback",))
                 except Exception:
                     # Best-effort persistence — a write failure must not break the
                     # response contract (mirrors the http no-auth helper).
@@ -4445,6 +4459,7 @@ async def _connect_with_tokens(
                         "protocol_version": protocol_version,
                         "last_updated": time.time(),
                     },
+                    delete=("protocol_fallback",),
                 )
             except Exception:
                 # Best-effort persistence: a write failure must not break the

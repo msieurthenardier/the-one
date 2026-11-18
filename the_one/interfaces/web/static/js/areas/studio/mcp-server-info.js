@@ -6,7 +6,10 @@
 //   serverEl  App.ui.section "Server" (testid mcp-server-info-section), hidden while the
 //             cache has nothing to show: an identity row (icon, title, name subtitle),
 //             App.ui.facts (Version, Protocol, Offers, Website, only the rows with a
-//             value), an Instructions disclosure and a Metadata disclosure holding a
+//             value), a warning note (testid mcp-server-protocol-fallback) shown only when
+//             the cache has a Protocol and protocol_fallback is "no_answer" (the connection
+//             fell back to an older protocol for lack of an answer), an Instructions
+//             disclosure and a Metadata disclosure holding a
 //             code block.
 //   toolsEl   App.ui.section "Tools" (testid mcp-tools-section) holding the empty hint
 //             and [data-testid=mcp-tools-list], one bordered disclosure per tool.
@@ -59,6 +62,7 @@
       website: info.websiteUrl || '',
       iconSrc: (icons[0] && icons[0].src) ? icons[0].src : '',
       protocol: cache.protocol_version || '',
+      fallback: cache.protocol_fallback === 'no_answer',
       instructions: cache.instructions || '',
       capabilities: cache.capabilities || null,
       meta: meta
@@ -121,7 +125,17 @@
     meta.el.hidden = true;
 
     server.body.appendChild(identityEl);
+    // Shown when the stored record says the connection fell back to an older protocol
+    // for lack of an answer (sortie 19); the section's own hidden state covers the rest.
+    var fallbackNote = App.ui.banner({
+      tone: 'warning', role: 'note', hidden: true, testid: 'mcp-server-protocol-fallback',
+      text: 'This server did not answer the newer-protocol check in time, so this ' +
+        'connection uses an older protocol and may offer fewer tools. Press Test again ' +
+        'once the server has started.'
+    });
+
     server.body.appendChild(facts.el);
+    server.body.appendChild(fallbackNote.el);
     server.body.appendChild(instructions.el);
     server.body.appendChild(meta.el);
 
@@ -192,6 +206,9 @@
       }
       facts.set(rows);
       facts.el.hidden = rows.length === 0;
+
+      if (f.protocol && f.fallback) fallbackNote.show();
+      else fallbackNote.hide();
 
       insBody.textContent = f.instructions;
       instructions.el.hidden = !f.instructions;
