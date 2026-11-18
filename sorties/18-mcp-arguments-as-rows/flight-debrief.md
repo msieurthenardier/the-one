@@ -125,6 +125,9 @@ Skipped. The flight log is complete, and the operator's decisions (the charter, 
 - [ ] Squawk 0375 (open): the agent Tools tab's per-tile Add buttons share one name; `addAriaLabel` is the tool for it.
 - [ ] Squawk 0376 (open): a quiet-host reading for `mcp`; this debrief's 390 s is a loaded reading and was added to the squawk as such.
 - [ ] Squawks 0372 and 0373 (open): the operator's two original reports; they wait on the two server names, the app version and the operator's leave to read those records.
-- [ ] Candidates for new squawks, offered to the operator: the PTY send-timeout test's flake under load; the widget card's WebKit escape test's 30 s timeout under load; the Key-value table catalogue row's consumer list (two named, five exist); the two crew-file lines of recommendations 1 and 2.
+- [ ] Squawk 0377 (logged from this debrief): the PTY send-timeout unit test fails on a loaded host.
+- [ ] Squawk 0378 (logged from this debrief): the widget card's escape contract test can miss the frame's first load; the 30 s timeout was in the helper's wait, not the test's.
+- [ ] Squawk 0379 (logged from this debrief): the Key-value table catalogue row names two of its five users.
+- [ ] Squawk 0380 (logged from this debrief): the two crew-file lines of recommendations 1 and 2.
 - [ ] Carried, cosmetic: the 105-character comment line in `js/ui/chip-list.js` and the comment break in `mcp-connection-fields.js`, with the next edit of those files.
-- [ ] Scratch directories under the home folder from the HAT and the gates (`the-one-s18-hat`, `s18-gate`, `s18-captures`, `s18-debrief-gate`): remove when the operator says so.
+- [x] Scratch directories under the home folder from the HAT and the gates (`the-one-s18-hat`, `s18-gate`, `s18-captures`, `s18-debrief-gate`): removed on 2026-11-17 at the operator's word.
