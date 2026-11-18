@@ -13,6 +13,7 @@ Needed: one `--parallel 3` run on a quiet host (1-minute load below about 1.0, n
 
 ## Evidence
 - Sortie 18 closing gate: `PARALLEL_RESULT rc=0 total=2240s lanes=20 failed=-`; `mcp rc=0 wall=331s budget=330s OVER BUDGET` (`sorties/18-mcp-arguments-as-rows/flight-log.md`, Flight Director Notes).
+- Sortie 18 debrief gate (2026-11-17, `7717fec8`): `mcp` 390 s, 105 passed, in a `--parallel 3` run that started at load 1.02 and ended at 5.29. Also a loaded reading, so still not a budget reading. A solo `--lane mcp` run after the HAT fix took 261 s. The quiet-host run is still needed (`sorties/18-mcp-arguments-as-rows/flight-debrief.md`, "Test metrics").
 - `CLAUDE.md` "Lane time budgets" — `mcp` budget 330 s, measured 292 s; "Quiet-host rule (squawk 0259)".
 - `scripts/run-tests.sh` — the budget table is the source of truth.
 

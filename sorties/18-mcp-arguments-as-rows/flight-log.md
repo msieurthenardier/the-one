@@ -169,6 +169,13 @@ Design review (Developer, Sonnet, by reading only): approve with changes. `App.u
 - The scratch instance on port 8485 was stopped by its recorded PID after the commit; its data directory was left in place under the home folder.
 - All three legs `completed`; the flight is `landed`. The charter's success criteria are assessed in the flight debrief.
 
+#### 2026-11-17 — merge, release and debrief
+- The operator merged PR #376 (`6f1144c7`), then the version bump PR #377 (`7717fec8`), and asked for the release and then the debrief. Tag `v0.16.5` was pushed on `7717fec8` after `scripts/release_check.py` passed locally; the release workflow succeeded and published v0.16.5 (2026-11-18 02:01 UTC).
+- The debrief ran after the merge, so it is on its own branch, `sortie/18-debrief`. Developer and Architect interviews (both Sonnet); the operator interview was skipped (the log and the HAT decisions cover it).
+- Test metrics came from a fresh run, not the flight's gate (that gate ran on a loaded host and one option landed after it). The host was not quiet for the fresh run either: unit tier 10222 passed, 15 skipped, 1 failed (a PTY timing flake that passes alone); browser gate `PARALLEL_RESULT rc=1 total=2643s lanes=20 failed=contracts-widget` (one WebKit widget-card test timed out and passed on a re-run). Neither failure is in code this flight touched. No lane time from this run is a budget reading.
+- The debrief corrected one prerequisite line in the flight artifact (the capture script did have a selector on the args chips).
+- Charter criteria: all four met. Flight status `landed` → `completed`.
+
 ---
 
 ## Decisions

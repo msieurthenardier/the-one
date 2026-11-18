@@ -1,6 +1,6 @@
 # Sortie: MCP arguments as rows
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
@@ -11,10 +11,12 @@ In the MCP server editor, a local-command server's arguments are entered one per
 The operator finds the chip field confusing (2026-11-17). Reading the code for that report showed the chip field also loses data: it drops a repeated argument (`--flag a --flag a` keeps one `a`) and splits a typed or pasted value at every comma (`--allow=a,b` cannot be entered).
 
 ### Success Criteria
-- [ ] Arguments shows one row per argument, with Add row and a remove button per row, matching the look of Environment variables.
-- [ ] An existing server's arguments load one per row in stored order (the hidden `-y` of `npx -y` and `run` of `pipx run` stay hidden, as today).
-- [ ] Save keeps order and repeats; blank rows are dropped.
-- [ ] Unsaved-changes, Cancel and Test with unsaved changes work as they do today.
+- [x] Arguments shows one row per argument, with Add row and a remove button per row, matching the look of Environment variables.
+- [x] An existing server's arguments load one per row in stored order (the hidden `-y` of `npx -y` and `run` of `pipx run` stay hidden, as today).
+- [x] Save keeps order and repeats; blank rows are dropped.
+- [x] Unsaved-changes, Cancel and Test with unsaved changes work as they do today.
+
+Assessed in the [flight debrief](flight-debrief.md), 2026-11-17: all four met.
 
 ### Constraints
 - No change to how arguments are stored (`config.args`, a list of strings) or to the API.
@@ -158,7 +160,7 @@ Verified against the working tree at `ac1e2925`.
 ### Prerequisites
 - [x] No open sortie or active mission covers the MCP editor's connection fields (sortie 12 is unrelated).
 - [x] Squawk 0371 (the editor's Forget button, PR #375) touches `mcp-connection-status.js` and its status test file only; no overlap with this flight's files. PR #375 merged on 2026-11-17 (`f635e039`); the flight branch is cut from that `main`.
-- [x] `scripts/ui_capture.py` has no selector on the args chips (Architect, 2026-11-17). Its `mcp-edit-stdio` surface seeds a long argument, so the editor leg re-captures that surface as a visual check.
+- [x] `scripts/ui_capture.py` has no selector on the args chips (Architect, 2026-11-17). Its `mcp-edit-stdio` surface seeds a long argument, so the editor leg re-captures that surface as a visual check. **Correction (flight debrief, 2026-11-17): this was wrong.** `scripts/ui_capture.py::_mcp_dirty` (the `mcp-edit-dirty` surface) typed into `[data-field=args] .chip-list-input, [data-field=args] input`; the check searched for `mf-args` and the quoted `data-field="args"` and missed the unquoted form. Leg 2's Developer found it and the review fix pass repaired it.
 - [x] Identified (their rewrite is the editor leg's work): tests that pin the chip markup for Arguments: `tests/browser/test_flow_studio_mcp_editor_fields.py` (nine sites); `tests/browser/test_flow_studio_mcp_editor_kv_chips.py` (`_add_chip` with `"args"` at five call sites, and `test_chip_edit_after_cancel_is_tracked_as_dirty`'s `"args"` parameter); `tests/browser/test_flow_chiplist_label_resolver.py` (the `mf-args` half; the writable-paths half stays). The leg greps `tests/`, `scripts/`, `docs/` and `tests/behavior/` again for `mf-args` and `data-field="args"` before it starts.
 - [x] Identified (kept green by the editor leg): must stay green unchanged in meaning: `tests/browser/test_flow_studio_mcp_editor_controller.py`'s baseline parity and clean-mount tests over `_BASELINE_SEEDS` (the `dup-arg` seed and the legacy-type seed prove DD6: a stored repeat mounts clean).
 
@@ -218,7 +220,7 @@ Verified against the working tree at `ac1e2925`.
 
 ### Completion Checklist
 - [x] All legs completed
-- [ ] Code merged
+- [x] Code merged (PR #376, `6f1144c7`, 2026-11-17; released in v0.16.5)
 - [x] Tests passing
 - [x] Documentation updated
 
