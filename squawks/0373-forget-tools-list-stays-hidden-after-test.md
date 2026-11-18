@@ -1,6 +1,6 @@
 # Squawk 0373: "Forget tools list" stays hidden after a Test on the operator's servers
 
-**Status**: open
+**Status**: escalated
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-11-17
@@ -34,7 +34,7 @@ Untested variants worth trying if the record does not settle it: a server with a
 - The route itself already accepts a local-command server (`api.py::reset_mcp_connection`: "calling on a stdio source is harmless … but UI hides the affordance"): it drops the tools cache, the per-agent tool lists and the remembered protocol, and closes pooled connections.
 
 ## Disposition
-Awaiting the operator's decision (2026-11-17); status stays `open` until then. What is left is a request for new behaviour, not a defect: show "Forget tools list" on local-command servers too. That reverses a recorded design decision and adds something a user would notice, so it is not squawk work; if wanted it goes into a sortie (the one recommended for squawk 0372 covers the same servers). If not wanted, this squawk closes with no change.
+**Escalated** (2026-11-18): the operator wants "Forget tools list" on local-command servers too. That is new behaviour, not a defect: it reverses a recorded design decision and adds something a user would notice, so it fails the squawk gate ("nothing new", "no design decisions") → [Local-command MCP servers: newest protocol and Forget](../sorties/19-local-mcp-servers-newest-protocol/flight.md), design decision DD5.
 
 ## Corrective Action
 *(written at completion)*
