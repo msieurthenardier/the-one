@@ -522,6 +522,9 @@ async def test_call_time_switch(aenv):
     await SQLiteAgentStore(conn).save(AgentConfig(name="default"))
     with pytest.raises(RoutineFieldError, match="Routines need a named agent."):
         await change(conn, "create", body(), agent="default")
+    for reserved in ("Default", "GleepGlorp"):
+        with pytest.raises(RoutineFieldError, match="Routines need a named agent."):
+            await change(conn, "create", body(), agent=reserved)
 
 
 async def test_caps_agent_creates(aenv):

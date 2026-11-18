@@ -15,6 +15,20 @@ def test_accepts(value) -> None:
     assert check_name(value) == value
 
 
+@pytest.mark.parametrize("value", ["default", "Default", " GleepGlorp ", "GLEEPGLORP"])
+def test_reserved_agent_names(value) -> None:
+    assert naming.is_reserved_agent_name(value)
+    with pytest.raises(NameRuleError):
+        naming.check_agent_name(value)
+
+
+@pytest.mark.parametrize("value", ["gleep-glorp", "GleepGlorpX", "defaults", None, 5])
+def test_not_reserved_agent_names(value) -> None:
+    assert not naming.is_reserved_agent_name(value)
+    if isinstance(value, str):
+        assert naming.check_agent_name(value) == value
+
+
 def test_trims() -> None:
     assert check_name("  padded \t") == "padded"
 

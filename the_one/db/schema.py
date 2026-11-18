@@ -15,7 +15,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 52
+CURRENT_VERSION = 53
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -3330,3 +3330,96 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (52,))
         await conn.commit()
         version = 52
+
+    if version < 53:
+        # Mission 36 F1 L02 (DD10, DD4) — retire the stored Default agent and its data,
+        # and create the GleepGlorp notes table. Idempotent; the connection has
+        # ``PRAGMA foreign_keys=ON`` so deleting the agent row cascades its rules,
+        # notes, routines, revisions and tool cache. ``chat_sessions`` has no foreign
+        # key to ``agents`` (dropped in v5), so its rows are deleted by hand.
+        # A hand-built partial database (a migration test) may lack a table: guard each.
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
+            tables_53 = {row[0] for row in await cursor.fetchall()}
+        mcp_rows_53: list = []
+        if "mcp_sources" in tables_53:
+            async with conn.execute("SELECT id, config FROM mcp_sources") as cursor:
+                mcp_rows_53 = list(await cursor.fetchall())
+        for source_id, raw in mcp_rows_53:
+            try:
+                cfg = json.loads(raw or "{}")
+            except (TypeError, ValueError):
+                continue
+            marker = cfg.get("self_configuration") if isinstance(cfg, dict) else None
+            if isinstance(marker, dict) and marker.get("agent") == "default":
+                await conn.execute("DELETE FROM mcp_sources WHERE id = ?", (source_id,))
+        if "agents" in tables_53 and "mcp_sources" in tables_53:
+            await conn.execute("DELETE FROM agents WHERE name = 'default'")
+        connector_rows_53: list = []
+        if "connectors" in tables_53:
+            async with conn.execute("SELECT id, config FROM connectors") as cursor:
+                connector_rows_53 = list(await cursor.fetchall())
+        for connector_id, raw in connector_rows_53:
+            try:
+                cfg = json.loads(raw or "{}")
+            except (TypeError, ValueError):
+                logger.warning("v53: connector %s has unreadable JSON; left alone", connector_id)
+                continue
+            if not isinstance(cfg, dict):
+                continue
+            changed = False
+            if cfg.get("default_agent") == "default":
+                del cfg["default_agent"]
+                changed = True
+            channel_map = cfg.get("channel_map")
+            if isinstance(channel_map, dict):
+                kept = {k: v for k, v in channel_map.items() if v != "default"}
+                if len(kept) != len(channel_map):
+                    cfg["channel_map"] = kept
+                    changed = True
+            if changed:
+                await conn.execute(
+                    "UPDATE connectors SET config = ? WHERE id = ?", (json.dumps(cfg), connector_id)
+                )
+        if "chat_sessions" in tables_53:
+            await conn.execute(
+                "DELETE FROM chat_sessions WHERE agent_name IS NULL OR agent_name = 'default'"
+            )
+            if "agents" in tables_53:
+                await conn.execute(
+                    "DELETE FROM chat_sessions WHERE agent_name = 'GleepGlorp' "
+                    "AND NOT EXISTS (SELECT 1 FROM agents WHERE name = 'GleepGlorp')"
+                )
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS gleepglorp_notes ("
+            "    id TEXT PRIMARY KEY,"
+            "    number INTEGER NOT NULL,"
+            "    text TEXT NOT NULL,"
+            "    untrusted INTEGER NOT NULL DEFAULT 0,"
+            "    untrusted_sources TEXT NOT NULL DEFAULT '[]',"
+            "    origin_kind TEXT NOT NULL CHECK (origin_kind IN ('web', 'connector', 'other')),"
+            "    origin_session_id TEXT,"
+            "    origin_label TEXT,"
+            "    origin_platform TEXT,"
+            "    origin_peer_id TEXT,"
+            "    origin_peer_name TEXT,"
+            "    created_at TEXT NOT NULL,"
+            "    updated_at TEXT NOT NULL,"
+            "    updated_by TEXT NOT NULL CHECK (updated_by IN ('agent', 'operator'))"
+            ")"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_gleepglorp_notes_number "
+            "ON gleepglorp_notes (number)"
+        )
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS gleepglorp_notes_counter ("
+            "    id INTEGER PRIMARY KEY CHECK (id = 1),"
+            "    next_number INTEGER NOT NULL"
+            ")"
+        )
+        await conn.execute(
+            "INSERT OR IGNORE INTO gleepglorp_notes_counter (id, next_number) VALUES (1, 1)"
+        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (53,))
+        await conn.commit()
+        version = 53

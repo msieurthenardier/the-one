@@ -412,6 +412,8 @@ RETIRED_SELECTORS = (
     "chat-widget-placeholder-source",
     "mcp-source-self-configuration-hint-",  # sortie 08: the Tools tab shows no surface row
     "base-prompt-content",
+    "routines-default-agent",  # Mission 36 F1 L02: no agent can be named `default`
+    "self-config-routines-default-agent",
     "platform-variant-",
     "ui-demo-chooser",
     "ui-demo-chooser-close",

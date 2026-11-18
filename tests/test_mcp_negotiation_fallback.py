@@ -197,7 +197,7 @@ async def test_stdio_silent_drop_waits_the_window_is_asked_again_then_remembered
     first connect asks again for the whole window, falls back and records the
     no-answer fallback; the second asks again (the first one is not remembered); after
     the second in a row the handshake revision is remembered and the third sends no probe."""
-    _short_window(monkeypatch, reserve=5)  # a 2 s window of a 7 s limit
+    _short_window(monkeypatch, reserve=5.5)  # a 1.5 s window of a 7 s limit
     source = _stdio("--legacy-only", "--drop-discover", source_id="fb-drop")
 
     async def connect() -> MCPClient:
@@ -247,11 +247,11 @@ async def test_stdio_slow_legacy_server_past_the_window_records_the_fallback(
 ) -> None:
     """AC13 (client part): a handshake-only server that starts after the window ends on
     the handshake revision with the fallback recorded."""
-    # window 6 s of a 14 s limit: after the 6.5 s delay about 6 s remain for the
+    # window 2.5 s of a 7 s limit: after the 3 s delay 4 s remain for the
     # interpreter's start-up (slow on a loaded host) and the handshake
-    _short_window(monkeypatch, reserve=8)
-    source = _stdio("--legacy-only", "--start-delay=6.5", source_id="slow-legacy")
-    c = MCPClient(source, timeout_seconds=14)
+    _short_window(monkeypatch, reserve=4.5)
+    source = _stdio("--legacy-only", "--start-delay=3", source_id="slow-legacy")
+    c = MCPClient(source, timeout_seconds=7)
     async with asyncio.timeout(60):
         await c.connect()
         try:
@@ -266,7 +266,7 @@ async def test_stdio_slow_legacy_server_past_the_window_records_the_fallback(
 async def test_stdio_a_modern_connect_in_between_resets_the_no_answer_count(
     monkeypatch, discover_spy
 ) -> None:
-    _short_window(monkeypatch, reserve=5)  # a 2 s window of a 7 s limit
+    _short_window(monkeypatch, reserve=5.5)  # a 1.5 s window of a 7 s limit
     silent = _stdio("--legacy-only", "--drop-discover", source_id="fb-reset")
     modern = _stdio(source_id="fb-reset")  # the same source id, now a prompt dual-era server
     async with asyncio.timeout(60):

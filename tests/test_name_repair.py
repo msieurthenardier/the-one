@@ -138,14 +138,15 @@ async def test_repairs_every_kind_and_carries_references(env, caplog) -> None:
     assert set(done) == {
         ("agent", "ops/bot", "ops bot 2"),
         ("agent", "..", "Renamed agent"),
+        ("agent", "default", "default 2"),
         ("agent", LONG, "L" * 64),
         ("mcp_source", "team/tools", "team tools"),
         ("knowledge_base", "My\u202eNotes", "MyNotes"),
         ("provider", "Local/Ollama", "Local Ollama"),
     }
     agents = await _names(env, "agents")
-    assert {"ops bot", "ops bot 2", "Renamed agent", "default", "  fine  ", "L" * 64} <= agents
-    assert "ops/bot" not in agents
+    assert {"ops bot", "ops bot 2", "Renamed agent", "default 2", "  fine  ", "L" * 64} <= agents
+    assert "ops/bot" not in agents and "default" not in agents
 
     # references follow
     cfg = await env.store.load("ops bot 2")
@@ -218,6 +219,51 @@ async def test_two_bad_names_repairing_alike_are_numbered(env) -> None:
     await env.store.save(AgentConfig(name="a\\b"))
     done = await _repair(env)
     assert sorted(new for _, _, new in done) == ["a b", "a b 2"]
+
+
+async def test_reserved_agent_names_are_renamed_once_and_carry_references(env) -> None:
+    """Mission 36 F1 L02: Default, DEFAULT and GleepGlorp are renamed to free names."""
+    for name in ("Default", "DEFAULT", "GleepGlorp"):
+        await env.store.save(AgentConfig(name=name))
+    await env.conn.execute("INSERT INTO chat_sessions (id, agent_name) VALUES ('sd', 'Default')")
+    await env.conn.commit()
+    await env.connectors.create(
+        Connector(
+            id="c2",
+            name="c2",
+            type="stub",
+            config={"default_agent": "Default", "channel_map": {"x": "GleepGlorp"}},
+        )
+    )
+    # A non-agent called Default is not renamed.
+    await env.kb.create(KnowledgeBase(id="kbd", name="Default"))
+    await env.mcp.create(
+        MCPSource(id="md", name="Default", type="streamable-http", config={"url": "http://x/mcp"})
+    )
+    await env.providers.create(
+        LLMProviderConfig(id="pd", name="Default", type="ollama", base_url="http://localhost:11434")
+    )
+    done = await _repair(env)
+    assert {(k, o) for k, o, _ in done} == {
+        ("agent", "Default"),
+        ("agent", "DEFAULT"),
+        ("agent", "GleepGlorp"),
+    }
+    new = {o: n for _, o, n in done}
+    assert len(set(new.values())) == 3
+    assert new["GleepGlorp"] == "GleepGlorp 2"
+    assert await _names(env, "agents") == set(new.values())
+    async with env.conn.execute("SELECT agent_name FROM chat_sessions WHERE id = 'sd'") as cur:
+        assert (await cur.fetchone())["agent_name"] == new["Default"]
+    c2 = await env.connectors.get("c2")
+    assert c2.config == {
+        "default_agent": new["Default"],
+        "channel_map": {"x": new["GleepGlorp"]},
+    }
+    assert await _names(env, "knowledge_bases") == {"Default"}
+    assert await _names(env, "mcp_sources") == {"Default"}
+    assert await _names(env, "llm_providers") == {"Default"}
+    assert await _repair(env) == []
 
 
 async def test_provider_other_columns_are_untouched(env) -> None:

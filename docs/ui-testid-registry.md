@@ -124,7 +124,6 @@ caught — but it cannot see where the attribute is emitted.
 | `self-config-routine-when` | studio | a waiting item or history row's time (full ISO in `title`) (M33 F2 L5) |
 | `self-config-routines-approval-status` | studio | the Routines item's approval status line (M33 F2 L5) |
 | `self-config-routines-approval-toggle` | studio | "Require approval for routine changes" switch (immediate PUT) (M33 F2 L5) |
-| `self-config-routines-default-agent` | studio | the Routines item's "Routines need a named agent." note on the `default` agent (M33 F2 L5) |
 | `self-config-routines-history-details` | studio | the Routines card's "History" `<details>` expander ("Changes by the agent", 20 a page); its summary is `self-config-routines-history-details-summary` (M33 F4 L06) |
 | `self-config-routines-history-details-summary` | studio | that expander's `<summary>` ("History") (M33 F4 L06) |
 | `self-config-routines-error` | studio | the Routines item's switch error line (M33 F2 L5) |
@@ -586,7 +585,6 @@ caught — but it cannot see where the attribute is emitted.
 | `routine-run-now` | studio | the actions menu's Run now item; `aria-disabled` while the routine is running and for a Done routine (M33 F1 L8; menu M33 F4 L03) |
 | `routine-schedule` | studio | the schedule sentence ("Daily at 9:00 AM", "Every 2 hours", …) (M33 F1 L8) |
 | `routine-toggle` | studio | a routine's on/off `App.ui.toggle` input (`role=switch`, name "Enable {name}"; the switch is hidden on a Done row) (M33 F1 L8; M33 F4 L03) |
-| `routines-default-agent` | studio | Routines tab notice for the `default` agent ("Routines need a named agent.") (M33 F1 L8) |
 | `routines-empty` | studio | Routines tab empty state (M33 F1 L8) |
 | `routines-error` | studio | the Routines tab's list-level error line (M33 F1 L8) |
 | `routines-live` | studio | the Routines tab's visually hidden polite status line (Run now start and finish) |
@@ -708,6 +706,8 @@ again. A retired id cannot come back.
 | `mcp-agent-cred-row-` | studio | Sortie 09 L06 — a `role=group` row (also covers the retired `-row-error-`); rows are `tr[data-rid]` in `mcp-agent-cred-table-{id}` |
 | `mcp-agent-cred-empty-` | studio | Sortie 09 L06 — the "This server sets no headers." note |
 | `mcp-refresh-tools-btn-` | studio | Sortie 09 L06 — the tile's Refresh button; Test (`mcp-agent-cred-test-`) does a fresh per-agent listing |
+| `routines-default-agent` | studio | Mission 36 F1 L02 — the Routines tab's "Routines need a named agent." note for an agent named `default`; the name is reserved and no such agent can exist |
+| `self-config-routines-default-agent` | studio | Mission 36 F1 L02 — the Routines item's same note on the Self-configuration tab |
 | `revision-history-summary` | studio | M33 F4 L06 — the Self-configuration tab's nested "History (N)" disclosure is the Agent prompt card's "History" expander; its summary is `revision-history-details-summary` |
 | `routine-form-schedule` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Schedule radio group (Once, Daily, Weekdays, Weekly, Every N hours); fenced EXACTLY (`RETIRED_EXACT`): the live `routine-form-schedule-error` and `-hint` are unaffected |
 | `routine-form-schedule-readonly` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the read-only note over a schedule the old form could not express; every stored recurrence now opens in the form (M33 F3 L4 interim, removed in L7) |

@@ -104,6 +104,7 @@ from the_one.llm.base import (
     tag_post_step_visibility,
 )
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
+from the_one.naming import is_reserved_agent_name
 from the_one.routines import runner as _routine_runner
 from the_one.routines.scheduler import RoutineScheduler as _RoutineScheduler
 from the_one.routines.scheduler import set_scheduler as _set_routine_scheduler
@@ -3605,7 +3606,11 @@ async def _websocket_loop(ws: WebSocket) -> None:
                     await ws.send_json(_start_failed_frame(start_sid, "Invalid session id."))
                     continue
                 start_agent = payload.get("agent_name")
-                if not isinstance(start_agent, str) or not start_agent or start_agent == "default":
+                if (
+                    not isinstance(start_agent, str)
+                    or not start_agent
+                    or is_reserved_agent_name(start_agent)
+                ):
                     await ws.send_json(_start_failed_frame(start_sid, "Invalid agent name."))
                     continue
                 validated = _validate_message_payload(payload)

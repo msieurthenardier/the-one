@@ -789,6 +789,15 @@ async def test_preview_404s_for_an_unknown_agent_and_default(client) -> None:
     assert resp.status_code == 404 and resp.json()["detail"] == "Agent not found: default"
 
 
+async def test_reserved_names_in_any_case_are_refused(client) -> None:
+    for name in ("Default", "GleepGlorp", "gleepglorp"):
+        resp = await client.post(f"/api/agents/{name}/routines", json=_body())
+        assert resp.status_code == 422, name
+        assert resp.json()["detail"] == "Routines need a named agent."
+        assert (await _preview(client, DAILY, name=name)).status_code == 404
+        assert (await client.get(f"/api/agents/{name}/routines")).status_code == 404
+
+
 async def test_preview_of_a_now_start_is_immediate(client) -> None:
     await _agent(client)
     sched = {"start": {"now": True}, "repeat": {"every": 1, "unit": "day"}}

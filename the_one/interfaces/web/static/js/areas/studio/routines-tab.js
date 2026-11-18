@@ -64,12 +64,6 @@
       panel.appendChild(saveFirst);
       return INERT;
     }
-    if (agent.name === 'default') {
-      var defNote = shared.buildEmpty('Routines need a named agent.');
-      defNote.setAttribute('data-testid', 'routines-default-agent');
-      panel.appendChild(defNote);
-      return INERT;
-    }
 
     var name = agent.name || '';
     var section = App.ui.section({

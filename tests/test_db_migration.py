@@ -119,6 +119,22 @@ class TestMigration:
         assert not await store.exists("legacy")
         assert any("legacy" in r.getMessage() for r in caplog.records)
 
+    @pytest.mark.parametrize("reserved", ["default", "Default", "GleepGlorp", "gleepglorp"])
+    async def test_skips_reserved_agent_names(self, setup, caplog, reserved) -> None:
+        """Mission 36 F1 L02: a leftover default.json never brings `default` back."""
+        store, agents_dir = setup
+        _write_json_config(agents_dir, reserved, description="old")
+        # same stem, a body name that differs from it
+        cfg = AgentConfig(name=reserved)
+        (agents_dir / "legacy-stem.json").write_text(json.dumps(cfg.model_dump()))
+
+        with caplog.at_level("WARNING", logger="the_one.db.migration"):
+            count = await migrate_json_to_sqlite(store)
+
+        assert count == 0
+        assert not await store.exists(reserved)
+        assert any("legacy-stem" in r.getMessage() for r in caplog.records)
+
     async def test_valid_body_is_stored_unchanged(self, setup) -> None:
         store, agents_dir = setup
         _write_json_config(agents_dir, "padded-ok", description="  keep  ")
@@ -5016,7 +5032,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 52
+        assert CURRENT_VERSION == 53
 
         await conn.close()
 
@@ -5372,7 +5388,7 @@ class TestSchemaV42:
         await ensure_schema(conn)
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 53 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert list(cols) == [
@@ -5518,7 +5534,7 @@ class TestSchemaV43:
         conn = await _open(tmp_path / "fresh43.db")
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 53 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             acols = {r["name"]: r for r in await cur.fetchall()}
         for name, default in (("notes_enabled", "0"), ("notes_next_number", "1")):
@@ -5659,13 +5675,13 @@ class TestSchemaV44:
         return conn
 
     async def test_current_version_is_45(self) -> None:
-        assert CURRENT_VERSION == 52
+        assert CURRENT_VERSION == 53
 
     async def test_v43_to_v44_preserves_rows_secrets_and_agent_link(self, tmp_path) -> None:
         conn = await self._v43_db(tmp_path)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52
+            assert (await cur.fetchone())[0] == 53
         async with conn.execute(
             "SELECT id, name, type, base_url, api_key, config, secrets FROM llm_providers"
         ) as cur:
@@ -5798,7 +5814,7 @@ class TestSchemaV45:
         fk = (await _fk_rows(conn, "agent_routine_runs"))["routine_id"]
         assert (fk["table"], fk["on_delete"]) == ("agent_routines", "CASCADE")
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52
+            assert (await cur.fetchone())[0] == 53
         await conn.close()
 
     async def test_v44_database_migrates(self, tmp_path) -> None:
@@ -5950,7 +5966,7 @@ class TestSchemaV46:
         await ensure_schema(conn)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52
+            assert (await cur.fetchone())[0] == 53
         async with conn.execute(
             "SELECT routines_self_config_enabled, routines_require_approval FROM agents"
         ) as cur:
@@ -5997,7 +6013,7 @@ class TestSchemaV47:
         await ensure_schema(conn)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52
+            assert (await cur.fetchone())[0] == 53
         async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
             assert [r["name"] for r in await cur.fetchall()] == _RUN_COLS
         async with conn.execute(
@@ -6356,7 +6372,7 @@ class TestSchemaV48:
         second = await _routine(conn, "d")
         assert first[:4] == second[:4]
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52
+            assert (await cur.fetchone())[0] == 53
         await conn.close()
 
     async def test_database_without_routine_tables_migrates(self, tmp_path) -> None:
@@ -6369,7 +6385,7 @@ class TestSchemaV48:
         await conn.commit()
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52
+            assert (await cur.fetchone())[0] == 53
         await conn.close()
 
 
@@ -6561,7 +6577,7 @@ class TestSchemaV49:
             ("u2", None, 1, "still_running"),
         ]
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52
+            assert (await cur.fetchone())[0] == 53
         await conn.close()
 
     async def test_indexes_unique_checks_and_foreign_keys_survive(self, tmp_path) -> None:
@@ -6850,13 +6866,190 @@ class TestSchemaV51:
         await conn.close()
 
 
+class TestSchemaV53:
+    """Mission 36 F1 L02: the Default agent and its data are retired; GleepGlorp notes table."""
+
+    async def _rewind(self, conn) -> None:
+        await conn.execute("DROP TABLE gleepglorp_notes_counter")
+        await conn.execute("DROP TABLE gleepglorp_notes")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 53")
+        await conn.commit()
+
+    async def _count(self, conn, sql: str, *args) -> int:
+        async with conn.execute(sql, args) as cur:
+            return (await cur.fetchone())[0]
+
+    async def _seed(self, conn, *, gleep_agent: bool = False) -> None:
+        await conn.execute("INSERT INTO agents (name) VALUES ('default')")
+        await conn.execute("INSERT INTO agents (name) VALUES ('research')")
+        if gleep_agent:
+            await conn.execute("INSERT INTO agents (name) VALUES ('GleepGlorp')")
+        await conn.execute(
+            "INSERT INTO agent_rules (id, agent_name, text, position, created_at, updated_at) "
+            "VALUES ('r1', 'default', 'rule', 0, 't', 't')"
+        )
+        await conn.execute(
+            "INSERT INTO agent_notes (id, agent_name, number, text, origin_kind, created_at, "
+            "updated_at, updated_by) VALUES ('n1', 'default', 1, 'note', 'web', 't', 't', 'agent')"
+        )
+        await conn.execute(
+            "INSERT INTO agent_routines (id, agent_name, name, prompt, schedule, "
+            "created_at, updated_at) VALUES ('rt1', 'default', 'daily', 'p', '{}', 't', 't')"
+        )
+        await conn.execute(
+            "INSERT INTO agent_revisions (id, agent_name, field, proposed_value, base_value, "
+            "status, source, created_at) VALUES ('v1', 'default', 'description', 'p', 'b', "
+            "'applied', 'self', 't')"
+        )
+        surface = json.dumps({"url": "http://x/mcp", "self_configuration": {"agent": "default"}})
+        other = json.dumps({"url": "http://x/mcp", "self_configuration": {"agent": "research"}})
+        for sid, cfg in (("surf-default", surface), ("surf-research", other)):
+            await conn.execute(
+                "INSERT INTO mcp_sources (id, name, type, config) "
+                "VALUES (?, ?, 'streamable-http', ?)",
+                (sid, sid, cfg),
+            )
+        await conn.execute(
+            "INSERT INTO agent_external_credentials (identifier, source_id, secret, label, "
+            "created_at) VALUES ('cred-d', 'surf-default', 's', 'l', 't')"
+        )
+        await conn.execute(
+            "INSERT INTO agent_external_credentials (identifier, source_id, secret, label, "
+            "created_at) VALUES ('cred-r', 'surf-research', 's', 'l', 't')"
+        )
+        await conn.execute(
+            "INSERT INTO agent_mcp_tool_cache (agent_name, source_id, tools, fetched_at) "
+            "VALUES ('default', 'surf-research', '[]', 't')"
+        )
+        cfg = json.dumps(
+            {
+                "default_agent": "default",
+                "channel_map": {"c1": "default", "c2": "research"},
+                "enabled": True,
+            }
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, type, config) VALUES ('conn1', 'stub', ?)", (cfg,)
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, type, config) VALUES ('conn-bad', 'stub', 'not json')"
+        )
+        for sid, agent in (
+            ("s-null", None),
+            ("s-default", "default"),
+            ("s-Default", "Default"),
+            ("s-research", "research"),
+            ("s-gleep", "GleepGlorp"),
+        ):
+            await conn.execute(
+                "INSERT INTO chat_sessions (id, agent_name) VALUES (?, ?)", (sid, agent)
+            )
+        await conn.commit()
+
+    async def test_foreign_keys_are_on_for_the_migration_connection(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fk.db")
+        async with conn.execute("PRAGMA foreign_keys") as cur:
+            assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+    async def test_v52_database_loses_the_default_agent_and_its_data(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v52.db")
+        await ensure_schema(conn)
+        await self._rewind(conn)
+        await self._seed(conn)
+        await ensure_schema(conn)
+
+        assert await self._count(conn, "SELECT COUNT(*) FROM agents WHERE name = 'default'") == 0
+        assert await self._count(conn, "SELECT COUNT(*) FROM agents WHERE name = 'research'") == 1
+        for table in ("agent_rules", "agent_notes", "agent_routines", "agent_revisions"):
+            assert await self._count(conn, f"SELECT COUNT(*) FROM {table}") == 0, table
+        assert await self._count(conn, "SELECT COUNT(*) FROM agent_mcp_tool_cache") == 0
+        async with conn.execute("SELECT id FROM mcp_sources") as cur:
+            assert {r[0] for r in await cur.fetchall()} == {"surf-research"}
+        async with conn.execute("SELECT identifier FROM agent_external_credentials") as cur:
+            assert [r[0] for r in await cur.fetchall()] == ["cred-r"]
+
+        async with conn.execute("SELECT config FROM connectors WHERE id = 'conn1'") as cur:
+            assert json.loads((await cur.fetchone())[0]) == {
+                "channel_map": {"c2": "research"},
+                "enabled": True,
+            }
+        async with conn.execute("SELECT config FROM connectors WHERE id = 'conn-bad'") as cur:
+            assert (await cur.fetchone())[0] == "not json"
+
+        async with conn.execute("SELECT id FROM chat_sessions ORDER BY id") as cur:
+            assert [r[0] for r in await cur.fetchall()] == ["s-Default", "s-research"]
+
+        async with conn.execute("PRAGMA table_info(gleepglorp_notes)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert set(cols) == {
+            "id",
+            "number",
+            "text",
+            "untrusted",
+            "untrusted_sources",
+            "origin_kind",
+            "origin_session_id",
+            "origin_label",
+            "origin_platform",
+            "origin_peer_id",
+            "origin_peer_name",
+            "created_at",
+            "updated_at",
+            "updated_by",
+        }
+        async with conn.execute("PRAGMA index_list(gleepglorp_notes)") as cur:
+            uniques = [r for r in await cur.fetchall() if r["unique"] == 1]
+        assert any(r["name"] == "idx_gleepglorp_notes_number" for r in uniques)
+        async with conn.execute("SELECT id, next_number FROM gleepglorp_notes_counter") as cur:
+            assert [tuple(r) for r in await cur.fetchall()] == [(1, 1)]
+        assert await self._count(conn, "SELECT MAX(version) FROM schema_version") == 53
+        await conn.close()
+
+    async def test_a_live_gleepglorp_agents_chats_survive(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v52-gleep.db")
+        await ensure_schema(conn)
+        await self._rewind(conn)
+        await self._seed(conn, gleep_agent=True)
+        await ensure_schema(conn)
+        async with conn.execute("SELECT id FROM chat_sessions ORDER BY id") as cur:
+            assert [r[0] for r in await cur.fetchall()] == ["s-Default", "s-gleep", "s-research"]
+        await conn.close()
+
+    async def test_replay_is_a_no_op_and_keeps_the_counter(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "replay.db")
+        await ensure_schema(conn)
+        await self._rewind(conn)
+        await self._seed(conn)
+        await ensure_schema(conn)
+        await conn.execute("UPDATE gleepglorp_notes_counter SET next_number = 7")
+        await conn.commit()
+        async with conn.execute("SELECT id, config FROM connectors ORDER BY id") as cur:
+            before = [tuple(r) for r in await cur.fetchall()]
+        await ensure_schema(conn)
+        async with conn.execute("SELECT id, config FROM connectors ORDER BY id") as cur:
+            assert [tuple(r) for r in await cur.fetchall()] == before
+        assert await self._count(conn, "SELECT next_number FROM gleepglorp_notes_counter") == 7
+        assert (
+            await self._count(conn, "SELECT COUNT(*) FROM schema_version WHERE version = 53") == 1
+        )
+        await conn.close()
+
+    async def test_fresh_database_runs_v53(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh53.db")
+        await ensure_schema(conn)
+        assert await self._count(conn, "SELECT COUNT(*) FROM gleepglorp_notes") == 0
+        assert await self._count(conn, "SELECT next_number FROM gleepglorp_notes_counter") == 1
+        await conn.close()
+
+
 class TestSchemaV52:
     """M35 F1 DD11: agents.rich_visuals, on for every agent."""
 
     async def test_fresh_replay_has_the_column(self, tmp_path) -> None:
         conn = await _open(tmp_path / "fresh52.db")
         await ensure_schema(conn)
-        assert CURRENT_VERSION == 52
+        assert CURRENT_VERSION == 53
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert cols["rich_visuals"]["notnull"] == 1
@@ -6878,5 +7071,5 @@ class TestSchemaV52:
         async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 52") as cur:
             assert (await cur.fetchone())[0] == 1
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 52
+            assert (await cur.fetchone())[0] == 53
         await conn.close()

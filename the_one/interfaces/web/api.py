@@ -112,7 +112,9 @@ from the_one.naming import (
     NAME_CONFLICT_AGENT,
     SAME_AS_CURRENT,
     NameRuleError,
+    check_agent_name,
     check_name,
+    is_reserved_agent_name,
     name_rule_detail,
 )
 from the_one.platform.paths import canonicalize, is_within
@@ -196,6 +198,43 @@ def _checked_name(value: object) -> str:
         return check_name(value)
     except NameRuleError as e:
         raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
+
+
+def _checked_agent_name(value: object) -> str:
+    """:func:`_checked_name` for an agent: also refuses the reserved agent names."""
+    try:
+        return check_agent_name(value)
+    except NameRuleError as e:
+        raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
+
+
+def _reject_reserved_binding(config: object) -> None:
+    """422 when a connector config binds a reserved agent name (Mission 36 F1 L02)."""
+    if not isinstance(config, dict):
+        return
+    detail: list[dict] = []
+    default_agent = config.get("default_agent")
+    if is_reserved_agent_name(default_agent):
+        try:
+            check_agent_name(default_agent)
+            msg = "This is a reserved agent name. Choose another agent."
+        except NameRuleError as e:
+            msg = e.message
+        detail.append({"type": "name_rule", "loc": ["config", "default_agent"], "msg": msg})
+    channel_map = config.get("channel_map")
+    if isinstance(channel_map, dict):
+        for key, value in channel_map.items():
+            if is_reserved_agent_name(value):
+                try:
+                    check_agent_name(value)
+                    msg = "This is a reserved agent name. Choose another agent."
+                except NameRuleError as e:
+                    msg = e.message
+                detail.append(
+                    {"type": "name_rule", "loc": ["config", "channel_map", str(key)], "msg": msg}
+                )
+    if detail:
+        raise HTTPException(status_code=422, detail=detail)
 
 
 def _name_conflict_detail(message: str) -> list[dict]:
@@ -1444,7 +1483,7 @@ async def create_agent(request: Request) -> dict[str, Any]:
     from the_one.agent.config import AgentConfig
 
     data = await _read_json(request)
-    data["name"] = _checked_name(data.get("name"))
+    data["name"] = _checked_agent_name(data.get("name"))
     # M33 F2 DD5: the Routines switches are operator-owned; a create never sets them.
     data.pop("routines_self_config_enabled", None)
     data.pop("routines_require_approval", None)
@@ -1692,7 +1731,7 @@ async def rename_agent(name: str, request: Request) -> dict[str, Any]:
     from the_one.agent.config import AgentConfig
 
     data = await _read_json(request)
-    new_name = _checked_name(data.get("new_name"))
+    new_name = _checked_agent_name(data.get("new_name"))
     if new_name == name:
         raise HTTPException(status_code=422, detail=name_rule_detail(SAME_AS_CURRENT))
     store = await _agent_store()
@@ -4976,6 +5015,7 @@ async def create_connector(request: Request) -> dict[str, Any]:
             status_code=422,
             detail=f"Connector type {account.type!r} is not creatable on this instance.",
         )
+    _reject_reserved_binding(account.config)
     repo = await _connector_repo()
     await repo.create(account)
     # Edge Case: a connector must start listening on create, not only on
@@ -5077,6 +5117,7 @@ async def update_connector(connector_id: str, request: Request) -> dict[str, Any
             status_code=422,
             detail=f"Connector type {updated.type!r} is not creatable on this instance.",
         )
+    _reject_reserved_binding(updated.config)
     await repo.update(updated)
 
     # PUT restarting semantics (DD-6, amended leg-2 design review
