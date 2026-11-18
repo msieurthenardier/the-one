@@ -1247,10 +1247,10 @@ def _mcp_open_disclosures(ctx: Ctx) -> None:
 def _mcp_dirty(ctx: Ctx) -> None:
     page = ctx.page
     page.locator("#mf-name").fill("Hello tools (local, edited)")
-    chip_input = page.locator("[data-field=args] .chip-list-input, [data-field=args] input").first
-    if chip_input.count():
-        chip_input.fill("--verbose")
-        chip_input.press("Enter")
+    add_row = page.locator('[data-testid="mcp-args-add-row-btn"]')
+    if add_row.count():
+        add_row.click()
+        page.locator('[data-testid="mcp-args-input"]').last.fill("--verbose")
     page.locator('[data-testid="editor-unsaved"]').first.wait_for(state="attached")
     page.wait_for_timeout(200)
 

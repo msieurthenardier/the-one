@@ -7,18 +7,23 @@
 //
 // Fields, in DOM order: Name, Type, Command (with its runtime hint), Custom command,
 // Working directory, Arguments, URL. The ids (mf-name, mf-type, mf-command-runtime,
-// mf-command, mf-cwd, mf-args, mf-url), the data-field values and the testids
+// mf-command, mf-cwd, mf-url), the data-field values and the testids
 // (mcp-command-runtime, mcp-command-custom, mcp-command-hint) are the stable DOM
-// contract.
+// contract. Arguments (sortie 18) is a group-mode App.ui.field (testid mcp-args-field,
+// data-field="args" on its wrapper, role=group named "Arguments") holding a hint and a
+// one-column, movable App.ui.keyValueTable (mcp-args-table, rows mcp-args-row): one row is
+// one argument, in order, and a value is never split.
 //   values()  {name, type, runtime, command, cwd, args, url}; args is the operator's
-//             chips only (the implicit `-y` of `npx -y` and `run` of `pipx run` are the
-//             controller's to prepend on collect).
+//             rows only, each trimmed, blank rows dropped, order and repeats kept (the
+//             implicit `-y` of `npx -y` and `run` of `pipx run` are the controller's to
+//             prepend on collect).
 //   baselineFrom(source)  pure: exactly the values() object that setValues(source) would
 //             leave (the controller compares dirty against it, M31 F5 L10). It goes
-//             through the controls' own normalisation: args are Strings with repeats
-//             dropped (the chip list), the runtime comes from deriveStdioRuntimeSelection
-//             with its `uvx` default (HTTP sources get it too), and it is built by the
-//             same shape() as values(), so the key order cannot drift. Limit: a source
+//             through the controls' own normalisation: args are collected the same way as
+//             values() (trimmed, blanks dropped, repeats kept), the runtime comes from
+//             deriveStdioRuntimeSelection with its `uvx` default (HTTP sources get it
+//             too), and it is built by the same shape() as values(), so the key order
+//             cannot drift. Limit: a source
 //             type must be among the mount-time Type options (a legacy type is appended
 //             at mount), or the select reads '' and the two would differ.
 //   setError(field, msg)  puts the message on the field; any user edit of that field clears
@@ -29,8 +34,9 @@
 //   setType(type)  shows the stdio-only or the HTTP-only fields through the `hidden`
 //             attribute. The mcp-stdio-only and mcp-streamable-http-only classes are
 //             plain markers with no CSS.
-// onChange fires for every user edit (text on input, selects on change, every chip
-// change, a Cancel's re-set chips included). A type change also calls onTypeChange(type).
+// onChange fires for every user edit (text on input, selects on change, every argument row
+// change: edit, add, remove, move). A setValues (a Cancel's re-set rows included) never
+// fires it; the controller recomputes dirty itself. A type change also calls onTypeChange(type).
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -118,10 +124,21 @@
     var cwdField = ui.field({ label: 'Working directory', control: cwdInput });
     cwdField.el.classList.add('mcp-stdio-only');
 
-    var argsChips = ui.chipList({
-      inputId: 'mf-args', dataset: { field: 'args', fieldType: 'array' }, onChange: function () { changed('args'); }
+    var argsTable = ui.keyValueTable({
+      columns: [{ key: 'value', label: 'Argument', mono: true, inputTestid: 'mcp-args-input' }],
+      movable: true, fill: true, headHidden: true,
+      testid: 'mcp-args-table', rowTestid: 'mcp-args-row', removeTestid: 'mcp-args-remove',
+      moveUpTestid: 'mcp-args-move-up', moveDownTestid: 'mcp-args-move-down',
+      addTestid: 'mcp-args-add-row-btn', addAriaLabel: 'Add row to Arguments',
+      removeLabel: function (n) { return 'Remove argument ' + n; },
+      moveLabel: function (n, row, dir) { return 'Move argument ' + n + ' ' + dir; },
+      onChange: function () { changed('args'); }
     });
-    var argsField = ui.field({ label: 'Arguments', control: argsChips.input, host: argsChips.el });
+    var argsField = ui.field({
+      label: 'Arguments', group: argsTable.el, hint: 'One argument per row, in order.',
+      hintTestid: 'mcp-args-hint', testid: 'mcp-args-field'
+    });
+    argsField.el.setAttribute('data-field', 'args');
     argsField.el.classList.add('mcp-stdio-only');
 
     var urlInput = ui.textInput({
@@ -167,9 +184,20 @@
       runtimeSelect.value = sel.dropdownValue || 'uvx';
       customInput.value = sel.customCommand || '';
       cwdInput.value = cfg.cwd || '';
-      argsChips.setValues(sel.displayArgs || []);
+      argsTable.setValues((sel.displayArgs || []).map(function (a) { return { value: String(a) }; }));
       urlInput.value = cfg.url || '';
       setType((next && next.type) || '');
+    }
+
+    // One argument per entry: ends trimmed, blanks dropped, order and repeats kept, a value
+    // never split (sortie 18 DD5).
+    function collectArgs(list) {
+      var out = [];
+      for (var i = 0; i < list.length; i++) {
+        var s = String(list[i]).trim();
+        if (s) out.push(s);
+      }
+      return out;
     }
 
     // The one place the values() key order lives.
@@ -182,7 +210,8 @@
 
     function values() {
       return shape(nameInput.value, typeSelect.value, runtimeSelect.value, customInput.value,
-        cwdInput.value, argsChips.values(), urlInput.value);
+        cwdInput.value,
+        collectArgs(argsTable.values().map(function (r) { return r.value; })), urlInput.value);
     }
 
     // The Type select's values at mount: a stored type outside them reads ''.
@@ -199,7 +228,7 @@
         sel.dropdownValue || 'uvx',
         String(sel.customCommand || ''),
         String(cfg.cwd || ''),
-        shared.uniqueStrings(sel.displayArgs || []),
+        collectArgs(sel.displayArgs || []),
         String(cfg.url || '')
       );
     }
@@ -220,13 +249,14 @@
       focus: function (field) {
         var f = byName[field];
         if (!f) return;
-        var c = f === argsField ? argsChips.input : f.control;
-        if (c && !f.el.hidden) c.focus();
+        if (f.el.hidden) return;
+        if (f === argsField) argsTable.focus();
+        else if (f.control) f.control.focus();
       },
       setType: setType,
       destroy: function () {
         alive = false;
-        argsChips.destroy();
+        argsTable.destroy();
       }
     };
   }

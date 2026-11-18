@@ -352,6 +352,15 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-command-custom` | studio | |
 | `mcp-command-hint` | studio | |
 | `mcp-command-runtime` | studio | |
+| `mcp-args-field` | studio | The MCP editor's Arguments block (`App.ui.field` group mode, `data-field="args"`, `role=group` named "Arguments"; sortie 18 L02) |
+| `mcp-args-hint` | studio | The block's hint, "One argument per row, in order." (sortie 18 L02) |
+| `mcp-args-table` | studio | The Arguments one-column `App.ui.keyValueTable` (`movable`, no visible header; sortie 18 L02) |
+| `mcp-args-row` | studio | One Arguments row (one argument) (sortie 18 L02) |
+| `mcp-args-input` | studio | A row's monospace text input, named "Argument, row {n}" (sortie 18 L02) |
+| `mcp-args-move-up` | studio | A row's Move up button, "Move argument {n} up" (sortie 18 L02) |
+| `mcp-args-move-down` | studio | A row's Move down button, "Move argument {n} down" (sortie 18 L02) |
+| `mcp-args-remove` | studio | A row's Remove button, "Remove argument {n}" (sortie 18 L02) |
+| `mcp-args-add-row-btn` | studio | The Arguments table's "+ Add row" button (sortie 18 L02) |
 | `mcp-connection-error` | studio | The Test error block (plain headline, raw text under Technical details) in the result area; its headline follows the transport (M31 F5 L08b, A18) |
 | `mcp-connection-led` | studio | The status line's LED, decorative (`aria-hidden`); the line's words carry the state (M31 F5 L08b) |
 | `mcp-connection-status` | studio | The Connection section's status line (`App.ui.status`; `data-state` is the LED state, `data-mcp-state` is `App.usage.mcpState`'s state), with the words from `App.usage.mcpStateLabel`: "Connected · checked 3:42 PM", "Not connected", "Couldn't connect" (plus " · last connected …"), "Sign-in needed" (M31 F5 L08b, A6, A9) |

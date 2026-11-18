@@ -57,6 +57,28 @@
   //   text (.ui-kv-marker) in the key cell, linked to the key input by aria-describedby. removableBy '<row field>': a row whose field is false has a natively
   //   disabled remove button (not focusable; it keeps its name). setRow re-evaluates these from a
   //   patch without rebuilding the row or moving focus.
+  //   Sortie 18 L01 (flight DD3, DD4, DD10; each inert when not passed):
+  //   movable (construct-time): each row's actions cell holds Move up, Move down and Remove
+  //   (icon-only ghost buttons, .ui-kv-move, chevron-up/down; moveUpTestid, moveDownTestid;
+  //   names "Move row n up|down" or moveLabel(n, rowCopy, 'up'|'down'), refreshed by
+  //   renumber and on typing in the key column). The first row's Move up and the last row's
+  //   Move down are natively disabled (renumber owns the edge state). A move reorders values(),
+  //   moves the NEIGHBOUR's tr so the pressed row's DOM node and any setError stay with it,
+  //   puts focus on the pressed button (or the row's other move button when it became
+  //   disabled), writes "Moved to row n of total." to one visually hidden role=status node
+  //   (.ui-kv-live, after Add; emptied then written a tick later; none without movable or
+  //   with readOnly) and fires onChange(values, {type: 'move'}) once. A click on a disabled
+  //   move button does nothing. readOnly builds no move buttons; movable with lockBy,
+  //   removableBy or markerBy throws.
+  //   fill: true gives a table with no secret or toggle column the fixed layout (full width of
+  //   the root; a column width then applies). headHidden: true puts every column label inside
+  //   span.visually-hidden in its th and adds ui-kv-table--head-hidden (the head row takes no
+  //   height; emptyHidesHead still hides the thead). focus(): the first row's first input,
+  //   else the Add row button; nothing for a readOnly table with no rows.
+  //   addAriaLabel (a string; sortie 18 HAT fix, inert when absent or empty: no aria-label
+  //   attribute at all): the Add button's accessible name, with the visible addLabel unchanged,
+  //   so a page with several tables can tell its Add buttons apart. The name deliberately omits
+  //   the "+" of the visible label. Not built under readOnly (there is no Add button).
   App.ui.keyValueTable = function (opts) {
     opts = opts || {};
     var util = App.ui.util;
@@ -84,9 +106,19 @@
     var lockBy = opts.lockBy || null;
     var markerBy = opts.markerBy || null;
     var removableBy = opts.removableBy || null;
+    var movableOpt = opts.movable === true;
+    var headHidden = opts.headHidden === true;
+    if (movableOpt) {
+      if (lockBy) throw new Error('App.ui.keyValueTable: movable cannot be combined with lockBy');
+      if (removableBy) throw new Error('App.ui.keyValueTable: movable cannot be combined with removableBy');
+      if (markerBy) throw new Error('App.ui.keyValueTable: movable cannot be combined with markerBy');
+    }
+    var movable = movableOpt && !readOnly;
+    if (opts.fill === true) fixed = true;
     var rows = [];
     var keyCounter = 0;
     var destroyed = false;
+    var announceTimer = null;
 
     function typeOf(column) {
       return column.type || 'text';
@@ -94,7 +126,8 @@
 
     var root = util.el('div', { className: 'ui-kv' });
     var table = util.el('table', {
-      className: 'ui-kv-table' + (fixed ? ' ui-kv-table--fixed' : ''),
+      className: 'ui-kv-table' + (fixed ? ' ui-kv-table--fixed' : '') +
+        (headHidden ? ' ui-kv-table--head-hidden' : ''),
       'aria-label': opts.label || null
     });
     if (opts.testid) table.setAttribute('data-testid', opts.testid);
@@ -108,7 +141,8 @@
       }
       if (!readOnly) {
         var actionsCol = util.el('col');
-        actionsCol.style.width = '48px';
+        // Three 24px buttons, two 4px gaps and the cell's 16px padding when movable.
+        actionsCol.style.width = movable ? '104px' : '48px';
         colgroup.appendChild(actionsCol);
       }
       table.appendChild(colgroup);
@@ -119,12 +153,14 @@
     for (c = 0; c < columns.length; c++) {
       var lab = columns[c].label;
       var th = util.el('th', { scope: 'col' });
+      var holder = headHidden ? util.el('span', { className: 'visually-hidden' }) : th;
+      if (headHidden) th.appendChild(holder);
       if (lab && typeof lab === 'object') {
-        th.appendChild(lab);
+        holder.appendChild(lab);
         labelText.push((lab.textContent || '').trim());
       } else {
-        th.textContent = lab === undefined || lab === null ? '' : String(lab);
-        labelText.push(th.textContent);
+        holder.textContent = lab === undefined || lab === null ? '' : String(lab);
+        labelText.push(holder.textContent);
       }
       headRow.appendChild(th);
     }
@@ -142,10 +178,29 @@
       variant: 'secondary',
       label: opts.addLabel || '+ Add row',
       className: 'ui-kv-add',
+      ariaLabel: typeof opts.addAriaLabel === 'string' && opts.addAriaLabel ? opts.addAriaLabel : null,
       testid: opts.addTestid
     });
     root.appendChild(table);
     if (!readOnly) root.appendChild(addBtn);
+    var liveEl = null;
+    if (movable) {
+      liveEl = util.el('div', { className: 'ui-kv-live visually-hidden', role: 'status' });
+      root.appendChild(liveEl);
+    }
+
+    // Empties the status node, then writes the text a tick later, so an identical
+    // announcement is spoken again.
+    function announce(text) {
+      if (!liveEl) return;
+      if (announceTimer) clearTimeout(announceTimer);
+      liveEl.textContent = '';
+      announceTimer = setTimeout(function () {
+        announceTimer = null;
+        if (destroyed) return;
+        liveEl.textContent = text;
+      }, 0);
+    }
 
     function rowOfNode(node) {
       var tr = node && node.closest ? node.closest('tr.ui-kv-row') : null;
@@ -266,6 +321,7 @@
             if (row.remove) {
               row.remove.setAttribute('aria-label', removeName(row, rows.indexOf(row) + 1));
             }
+            nameMoves(row, rows.indexOf(row));
           }
           fire('input');
           return;
@@ -310,6 +366,14 @@
         fire('add');
         return;
       }
+      var mv = movable ? t.closest('.ui-kv-move') : null;
+      if (mv) {
+        // WebKit can deliver a click on a disabled button's children.
+        if (mv.disabled) return;
+        var mover = rowOfNode(mv);
+        if (mover) moveRow(mover, mv.getAttribute('data-move') === 'up' ? -1 : 1, mv);
+        return;
+      }
       var rm = t.closest('.ui-kv-remove');
       if (rm) {
         // WebKit can deliver a click on a disabled button's children.
@@ -339,6 +403,40 @@
     function removeName(row, n) {
       if (typeof opts.removeLabel === 'function') return opts.removeLabel(n, copyData(row));
       return 'Remove row ' + n;
+    }
+
+    function moveName(row, n, direction) {
+      if (typeof opts.moveLabel === 'function') return opts.moveLabel(n, copyData(row), direction);
+      return 'Move row ' + n + ' ' + direction;
+    }
+
+    // Names and edge state of a row's move buttons (renumber owns both).
+    function nameMoves(row, idx) {
+      if (!row.up) return;
+      row.up.setAttribute('aria-label', moveName(row, idx + 1, 'up'));
+      row.down.setAttribute('aria-label', moveName(row, idx + 1, 'down'));
+      row.up.disabled = idx === 0;
+      row.down.disabled = idx === rows.length - 1;
+    }
+
+    // Moves the neighbour's tr, not the pressed row's, so the pressed row's nodes (and its
+    // button, which holds focus) never leave the document.
+    function moveRow(row, delta, pressed) {
+      var idx = rows.indexOf(row);
+      var to = idx + delta;
+      if (idx === -1 || to < 0 || to >= rows.length) return;
+      var other = rows[to];
+      rows[idx] = other;
+      rows[to] = row;
+      if (delta < 0) tbody.insertBefore(other.tr, row.tr.nextSibling);
+      else tbody.insertBefore(other.tr, row.tr);
+      renumber();
+      // A click does not focus a button in WebKit, so focus explicitly: the pressed button,
+      // or the row's other move button when the pressed one is now disabled.
+      var target = pressed.disabled ? (pressed === row.up ? row.down : row.up) : pressed;
+      target.focus();
+      announce('Moved to row ' + (to + 1) + ' of ' + rows.length + '.');
+      fire('move');
     }
 
     function copyData(row) {
@@ -483,7 +581,7 @@
       keyCounter += 1;
       var row = {
         key: keyCounter, data: {}, inputs: {}, errors: {}, errText: {}, cells: {},
-        secrets: {}, toggles: {}, baseline: {}, tr: null, remove: null
+        secrets: {}, toggles: {}, baseline: {}, tr: null, remove: null, up: null, down: null
       };
       var k;
       for (k in data) {
@@ -512,7 +610,23 @@
           className: 'ui-kv-remove',
           testid: opts.removeTestid
         });
-        td.appendChild(util.el('div', { className: 'ui-kv-center' }, [row.remove]));
+        var actions = [row.remove];
+        if (movable) {
+          row.up = App.ui.button({
+            variant: 'ghost', iconOnly: true, icon: 'chevron-up', ariaLabel: 'Move row up',
+            className: 'ui-kv-move', testid: opts.moveUpTestid
+          });
+          row.down = App.ui.button({
+            variant: 'ghost', iconOnly: true, icon: 'chevron-down', ariaLabel: 'Move row down',
+            className: 'ui-kv-move', testid: opts.moveDownTestid
+          });
+          row.up.setAttribute('data-move', 'up');
+          row.down.setAttribute('data-move', 'down');
+          actions = [row.up, row.down, row.remove];
+        }
+        td.appendChild(util.el('div', {
+          className: movable ? 'ui-kv-center ui-kv-center--actions' : 'ui-kv-center'
+        }, actions));
         tr.appendChild(td);
       }
       if (markerBy && row.cells[keyColumn]) {
@@ -534,6 +648,7 @@
         row.tr.setAttribute('data-row-idx', String(r));
         for (var i = 0; i < columns.length; i++) nameCell(row, i, r + 1);
         if (row.remove) row.remove.setAttribute('aria-label', removeName(row, r + 1));
+        nameMoves(row, r);
       }
     }
 
@@ -674,9 +789,15 @@
       if (rows[i]) focusInput(rows[i], colKey);
     }
 
+    function focus() {
+      if (rows.length) focusInput(rows[0], null);
+      else if (!readOnly) addBtn.focus();
+    }
+
     setValues(opts.rows);
 
     return {
+      focus: focus,
       el: root,
       values: values,
       setValues: setValues,
@@ -686,6 +807,8 @@
       destroy: function () {
         if (destroyed) return;
         destroyed = true;
+        if (announceTimer) clearTimeout(announceTimer);
+        announceTimer = null;
         root.removeEventListener('input', onInput);
         root.removeEventListener('change', onChangeEvt);
         root.removeEventListener('click', onClick);

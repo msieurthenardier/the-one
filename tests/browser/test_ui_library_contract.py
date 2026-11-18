@@ -1804,3 +1804,90 @@ def test_list_pane_base_rule_fills_a_flex_host_and_is_inert_in_block_flow(
     assert out["minH"] == "0px", out
     assert out["fillH"] == 260, out
     assert out["blockH"] < 300, out
+
+
+# --- Sortie 18 L01: App.ui.field group mode -------------------------------------------------
+
+GROUP_SETUP = """(o) => {
+  const group = document.createElement('div'); group.setAttribute('data-testid', 'g-el');
+  group.innerHTML = '<input data-testid="g-in">';
+  window.__g = App.ui.field(Object.assign({label: 'Arguments', group, testid: 'g-wrap', hintTestid: 'g-hint', errorTestid: 'g-err'}, o || {}));
+  document.getElementById('harness-root').appendChild(window.__g.el);
+  return true;
+}"""
+
+
+def test_field_group_mode_structure_and_wiring(engine_page: Page) -> None:
+    _load(engine_page)
+    engine_page.evaluate(GROUP_SETUP, {"hint": "One per row", "error": "Bad"})
+    out = engine_page.evaluate(
+        """() => {
+          const w = document.querySelector('[data-testid=g-wrap]');
+          const cap = w.querySelector('.field-group-caption');
+          return {cls: w.className, role: w.getAttribute('role'), lb: w.getAttribute('aria-labelledby') === cap.id, capText: cap.textContent,
+                  kids: Array.from(w.children).map((c) => c.className || c.getAttribute('data-testid')),
+                  desc: w.getAttribute('aria-describedby') === w.querySelector('.field-hint').id + ' ' + w.querySelector('.field-error').id,
+                  ctl: window.__g.control === document.querySelector('[data-testid=g-el]'),
+                  inv: [w.hasAttribute('aria-invalid'), w.classList.contains('is-invalid'), window.__g.control.hasAttribute('aria-invalid'), window.__g.control.classList.contains('is-invalid')],
+                  tid: [!!document.querySelector('[data-testid=g-hint]'), !!document.querySelector('[data-testid=g-err]')]};
+        }"""
+    )
+    assert (
+        out["cls"] == "field-group"
+        and out["role"] == "group"
+        and out["lb"]
+        and out["capText"] == "Arguments"
+    )
+    assert out["kids"] == ["field-group-caption", "field-hint", "g-el", "field-error"], out
+    assert (
+        out["desc"] and out["ctl"] and out["inv"] == [False] * 4 and out["tid"] == [True, True]
+    ), out
+    engine_page.evaluate("() => { window.__g.setError(null); }")
+    w = engine_page.locator("[data-testid=g-wrap]")
+    assert engine_page.locator("[data-testid=g-err]").count() == 0
+    assert w.get_attribute("aria-describedby") == engine_page.locator(".field-hint").get_attribute(
+        "id"
+    )
+    engine_page.evaluate("() => { window.__g.setHint(null); }")
+    assert w.get_attribute("aria-describedby") is None
+    engine_page.evaluate(
+        "() => { window.__g.setError('E'); window.__g.setHint('H'); window.__g.setLabel('Args'); }"
+    )
+    kids = engine_page.evaluate(
+        "() => Array.from(document.querySelector('[data-testid=g-wrap]').children).map((c) => c.className || c.getAttribute('data-testid'))"
+    )
+    assert kids == ["field-group-caption", "field-hint", "g-el", "field-error"], kids
+    assert engine_page.locator(".field-group-caption").text_content() == "Args"
+    assert w.get_attribute("aria-invalid") is None
+
+
+def test_field_group_mode_validation_and_toggle_group(engine_page: Page) -> None:
+    _load(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const el = document.createElement('div'); const inp = document.createElement('input');
+          const t = (o) => { try { App.ui.field(o); return null; } catch (e) { return e.message; } };
+          const tg = App.ui.toggle({label: 'x'});
+          const holder = document.createElement('div'); holder.appendChild(tg.el);
+          return [t({label: 'L', group: 'nope'}), t({label: 'L', group: el, control: inp}), t({label: 'L', group: el, info: 'i'}),
+                  t({label: 'L', group: el, labelHidden: true}), t({label: 'L'}), t({label: 'L', control: inp}), t({label: 'L', group: holder})];
+        }"""
+    )
+    assert all(out[:5]) and out[5] is None and out[6] is None, out
+    assert "group" in out[0] and "control" in out[4], out
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_field_group_caption_matches_a_label(engine_page: Page, theme: str) -> None:
+    load_harness(engine_page, theme)
+    out = engine_page.evaluate(
+        """() => {
+          const root = document.getElementById('harness-root');
+          const a = App.ui.field({label: 'Name', control: App.ui.textInput({})});
+          const b = App.ui.field({label: 'Group', group: document.createElement('div')});
+          root.appendChild(a.el); root.appendChild(b.el);
+          const f = (n) => { const s = getComputedStyle(n); return [s.fontSize, s.fontWeight, s.color]; };
+          return [f(a.el.querySelector('label')), f(b.el.querySelector('.field-group-caption'))];
+        }"""
+    )
+    assert out[0] == out[1], out

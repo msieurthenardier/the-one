@@ -7,6 +7,8 @@ Falls in the ``contracts-controls`` browser lane. No fixed sleeps.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from browser._ui_engines import load_harness
 from playwright.sync_api import Page, expect
@@ -1266,3 +1268,399 @@ def test_lock_by_toggle_at_construction(engine_page: Page) -> None:
                   !!tr.querySelector('input[type=password]')]; }"""
     )
     assert out == [True, True, True, True]
+
+
+# --- Sortie 18 L01: movable rows, fill, headHidden, focus() ---------------------------------
+
+ABC = "{rows: [{channel: 'A', agent: 'a'}, {channel: 'B', agent: 'b'}, {channel: 'C', agent: 'c'}], movable: true, moveUpTestid: 'mv-up', moveDownTestid: 'mv-dn'}"
+
+
+def _order(page: Page) -> list:
+    return [r["channel"] for r in _vals(page)]
+
+
+def _move_btn(page: Page, row: int, direction: str):
+    tid = "mv-up" if direction == "up" else "mv-dn"
+    return page.locator("tbody tr.ui-kv-row").nth(row).locator(f"[data-testid={tid}]")
+
+
+def _active(page: Page) -> str:
+    """Direction of the focused move button and its row index: 'down:2'."""
+    return page.evaluate(
+        "() => document.activeElement.dataset.move + ':' + Array.from(document.querySelectorAll('tbody tr')).indexOf(document.activeElement.closest('tr'))"
+    )
+
+
+def _press(btn, mode: str, key) -> None:
+    if mode == "mouse":
+        btn.click()
+    else:
+        btn.focus()
+        btn.page.keyboard.press(key)
+
+
+def test_movable_buttons_order_names_and_testids(engine_page: Page) -> None:
+    _mount(engine_page, ABC)
+    out = engine_page.evaluate(
+        """() => Array.from(document.querySelectorAll('tbody tr')).map((tr) =>
+          Array.from(tr.querySelectorAll('td:last-child button')).map((b) => [b.className.includes('ui-kv-move'), b.getAttribute('aria-label'), b.getAttribute('data-testid'), !!b.querySelector('svg'), b.disabled]))"""
+    )
+    assert out[1] == [
+        [True, "Move row 2 up", "mv-up", True, False],
+        [True, "Move row 2 down", "mv-dn", True, False],
+        [False, "Remove row 2", "kv-rm", True, False],
+    ], out
+    assert out[0][0][4] is True and out[0][1][4] is False
+    assert out[2][0][4] is False and out[2][1][4] is True
+    engine_page.evaluate("() => window.__kv.setValues([{channel: 'x'}])")
+    dis = engine_page.evaluate(
+        "() => Array.from(document.querySelectorAll('.ui-kv-move')).map((b) => b.disabled)"
+    )
+    assert dis == [True, True]
+    _mount(
+        engine_page,
+        "{rows: [{channel: 'A'}, {channel: 'B'}], movable: true, moveLabel: (n, row, dir) => 'Go ' + dir + ' ' + row.channel + ' ' + n}",
+    )
+    names_js = "() => Array.from(document.querySelectorAll('.ui-kv-move')).map((b) => b.getAttribute('aria-label'))"
+    assert engine_page.evaluate(names_js) == [
+        "Go up A 1",
+        "Go down A 1",
+        "Go up B 2",
+        "Go down B 2",
+    ]
+    engine_page.locator("tbody tr").nth(0).locator("input").first.fill("Z")
+    assert engine_page.evaluate(names_js)[0] == "Go up Z 1"
+    engine_page.evaluate("() => window.__kv.setRow(1, {channel: 'Q'})")
+    assert engine_page.evaluate(names_js)[2] == "Go up Q 2"
+
+
+def test_move_reorders_fires_once_keeps_node_and_error(engine_page: Page) -> None:
+    _mount(engine_page, ABC)
+    engine_page.evaluate(
+        "() => { window.__n = Array.from(document.querySelectorAll('tbody tr')).map((tr) => tr.querySelector('input')); window.__kv.setError(1, 'channel', 'bad B'); window.__ev.length = 0; }"
+    )
+    _move_btn(engine_page, 1, "up").click()
+    assert _order(engine_page) == ["B", "A", "C"]
+    assert engine_page.evaluate("() => window.__ev.length") == 1
+    assert engine_page.evaluate("() => window.__ev[0].split(':')[0]") == "move"
+    same = engine_page.evaluate(
+        "() => Array.from(document.querySelectorAll('tbody tr')).map((tr) => tr.querySelector('input')).map((n, i) => n === window.__n[[1, 0, 2][i]])"
+    )
+    assert same == [True, True, True]
+    assert (
+        engine_page.evaluate(
+            "() => document.querySelector('tbody tr:first-child .ui-kv-error').textContent"
+        )
+        == "bad B"
+    )
+    engine_page.evaluate("() => { window.__kv.setError(1, 'channel', 'bad A'); }")
+    assert (
+        engine_page.evaluate(
+            "() => document.querySelectorAll('tbody tr')[1].querySelector('.ui-kv-error').textContent"
+        )
+        == "bad A"
+    )
+    _move_btn(engine_page, 0, "down").click()
+    assert _order(engine_page) == ["A", "B", "C"]
+    assert engine_page.evaluate("() => window.__ev.length") == 2
+    dis = engine_page.evaluate(
+        "() => Array.from(document.querySelectorAll('tbody tr')).map((tr) => Array.from(tr.querySelectorAll('.ui-kv-move')).map((b) => b.disabled))"
+    )
+    assert dis == [[True, False], [False, False], [False, True]]
+
+
+_ROW_STATE_JS = """() => Array.from(document.querySelectorAll('tbody tr.ui-kv-row')).map((tr) => ({
+  names: Array.from(tr.querySelectorAll('td:last-child button')).map((b) => b.getAttribute('aria-label')),
+  dis: Array.from(tr.querySelectorAll('.ui-kv-move')).map((b) => b.disabled)}))"""
+
+
+def _expect_rows_state(page: Page, count: int) -> None:
+    """Names carry the row number and the edge buttons are natively disabled, for `count` rows."""
+    rows = page.evaluate(_ROW_STATE_JS)
+    assert len(rows) == count, rows
+    for i, r in enumerate(rows):
+        n = i + 1
+        assert r["names"] == [f"Move row {n} up", f"Move row {n} down", f"Remove row {n}"], rows
+        assert r["dis"] == [i == 0, i == count - 1], rows
+
+
+def test_names_and_edge_state_follow_add_remove_and_move(engine_page: Page) -> None:
+    _mount(engine_page, ABC)
+    _expect_rows_state(engine_page, 3)
+    engine_page.locator("[data-testid=kv-add]").click()
+    _expect_rows_state(engine_page, 4)
+    _move_btn(engine_page, 3, "up").click()
+    _expect_rows_state(engine_page, 4)
+    _move_btn(engine_page, 0, "down").click()
+    _expect_rows_state(engine_page, 4)
+    engine_page.locator("tbody tr.ui-kv-row").nth(1).locator("[data-testid=kv-rm]").click()
+    _expect_rows_state(engine_page, 3)
+    engine_page.locator("tbody tr.ui-kv-row").nth(0).locator("[data-testid=kv-rm]").click()
+    _expect_rows_state(engine_page, 2)
+    engine_page.locator("tbody tr.ui-kv-row").nth(1).locator("[data-testid=kv-rm]").click()
+    _expect_rows_state(engine_page, 1)
+
+
+def test_fill_on_an_already_fixed_table_changes_nothing(engine_page: Page) -> None:
+    cols = "[{key: 'k', label: 'K'}, {key: 't', label: 'T', type: 'toggle'}]"
+    rows = "[{k: 'a', t: true}]"
+    probe = """() => {
+      const table = window.__kv.el.querySelector('table');
+      return {cls: table.className,
+              cols: Array.from(table.querySelectorAll('colgroup col')).map((c) => c.style.width),
+              widths: Array.from(table.querySelectorAll('thead th')).map((th) => Math.round(th.getBoundingClientRect().width))};
+    }"""
+    _mount(engine_page, f"{{columns: {cols}, rows: {rows}}}")
+    plain = engine_page.evaluate(probe)
+    _mount(engine_page, f"{{fill: true, columns: {cols}, rows: {rows}}}")
+    assert engine_page.evaluate(probe) == plain
+    sec = "[{key: 'k', label: 'K'}, {key: 's', label: 'S', type: 'secret'}]"
+    _mount(engine_page, f"{{columns: {sec}, rows: [{{k: 'a', s: 'x'}}]}}")
+    plain = engine_page.evaluate(probe)
+    _mount(engine_page, f"{{fill: true, columns: {sec}, rows: [{{k: 'a', s: 'x'}}]}}")
+    assert engine_page.evaluate(probe) == plain
+
+
+def test_click_on_a_disabled_move_button_does_nothing(engine_page: Page) -> None:
+    _mount(engine_page, ABC)
+    engine_page.evaluate(
+        """() => {
+          window.__ev.length = 0;
+          const first = document.querySelector('tbody tr:first-child .ui-kv-move');
+          const last = document.querySelectorAll('tbody tr:last-child .ui-kv-move')[1];
+          for (const b of [first, last]) {
+            for (const target of [b, b.querySelector('svg')]) {
+              target.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+            }
+          }
+        }"""
+    )
+    assert _order(engine_page) == ["A", "B", "C"]
+    assert engine_page.evaluate("() => window.__ev.length") == 0
+
+
+@pytest.mark.parametrize(
+    "mode,key", [("mouse", None), ("keyboard", "Enter"), ("keyboard", "Space")]
+)
+def test_focus_after_a_move_stays_on_the_pressed_button(engine_page: Page, mode: str, key) -> None:
+    _mount(engine_page, ABC)
+    # The pressed button stays enabled: focus stays on it.
+    _press(_move_btn(engine_page, 0, "down"), mode, key)  # A to row 2
+    assert _order(engine_page) == ["B", "A", "C"]
+    assert _active(engine_page) == "down:1"
+    # The pressed button becomes disabled (down at the last row): focus goes to its up button.
+    _press(_move_btn(engine_page, 1, "down"), mode, key)  # A to row 3
+    assert _order(engine_page) == ["B", "C", "A"]
+    assert _active(engine_page) == "up:2"
+    # Up to the first row: up becomes disabled, focus goes to the down button.
+    _press(_move_btn(engine_page, 2, "up"), mode, key)
+    _press(_move_btn(engine_page, 1, "up"), mode, key)
+    assert _order(engine_page) == ["A", "B", "C"]
+    assert _active(engine_page) == "down:0"
+
+
+def test_move_announces_through_one_status_node(engine_page: Page) -> None:
+    _mount(engine_page, ABC)
+    engine_page.evaluate(
+        """() => {
+          const n = document.querySelector('.ui-kv-live');
+          window.__log = [];
+          new MutationObserver(() => window.__log.push(n.textContent)).observe(n, {childList: true, characterData: true, subtree: true});
+        }"""
+    )
+    assert engine_page.evaluate(
+        "() => { const n = document.querySelectorAll('.ui-kv-live'); return [n.length, n[0].getAttribute('role'), n[0].classList.contains('visually-hidden'), window.__kv.el.lastElementChild === n[0]]; }"
+    ) == [1, "status", True, True]
+    _move_btn(engine_page, 0, "down").click()
+    engine_page.wait_for_function("() => window.__log.includes('Moved to row 2 of 3.')")
+    n = engine_page.evaluate("() => window.__log.length")
+    _move_btn(engine_page, 2, "up").click()
+    engine_page.wait_for_function(
+        "(n) => window.__log.length > n && window.__log[window.__log.length - 1] === 'Moved to row 2 of 3.'",
+        arg=n,
+    )
+    log = engine_page.evaluate("() => window.__log")
+    assert log.count("Moved to row 2 of 3.") == 2, log
+    assert "" in log[log.index("Moved to row 2 of 3.") + 1 :], log
+    _mount(engine_page, "null")
+    assert (
+        engine_page.evaluate("() => document.querySelectorAll('.ui-kv-live, .ui-kv-move').length")
+        == 0
+    )
+    _mount(engine_page, ABC)
+    engine_page.evaluate(
+        "() => { document.querySelector('tbody tr .ui-kv-move[data-move=down]').click(); window.__kv.destroy(); }"
+    )
+    engine_page.evaluate("() => new Promise((r) => setTimeout(r, 30))")
+    assert engine_page.evaluate("() => document.querySelector('.ui-kv-live').textContent") == ""
+
+
+def test_movable_read_only_and_lock_options(engine_page: Page) -> None:
+    load_harness(engine_page)
+    out = engine_page.evaluate(
+        """() => {
+          const c = [{key: 'a', label: 'A'}];
+          const t = (o) => { try { App.ui.keyValueTable(Object.assign({columns: c}, o)); return null; } catch (e) { return e.message; } };
+          const ro = App.ui.keyValueTable({columns: c, rows: [{a: '1'}, {a: '2'}], movable: true, readOnly: true});
+          return {
+            ro: ro.el.querySelectorAll('.ui-kv-move, .ui-kv-live').length,
+            lock: t({movable: true, lockBy: 'x'}), rem: t({movable: true, removableBy: 'x'}), mark: t({movable: true, markerBy: 'x'}),
+            roLock: t({movable: true, readOnly: true, lockBy: 'x'}), roRem: t({movable: true, readOnly: true, removableBy: 'x'}),
+            roMark: t({movable: true, readOnly: true, markerBy: 'x'})
+          };
+        }"""
+    )
+    assert out["ro"] == 0
+    assert "lockBy" in out["lock"] and "removableBy" in out["rem"] and "markerBy" in out["mark"]
+    assert (
+        "lockBy" in out["roLock"] and "removableBy" in out["roRem"] and "markerBy" in out["roMark"]
+    )
+
+
+def test_fill_gives_the_fixed_full_width_layout(engine_page: Page) -> None:
+    _mount(engine_page, "{fill: true}")
+    out = engine_page.evaluate(
+        """() => {
+          const root = window.__kv.el; const table = root.querySelector('table');
+          const input = table.querySelector('tbody input');
+          return {fixed: table.classList.contains('ui-kv-table--fixed'), cg: !!table.querySelector('colgroup'),
+                  tw: table.getBoundingClientRect().width, rw: root.getBoundingClientRect().width,
+                  cell: input.closest('td').getBoundingClientRect().width, iw: input.getBoundingClientRect().width,
+                  act: table.querySelector('colgroup').lastElementChild.style.width};
+        }"""
+    )
+    assert out["fixed"] and out["cg"] and out["act"] == "48px", out
+    assert abs(out["tw"] - out["rw"]) <= 1, out
+    assert out["iw"] >= out["cell"] - 17, out
+    engine_page.evaluate("() => window.__kv.setValues([])")
+    out = engine_page.evaluate(
+        "() => ({tw: window.__kv.el.querySelector('table').getBoundingClientRect().width, rw: window.__kv.el.getBoundingClientRect().width, hid: window.__kv.el.querySelector('thead').hidden, add: !!window.__kv.el.querySelector('.ui-kv-add')})"
+    )
+    assert abs(out["tw"] - out["rw"]) <= 1 and out["hid"] and out["add"], out
+    _mount(
+        engine_page,
+        "{fill: true, columns: [{key: 'k', label: 'K'}, {key: 't', label: 'T', type: 'toggle'}], rows: [{k: 'a', t: true}]}",
+    )
+    assert (
+        engine_page.evaluate("() => window.__kv.el.querySelector('table').className")
+        == "ui-kv-table ui-kv-table--fixed"
+    )
+
+
+def test_movable_actions_column_holds_three_buttons_on_one_line(engine_page: Page) -> None:
+    _mount(engine_page, ABC.replace("movable: true", "movable: true, fill: true"))
+    out = engine_page.evaluate(
+        """() => {
+          const tr = document.querySelector('tbody tr'); const td = tr.lastElementChild;
+          const bs = Array.from(td.querySelectorAll('button')).map((b) => b.getBoundingClientRect());
+          const c = td.getBoundingClientRect();
+          return {tops: bs.map((b) => Math.round(b.top)), left: bs[0].left - c.left, right: c.right - bs[2].right, sw: td.scrollWidth, cw: td.clientWidth};
+        }"""
+    )
+    assert len(set(out["tops"])) == 1, out
+    assert out["left"] >= 0 and out["right"] >= 0 and out["sw"] <= out["cw"], out
+
+
+def test_head_hidden_keeps_labels_and_takes_no_height(engine_page: Page) -> None:
+    _mount(
+        engine_page,
+        "{headHidden: true, fill: true, columns: [{key: 'k', label: (() => { const s = document.createElement('b'); s.textContent = 'Arg'; return s; })()}, {key: 'v', label: 'Val'}]}",
+    )
+    out = engine_page.evaluate(
+        """() => {
+          const table = window.__kv.el.querySelector('table');
+          const ths = Array.from(table.querySelectorAll('thead th[scope=col]'));
+          const body = table.querySelector('tbody tr').getBoundingClientRect();
+          return {cls: table.classList.contains('ui-kv-table--head-hidden'), n: ths.length,
+                  spans: ths.slice(0, 2).map((t) => [t.firstElementChild.tagName, t.firstElementChild.className, t.textContent.trim()]),
+                  head: table.tHead.getBoundingClientRect().height, gap: body.top - table.getBoundingClientRect().top,
+                  name: table.querySelector('tbody input').getAttribute('aria-label')};
+        }"""
+    )
+    assert out["cls"] and out["n"] == 3, out
+    assert out["spans"] == [
+        ["SPAN", "visually-hidden", "Arg"],
+        ["SPAN", "visually-hidden", "Val"],
+    ], out
+    assert out["head"] <= 1 and out["gap"] <= 1, out
+    assert out["name"] == "Arg, row 1", out
+    engine_page.evaluate("() => window.__kv.setValues([])")
+    assert engine_page.evaluate("() => window.__kv.el.querySelector('thead').hidden") is True
+
+
+def test_focus_method(engine_page: Page) -> None:
+    _mount(engine_page, "null")
+    engine_page.evaluate("() => window.__kv.focus()")
+    assert (
+        engine_page.evaluate("() => document.activeElement.getAttribute('data-testid')") == "c-ch"
+    )
+    engine_page.evaluate("() => { window.__kv.setValues([]); window.__kv.focus(); }")
+    assert (
+        engine_page.evaluate("() => document.activeElement.getAttribute('data-testid')") == "kv-add"
+    )
+    _mount(engine_page, "{readOnly: true, rows: []}")
+    assert (
+        engine_page.evaluate(
+            "() => { window.__kv.focus(); return document.activeElement === document.body; }"
+        )
+        is True
+    )
+
+
+def test_move_options_are_inert_when_not_passed(engine_page: Page) -> None:
+    _mount(engine_page, "null")
+    out = engine_page.evaluate(
+        "() => ({mv: document.querySelectorAll('.ui-kv-move').length, live: document.querySelectorAll('.ui-kv-live').length, hh: window.__kv.el.querySelector('table').classList.contains('ui-kv-table--head-hidden'), cls: window.__kv.el.querySelector('table').className})"
+    )
+    assert out == {"mv": 0, "live": 0, "hh": False, "cls": "ui-kv-table"}, out
+
+
+def test_add_aria_label_names_the_button_and_is_inert_otherwise(engine_page: Page) -> None:
+    _mount(engine_page, "{addAriaLabel: 'Add row to Channels'}")
+    add = engine_page.get_by_test_id("kv-add")
+    expect(add).to_have_attribute("aria-label", "Add row to Channels")
+    expect(add).to_have_text("+ Add row")
+    expect(engine_page.get_by_role("button", name="Add row to Channels")).to_have_count(1)
+    add.click()
+    expect(engine_page.locator("[data-testid=kv-row]")).to_have_count(3)
+    assert engine_page.evaluate("() => window.__ev.pop()").startswith("add:")
+    # A custom visible label keeps its own text; the name is still the option's.
+    _mount(engine_page, "{addAriaLabel: 'Add channel row', addLabel: 'Add it'}")
+    expect(engine_page.get_by_test_id("kv-add")).to_have_text("Add it")
+    expect(engine_page.get_by_test_id("kv-add")).to_have_attribute("aria-label", "Add channel row")
+    # Not passed, or empty: no attribute at all. Read-only: no Add button.
+    for extra in ("null", "{addAriaLabel: ''}"):
+        _mount(engine_page, extra)
+        expect(engine_page.get_by_test_id("kv-add")).not_to_have_attribute(
+            "aria-label", re.compile(".*")
+        )
+        assert (
+            engine_page.evaluate(
+                "() => window.__kv.el.querySelector('.ui-kv-add').hasAttribute('aria-label')"
+            )
+            is False
+        )
+    _mount(engine_page, "{readOnly: true, addAriaLabel: 'Add row to Channels'}")
+    expect(engine_page.locator(".ui-kv-add")).to_have_count(0)
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_move_button_look_uses_tokens_never_opacity(engine_page: Page, theme: str) -> None:
+    _mount(engine_page, ABC, theme)
+    out = engine_page.evaluate(
+        """() => {
+          const probe = document.createElement('span'); document.getElementById('harness-root').appendChild(probe);
+          const tok = (n) => { probe.style.color = 'var(' + n + ')'; return getComputedStyle(probe).color; };
+          const cs = (b) => { const s = getComputedStyle(b); return [s.color, s.opacity, s.cursor]; };
+          const rows = document.querySelectorAll('tbody tr');
+          const dis = rows[0].querySelector('.ui-kv-move'); const en = rows[1].querySelector('.ui-kv-move'); const rm = rows[1].querySelector('.ui-kv-remove');
+          return {dis: cs(dis), en: cs(en), rm: cs(rm), fgDis: tok('--btn-disabled-fg'), fg: tok('--fg')};
+        }"""
+    )
+    assert out["dis"] == [out["fgDis"], "1", "not-allowed"], out
+    assert out["en"][1] == "1" and out["en"][0] == out["rm"][0], out
+    engine_page.locator("tbody tr").nth(1).locator(".ui-kv-move").first.hover()
+    engine_page.wait_for_function(
+        "(c) => getComputedStyle(document.querySelectorAll('tbody tr')[1].querySelector('.ui-kv-move')).color === c",
+        arg=out["fg"],
+    )
