@@ -1,6 +1,6 @@
 # Sortie: Local-command MCP servers: newest protocol and Forget
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -150,7 +150,7 @@ Verified against the working tree at `c317c878`.
   - `stdio gets neither`: none outside `missions/`. `Tools list forgotten`: `mcp-connection-status.js`.
   - `reset_mcp_connection` and callers of `DELETE …/connection`: `api.py`, `the_one/agents.md`, `mcp-connection-status.js`, `tests/test_store_static.py` (pins the fetch literal), `tests/test_mcp_test_connection_negotiation.py`, `tests/test_mcp_last_check.py`, `tests/test_agent_mcp_tool_cache.py`, `tests/test_mcp_connection_reset.py` (HTTP sources only).
 - [x] Consumer search for the probe's timing, run by the Architect on 2026-11-18: `negotiate(` is called from `client.py` and 28 times in `tests/test_mcp_negotiate.py` (no test patches it); `DISCOVER_TIMEOUT_SECONDS` is patched only in `tests/test_mcp_negotiation_fallback.py` (three tests); `--drop-discover` has one user, the test DD6 rewrites; `--close-on-discover` and the HTTP fallback tests are unaffected (a closed pipe is not a timeout, and HTTP gets no deadline).
-- [ ] The HAT's real server comes from the npm registry: reachability is checked again on the day, before the HAT starts.
+- [x] The HAT's real server comes from the npm registry: reachability is checked again on the day, before the HAT starts. (Checked on 2026-11-18; the published version was 2.3.1.)
 
 ### Pre-Flight Checklist
 - [x] All open questions resolved
@@ -175,7 +175,7 @@ Verified against the working tree at `c317c878`.
 - [x] Unit tier green with the negotiation and client tests (`THE_ONE_TEST_NETNS=1 make test-unit`), the SDK parity test included
 - [x] `mcp-connection` lane green with the button and note tests; `mcp`, `library`, `agents` and `agent-tabs` lanes green (other readers of the MCP source cache: `test_mcp_test_connection_button.py` runs a real local-command Test, `test_studio_mcps_tab.py` reads the cache)
 - [x] Full local gate on the final tree, on a host with no other test run, finished before the HAT instance starts; a HAT fix re-runs the lanes above and the unit tier, and a fix wider than the editor re-runs the full gate (sortie 18 debrief, recommendation 4)
-- [ ] HAT walked with the operator
+- [x] HAT walked with the operator
 
 ### Adaptation Criteria
 
@@ -201,17 +201,17 @@ Verified against the working tree at `c317c878`.
 
 - [x] `patient-discover` - the patient probe for local-command servers, the fallback fact on the client and in the stored cache, fixture option, unit and integration tests, docs
 - [x] `editor-forget-and-note` - "Forget tools list" on local-command servers, the fallback note in the Server section, flow tests, docs
-- [ ] `hat-and-alignment` *(optional)* - Guided HAT session with iterative fixes
+- [x] `hat-and-alignment` *(optional)* - Guided HAT session with iterative fixes
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - `THE_ONE_TEST_NETNS=1 make test-unit` green, with `tests/test_mcp_negotiate.py` and the new client and route tests.

@@ -3,7 +3,7 @@
 **Flight**: [Local-command MCP servers: newest protocol and Forget](flight.md)
 
 ## Summary
-Ready. Charter agreed, the flight designed, the Architect's design review folded in and the design approved by the operator on 2026-11-18. Execution is next.
+Landed on 2026-11-18, the day it was planned. Three legs, all `completed`: `patient-discover` (the connect path), `editor-forget-and-note` (the MCP editor) and `hat-and-alignment` (eight steps walked by the operator, all passed, no fix). One code commit after a code review and an accessibility review (both confirmed in one cycle), a small fix pass and the full gate on the final tree. In a real run on the scratch instance the operator's case, the published server started 12 s late, connects on 2026-07-28 with all 22 tools. Carried out of the flight: squawk 0381 (a gap in the contrast audit), squawk 0376's quiet-host reading, and the unit tier sitting at its 300 s target. The flight debrief is the next step.
 
 ---
 
@@ -70,6 +70,19 @@ Run by the Flight Director after the fix pass, with no other test process on the
 - **The whole gate**: 317 s + 2179 s = 2496 s, about 41.6 minutes, inside the 43-minute target.
 - **`mcp` at 322 s against its 330 s budget** is a reading from a `--parallel 3` run that started quiet with nothing else testing, which is what squawk 0376 asked for. Re-budgeting is that squawk's work, not this flight's (measured plus 25%, rounded up to 30 s, gives 420 s); the reading is added to the squawk.
 - Legs 1 and 2 are marked `completed` and committed as the branch's first code commit, before the HAT. The HAT instance is started only after this gate (it has finished).
+
+#### 2026-11-18 — commit, draft PR and HAT set-up
+- A Developer (Sonnet) committed the two build legs as `75d9456c`, staging by explicit path; the staged diff held no username or home path. The Flight Director pushed the branch, checked the pushed head against the local one, and opened draft PR #379.
+- `legs/03-hat-and-alignment.md` written. Scratch instance on port 8485 with its own data directory and working directory under the home folder, dev mode on; the repo's HTTP fixture on a scratch port; four seeded servers. The npm registry answered; the published server is now 2.3.1.
+- **Dry run through the API before the walk, with the real published server** (the first real slow-server run of the built code): `everything-prompt` 3.4 s, protocol 2026-07-28, 22 tools; `everything-slow` (12 s late, the operator's case) 15.3 s, **2026-07-28, 22 tools, no fallback**; `everything-late` (18 s late) 22.6 s, 2025-11-25, 16 tools, `protocol_fallback: "no_answer"`; `http-fixture` 2026-07-28, no fallback key. All four were then returned to "never tested" through the Forget route for the walk.
+
+#### 2026-11-18 — HAT walked; the flight lands
+- All eight steps passed with no fix (table under `hat-and-alignment`). The operator's three choices: the note stays silent, its wording stays, and the chat-only gap is accepted.
+- Squawk 0381 logged from the accessibility review: the contrast audit does not gate warning text on the warning banner's own 12% tint, and its exemption note for that token is not true for the banner. The pair passes today by hand calculation.
+- The scratch instance was stopped by its recorded PID and the HTTP fixture by its recorded process group; the scratch folder and the gate's log folder were removed.
+- No source change after the closing gate, so that gate stands for the landed tree (`75d9456c` plus artifacts).
+- Documents: `CLAUDE.md`, `the_one/agents.md`, `the_one/mcp/README.md` and the testid registry were updated in the legs and read by the Reviewer; nothing further is needed at landing.
+- All three legs `completed`; the flight is `landed`. The charter's success criteria are assessed in the flight debrief, which is recommended on this branch before the merge.
 
 ### patient-discover
 
@@ -150,6 +163,35 @@ All mechanisms restored; `grep FALSIFY` finds nothing.
 **Deviations / decisions**
 - Lanes (THE_ONE_TEST_NETNS=1, one at a time, host lightly loaded): mcp-connection 102 passed 277 s; mcp 105 passed 264 s; library 122 passed 324 s; agents 186 passed 462 s; agent-tabs 208 passed 409 s. Unit tier 10263 passed, 15 skipped (expected under the namespace), 308 s. ruff check and format --check clean (917 files formatted).
 - Shell redirect append refused by the hook once; redone with the edit tool. In the AC6 test the refetch stub must serve an empty cache before the Forget, or the Forget's own refetch repaints the section.
+
+---
+
+### hat-and-alignment
+
+**Status**: completed
+**Started**: 2026-11-18
+**Completed**: 2026-11-18
+
+#### The walk (operator, scratch instance on port 8485, the published `@modelcontextprotocol/server-everything` 2.3.1 as the local-command server)
+| Step | Result |
+|---|---|
+| 1. A prompt local server, never tested, then Test | pass |
+| 2. The operator's case: the server started 12 s late | pass. The stored record read by the Flight Director: protocol 2026-07-28, 22 tools, no fallback key |
+| 3. A server started past the window: the older protocol, fewer tools, the note, both themes | pass. The stored record: protocol 2025-11-25, 16 tools, `protocol_fallback: "no_answer"` |
+| 4. Forget on that server clears the note and the Server section | pass |
+| 5. Forget then Test on the prompt server: the button returns at rest | pass |
+| 6. An HTTP server: Test, Forget, Test as before; no note; no Reset | pass |
+| 7. An agent's Tools tab shows the slow server's full tool list | pass (a mock provider and an agent with the server attached were seeded for the step) |
+| 8. Open choices | see below |
+
+The first sign-in link had expired before the operator opened it; a second was minted. No other event.
+
+#### Operator decisions
+1. The note is not announced to screen readers; it stays a silent, persistent line in the Server section.
+2. The note's wording stays as approved.
+3. The gap is accepted: a local-command server that fell back only in chats shows no note and no Forget button until it is tested once.
+
+No fix was made during the walk, so no fix-or-feature call was needed.
 
 ## Decisions
 Runtime decisions not in original plan.

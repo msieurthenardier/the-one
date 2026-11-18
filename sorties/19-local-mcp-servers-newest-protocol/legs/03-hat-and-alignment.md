@@ -1,6 +1,6 @@
 # Leg: hat-and-alignment
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Local-command MCP servers: newest protocol and Forget](../flight.md)
 
 ## Objective
@@ -32,15 +32,15 @@ The operator walks the slow-server fix, the fallback note and the Forget button 
 - Any fixes, each tested and reviewed, on the sortie branch.
 
 ## Acceptance Criteria
-- [ ] Step 1 [never tested → tested, prompt server]: `everything-prompt` opens with no Server section and no Forget button. After Test: Connected; Protocol 2026-07-28; the full tool list (22); "Forget tools list" beside the status line; no warning note; no error message.
-- [ ] Step 2 [the operator's case]: `everything-slow`, Test (it takes about 16 s): Connected; Protocol 2026-07-28; 22 tools; no warning note. Before this sortie the same server gave 2025-11-25 and 16 tools.
-- [ ] Step 3 [past the window → fallback, with the note]: `everything-late`, Test (it takes about 22 to 25 s): Connected; Protocol 2025-11-25; fewer tools (16); the warning note sits under the facts and before Instructions, with the approved sentence; no error message. It looks right in the light and the dark theme.
-- [ ] Step 4 [fallback → cleared by Forget]: on `everything-late`, "Forget tools list" arms as "Forget tools list?" and on the second press the button, the Server section and the note disappear, the Tools section shows its "Press Test…" hint, the "Tools list forgotten" message shows, and keyboard focus is on Test.
-- [ ] Step 5 [Forget → Test, prompt server]: on `everything-prompt`, Forget, then Test: the button comes back as "Forget tools list" (one press arms it, it does not delete at once); Protocol 2026-07-28; no note.
-- [ ] Step 6 [HTTP unchanged]: `http-fixture`: Test, Forget, Test behave as before this sortie; no warning note at any point; "Reset connection" is not shown (no sign-in).
-- [ ] Step 7 [an agent sees the full list]: an agent with `everything-slow` switched on shows that server's full tool list in its Tools tab.
-- [ ] Step 8 [open choices]: the operator decides open choices 1 to 3.
-- [ ] Every fix made during the walk has its tests, an independent review, and a green run of the gate named in Context.
+- [x] Step 1 [never tested → tested, prompt server]: `everything-prompt` opens with no Server section and no Forget button. After Test: Connected; Protocol 2026-07-28; the full tool list (22); "Forget tools list" beside the status line; no warning note; no error message.
+- [x] Step 2 [the operator's case]: `everything-slow`, Test (it takes about 16 s): Connected; Protocol 2026-07-28; 22 tools; no warning note. Before this sortie the same server gave 2025-11-25 and 16 tools.
+- [x] Step 3 [past the window → fallback, with the note]: `everything-late`, Test (it takes about 22 to 25 s): Connected; Protocol 2025-11-25; fewer tools (16); the warning note sits under the facts and before Instructions, with the approved sentence; no error message. It looks right in the light and the dark theme.
+- [x] Step 4 [fallback → cleared by Forget]: on `everything-late`, "Forget tools list" arms as "Forget tools list?" and on the second press the button, the Server section and the note disappear, the Tools section shows its "Press Test…" hint, the "Tools list forgotten" message shows, and keyboard focus is on Test.
+- [x] Step 5 [Forget → Test, prompt server]: on `everything-prompt`, Forget, then Test: the button comes back as "Forget tools list" (one press arms it, it does not delete at once); Protocol 2026-07-28; no note.
+- [x] Step 6 [HTTP unchanged]: `http-fixture`: Test, Forget, Test behave as before this sortie; no warning note at any point; "Reset connection" is not shown (no sign-in).
+- [x] Step 7 [an agent sees the full list]: an agent with `everything-slow` switched on shows that server's full tool list in its Tools tab.
+- [x] Step 8 [open choices]: the operator decides open choices 1 to 3.
+- [x] Every fix made during the walk has its tests, an independent review, and a green run of the gate named in Context. (No fix was made.)
 
 ## Verification Steps
 - Each step is performed by the operator in their browser on the scratch instance and reported back; the Flight Director records the result and any wording the operator objects to.
