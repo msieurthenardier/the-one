@@ -617,3 +617,348 @@ async def test_every_mock_session_fixture_answers_discover() -> None:
     with pytest.raises(MCPError) as ei:
         await s.send_discover(MODERN)
     assert ei.value.code == mcp_types.METHOD_NOT_FOUND
+
+
+# --- sortie 19: the patient probe (DD1-DD4) ---------------------------------
+
+TIMEOUT = MCPError(mcp_types.REQUEST_TIMEOUT, "Request timed out")
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class TimedSession(FakeSession):
+    """A ``FakeSession`` whose probes advance a fake clock by ``steps`` before they
+    raise or return (one step per probe; the last step repeats)."""
+
+    def __init__(self, clock, steps, discover=(), initialize=()):
+        super().__init__(discover=discover, initialize=initialize)
+        self.clock = clock
+        self.steps = list(steps)
+
+    async def send_discover(self, version):
+        step = self.steps.pop(0) if len(self.steps) > 1 else self.steps[0]
+        self.clock.now += step
+        return await super().send_discover(version)
+
+
+async def test_negotiate_new_keywords_default_to_none() -> None:
+    import inspect
+
+    params = inspect.signature(_negotiate.negotiate).parameters
+    for name in ("patient_until", "outcome", "clock"):
+        assert params[name].default is None
+        assert params[name].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+async def test_no_deadline_a_timed_out_probe_is_one_probe_and_no_fallback() -> None:
+    clock = FakeClock()
+    s = TimedSession(clock, [30.0], discover=[TIMEOUT])
+    out = _negotiate.NegotiationOutcome()
+    assert await _negotiate.negotiate(s, remembered=None, outcome=out, clock=clock) == HS
+    assert s.calls == [("discover", MODERN), ("initialize",)]
+    assert out.fallback is None
+
+
+async def test_no_answers_then_an_answer_inside_the_window_adopts() -> None:
+    clock = FakeClock()
+    s = TimedSession(clock, [10.0], discover=[TIMEOUT, TIMEOUT, TIMEOUT, _discover_result()])
+    out = _negotiate.NegotiationOutcome()
+    got = await _negotiate.negotiate(
+        s, remembered=None, patient_until=100.0, outcome=out, clock=clock
+    )
+    assert got == MODERN
+    assert [c[0] for c in s.calls] == ["discover"] * 4 + ["adopt"]
+    assert all(c[1] == MODERN for c in s.calls if c[0] == "discover")  # same version
+    assert out.fallback is None
+
+
+async def test_no_answers_until_the_deadline_fall_back_and_record_it() -> None:
+    clock = FakeClock()
+    s = TimedSession(clock, [40.0], discover=[TIMEOUT, TIMEOUT, TIMEOUT])
+    out = _negotiate.NegotiationOutcome()
+    got = await _negotiate.negotiate(
+        s, remembered=None, patient_until=100.0, outcome=out, clock=clock
+    )
+    assert got == HS
+    assert [c[0] for c in s.calls] == ["discover", "discover", "discover", "initialize"]
+    assert out.fallback == "no_answer"
+
+
+async def test_instant_request_timeout_code_is_an_ordinary_error() -> None:
+    """A server that answers -32001 at once is not 'no answer': one probe, then today's path."""
+    clock = FakeClock()
+    s = TimedSession(clock, [0.1], discover=[TIMEOUT])  # a second probe would IndexError
+    out = _negotiate.NegotiationOutcome()
+    got = await _negotiate.negotiate(
+        s, remembered=None, patient_until=100.0, outcome=out, clock=clock
+    )
+    assert got == HS
+    assert s.calls == [("discover", MODERN), ("initialize",)]
+    assert out.fallback is None
+
+
+async def test_the_floor_is_read_at_call_time(monkeypatch) -> None:
+    import the_one.mcp as the_one_mcp
+
+    monkeypatch.setattr(the_one_mcp, "PROBE_NO_ANSWER_FLOOR_SECONDS", 0.05)
+    clock = FakeClock()
+    s = TimedSession(clock, [0.1], discover=[TIMEOUT, _discover_result()])
+    assert (
+        await _negotiate.negotiate(s, remembered=None, patient_until=100.0, clock=clock) == MODERN
+    )
+    assert len(s.calls) == 3  # discover, discover, adopt
+
+
+async def test_window_does_not_use_up_attempt_so_late_dual_era_server_ends_modern() -> None:
+    """No answers to the deadline, initialize refused -32022 (modern listed), the next
+    probe answers: modern, no fallback (the answered probe clears the fact)."""
+    clock = FakeClock()
+    s = TimedSession(
+        clock,
+        [60.0, 60.0, 0.0],
+        discover=[TIMEOUT, TIMEOUT, _discover_result()],
+        initialize=[_unsupported([MODERN])],
+    )
+    out = _negotiate.NegotiationOutcome()
+    got = await _negotiate.negotiate(
+        s, remembered=None, patient_until=100.0, outcome=out, clock=clock
+    )
+    assert got == MODERN
+    assert [c[0] for c in s.calls] == ["discover", "discover", "initialize", "discover", "adopt"]
+    assert out.fallback is None
+
+
+async def test_a_resent_probe_is_cut_off_at_the_deadline() -> None:
+    """The bound on a re-sent probe really fires (no fake clock movement can stop it)."""
+    clock = FakeClock()
+
+    class Blocking(FakeSession):
+        n = 0
+
+        async def send_discover(self, version):
+            self.n += 1
+            if self.n == 1:
+                clock.now += 1.5
+                raise TIMEOUT
+            await asyncio.sleep(3600)
+
+    s = Blocking(initialize=[None])
+    out = _negotiate.NegotiationOutcome()
+    async with asyncio.timeout(5):
+        got = await _negotiate.negotiate(
+            s, remembered=None, patient_until=1.55, outcome=out, clock=clock
+        )
+    assert got == HS
+    assert s.n == 2
+    assert out.fallback == "no_answer"
+
+
+async def test_a_foreign_timeout_during_a_resent_probe_propagates() -> None:
+    clock = FakeClock()
+
+    class Odd(FakeSession):
+        n = 0
+
+        async def send_discover(self, version):
+            self.n += 1
+            if self.n == 1:
+                clock.now += 1.5
+                raise TIMEOUT
+            raise TimeoutError("not ours")
+
+    with pytest.raises(TimeoutError):
+        await _negotiate.negotiate(Odd(), remembered=None, patient_until=100.0, clock=clock)
+
+
+async def test_outcome_is_none_when_the_last_probe_was_answered_with_an_error() -> None:
+    clock = FakeClock()
+    s = TimedSession(clock, [10.0], discover=[TIMEOUT, METHOD_NOT_FOUND])
+    out = _negotiate.NegotiationOutcome()
+    out.fallback = "stale"
+    await _negotiate.negotiate(s, remembered=None, patient_until=100.0, outcome=out, clock=clock)
+    assert out.fallback is None
+
+
+async def test_remembered_handshake_sends_no_probe_and_no_fallback() -> None:
+    clock = FakeClock()
+    s = TimedSession(clock, [1.0])
+    out = _negotiate.NegotiationOutcome()
+    await _negotiate.negotiate(s, remembered=HS, patient_until=100.0, outcome=out, clock=clock)
+    assert s.calls == [("initialize",)]
+    assert out.fallback is None
+
+
+# --- the client: deadline rule, property, era count ---------------------------
+
+
+def _scripted_probe_session(answers):
+    """A handshake mock session whose probes sleep a little, then raise or return."""
+    s = _handshake_session()
+    seq = list(answers)
+
+    async def probe(version):
+        await asyncio.sleep(0.05)
+        item = seq.pop(0) if len(seq) > 1 else seq[0]
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    s.send_discover = AsyncMock(side_effect=probe)
+    return s
+
+
+@pytest.fixture
+def quick_window(monkeypatch):
+    import the_one.mcp as the_one_mcp
+
+    monkeypatch.setattr(the_one_mcp, "PROBE_NO_ANSWER_FLOOR_SECONDS", 0.0)
+    monkeypatch.setattr(the_one_mcp, "HANDSHAKE_RESERVE_SECONDS", 10)
+    return 10.3  # a 0.3 s window
+
+
+@pytest.mark.parametrize("limit", [None, 10, 5, True, "30"])
+async def test_client_gives_no_patience_without_a_real_limit_above_the_reserve(
+    patch, monkeypatch, limit
+) -> None:
+    seen = {}
+
+    async def spy(session, **kw):
+        seen.update(kw)
+        return MODERN
+
+    monkeypatch.setattr(client_mod, "negotiate", spy)
+    patch(_modern_session())
+    c = MCPClient(_stdio_source(source_id="np"), timeout_seconds=limit)
+    try:
+        await c.connect()
+    except Exception:
+        pass
+    assert seen.get("patient_until") is None
+
+
+async def test_client_http_connect_never_gets_a_deadline(patch, monkeypatch) -> None:
+    seen = {}
+
+    async def spy(session, **kw):
+        seen.update(kw)
+        return MODERN
+
+    monkeypatch.setattr(client_mod, "negotiate", spy)
+    patch(_modern_session())
+    src = MCPSource(
+        id="h1",
+        name="n",
+        type="streamable-http",
+        config={"url": "http://localhost/mcp", "headers": {}},
+        secrets={},
+    )
+    await MCPClient(src, timeout_seconds=30).connect()
+    assert seen == {"remembered": None}
+
+
+async def test_client_stdio_deadline_is_the_limit_less_the_reserve(patch, monkeypatch) -> None:
+    seen = {}
+
+    async def spy(session, **kw):
+        seen.update(kw)
+        return MODERN
+
+    monkeypatch.setattr(client_mod, "negotiate", spy)
+    patch(_modern_session())
+    t0 = asyncio.get_running_loop().time()
+    await MCPClient(_stdio_source(source_id="dl"), timeout_seconds=30).connect()
+    assert 19.0 < seen["patient_until"] - t0 < 21.0
+    assert isinstance(seen["outcome"], _negotiate.NegotiationOutcome)
+
+
+async def _slow_timeout(version):
+    await asyncio.sleep(1.2)  # longer than the 1.0 s floor
+    raise TIMEOUT
+
+
+async def test_client_http_slow_probe_after_the_floor_falls_back_and_is_remembered(patch) -> None:
+    """HTTP gets no patience: a probe timing out after longer than the floor is the
+    old path, so the fallback is None and the handshake revision is remembered."""
+    s = _handshake_session()
+    s.send_discover = AsyncMock(side_effect=_slow_timeout)
+    patch(s)
+    src = MCPSource(
+        id="h2",
+        name="n",
+        type="streamable-http",
+        config={"url": "http://localhost/mcp", "headers": {}},
+        secrets={},
+    )
+    c = MCPClient(src, timeout_seconds=30)
+    await c.connect()
+    assert c.negotiation_fallback is None
+    assert s.send_discover.await_count == 1
+    assert _era.era_for("h2") == HS
+
+
+async def test_client_no_answer_fallback_is_second_chance_then_remembered(
+    patch, quick_window
+) -> None:
+    s = patch(_scripted_probe_session([TIMEOUT]))
+    c = MCPClient(_stdio_source(source_id="cnt"), timeout_seconds=quick_window)
+    await c.connect()
+    assert c.negotiation_fallback == "no_answer"
+    assert _era.era_for("cnt") is None  # the first one is not remembered
+    await c.disconnect()
+    assert s.send_discover.await_count > 1
+
+    c2 = MCPClient(_stdio_source(source_id="cnt"), timeout_seconds=quick_window)
+    await c2.connect()
+    assert c2.negotiation_fallback == "no_answer"
+    assert _era.era_for("cnt") == HS  # the second in a row
+    await c2.disconnect()
+
+
+async def test_client_modern_connect_between_resets_the_count(patch, quick_window) -> None:
+    patch(_scripted_probe_session([TIMEOUT]))
+    c = MCPClient(_stdio_source(source_id="rst"), timeout_seconds=quick_window)
+    await c.connect()
+    await c.disconnect()
+    assert _era.era_for("rst") is None
+
+    patch(_modern_session())
+    c = MCPClient(_stdio_source(source_id="rst"), timeout_seconds=quick_window)
+    await c.connect()
+    assert c.negotiation_fallback is None
+    await c.disconnect()
+
+    patch(_scripted_probe_session([TIMEOUT]))
+    c = MCPClient(_stdio_source(source_id="rst"), timeout_seconds=quick_window)
+    await c.connect()
+    assert c.negotiation_fallback == "no_answer"
+    assert _era.era_for("rst") is None  # count is 1 again, not 2
+    await c.disconnect()
+
+
+async def test_client_property_is_reset_by_connect_and_kept_by_a_refused_second_connect(
+    patch, quick_window
+) -> None:
+    patch(_scripted_probe_session([TIMEOUT]))
+    c = MCPClient(_stdio_source(source_id="prp"), timeout_seconds=quick_window)
+    assert c.negotiation_fallback is None
+    await c.connect()
+    assert c.negotiation_fallback == "no_answer"
+    with pytest.raises(MCPConnectionError):
+        await c.connect()
+    assert c.negotiation_fallback == "no_answer"
+    await c.disconnect()
+
+
+async def test_record_era_false_leaves_the_count_untouched(patch, quick_window) -> None:
+    patch(_scripted_probe_session([TIMEOUT]))
+    c = MCPClient(_stdio_source(source_id="nr"), timeout_seconds=quick_window, record_era=False)
+    await c.connect()
+    assert c.negotiation_fallback == "no_answer"
+    assert _era._NO_ANSWER_COUNT == {}
+    await c.disconnect()

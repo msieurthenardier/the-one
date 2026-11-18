@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+from pathlib import Path
 
 import httpx
 import pytest
@@ -29,6 +31,7 @@ from browser._mcp_editor import (
     _seed_oauth_source,
     _seed_state,
     _seed_stdio,
+    _seed_stdio_cached,
     _stub_signin_routes,
     _wait_held,
     _yield_macrotasks,
@@ -785,8 +788,10 @@ def test_connection_error_headline_follows_the_transport(
 
 @pytest.mark.browser
 def test_reset_and_forget_predicates(app_clean: str, page: Page) -> None:
-    """A7: Reset only when signed in; Forget for a cached HTTP server without a sign-in;
-    neither for stdio; a cached non-OAuth server shows Forget and not Reset."""
+    """A7: Reset only when signed in; Forget for a cached HTTP server without a sign-in and
+    for a local-command server with a stored tools list (sortie 19); neither for a
+    local-command server with no cache or only a last_check; a cached non-OAuth server
+    shows Forget and not Reset."""
     cases = {
         "oauth": _seed_state(app_clean, "p-oauth", secrets=_OAUTH_SECRETS, cache=_cache()),
         "cached": _seed_state(app_clean, "p-cached", cache=_cache()),
@@ -795,6 +800,10 @@ def test_reset_and_forget_predicates(app_clean: str, page: Page) -> None:
         ),
         "bare": _seed_state(app_clean, "p-bare"),
         "stdio": _seed_stdio(app_clean, "p-stdio"),
+        "stdio-cached": _seed_stdio_cached(app_clean, "p-stdio-cached", _cache()),
+        "stdio-last-check": _seed_stdio_cached(
+            app_clean, "p-stdio-check", {"last_check": {"ok": True, "at": 1.0}}
+        ),
     }
     want = {
         "oauth": (1, 0),
@@ -802,6 +811,8 @@ def test_reset_and_forget_predicates(app_clean: str, page: Page) -> None:
         "posture": (0, 1),
         "bare": (0, 0),
         "stdio": (0, 0),
+        "stdio-cached": (0, 1),
+        "stdio-last-check": (0, 0),
     }
     for key, sid in cases.items():
         _nav.goto_settled(page, app_clean, "library")
@@ -857,6 +868,81 @@ def test_forget_tools_list_patches_in_place(app_clean: str, page: Page) -> None:
     expect(page.locator('[data-field="url"]')).to_have_value("https://example.com/unsaved")
     stored = _get_source(app_clean, sid)
     assert "_cache" not in stored["config"]
+
+
+@pytest.mark.browser
+def test_forget_tools_list_on_a_local_command_server(app_clean: str, page: Page) -> None:
+    """Sortie 19: a local-command server with a stored tools list shows Forget beside the
+    status line; it arms, deletes, and patches in place, keeping an unsaved edit."""
+    sid = _seed_stdio_cached(app_clean, "forget-stdio", _cache())
+    stored = _get_source(app_clean, sid)
+    assert "_cache" in stored["config"]  # the POST keeps a seeded cache for a stdio source
+    _open(page, app_clean, sid)
+    forget = page.locator('[data-testid="forget-mcp-connection-btn"]')
+    expect(forget).to_have_text("Forget tools list")
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]:not([hidden])')).to_have_count(0)
+    assert page.evaluate(
+        "() => document.querySelector('[data-testid=\"forget-mcp-connection-btn\"]')"
+        ".parentElement.contains(document.querySelector('[data-mcp-state]'))"
+    )
+    page.locator('[data-field="name"]').fill("renamed-unsaved")
+    page.evaluate("() => { document.querySelector('.editor-title').__marker = 1; }")
+    forget.click()
+    expect(forget).to_have_text("Forget tools list?")
+    forget.click()
+    expect(forget).to_be_hidden(timeout=8000)
+    expect(page.locator(_STATUS)).to_contain_text("Not connected")
+    assert page.evaluate("() => document.querySelector('.editor-title').__marker") == 1
+    expect(page.locator('[data-testid="mcp-server-info-section"]')).to_be_hidden()
+    expect(page.locator('[data-testid="mcp-tools-section"]')).to_contain_text(
+        "Press Test to load this server's tools."
+    )
+    expect(page.locator("body")).to_contain_text("Tools list forgotten")
+    expect(page.locator('[data-field="name"]')).to_have_value("renamed-unsaved")
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("Unsaved changes")
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_focused()
+    assert "_cache" not in _get_source(app_clean, sid)["config"]
+
+
+@pytest.mark.browser
+def test_forget_then_test_on_a_local_command_server_is_at_rest(app_clean: str, page: Page) -> None:
+    """Sortie 19 (squawk 0371's lesson): after Forget and a REAL Test of a real local-command
+    server (the hello fixture over stdio), the button returns, labelled and not armed."""
+    root = Path(__file__).resolve().parents[2]
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "real-stdio",
+            "type": "stdio",
+            "config": {
+                "command": sys.executable,
+                "args": ["-m", "tests.fixtures.mcp.hello_server", "--stdio"],
+                "cwd": str(root),
+                "env": {"PYTHONPATH": str(root)},
+            },
+            "secrets": {},
+        },
+    )
+    _open(page, app_clean, sid)
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    test_btn = page.locator('[data-testid="mcp-test-connection"]')
+    forget = page.locator('[data-testid="forget-mcp-connection-btn"]')
+    expect(forget).to_be_hidden()
+    test_btn.click()
+    expect(page.locator(_STATUS)).to_have_attribute("data-mcp-state", "connected", timeout=30000)
+    expect(forget).to_be_visible()
+    forget.click()
+    forget.click()
+    expect(forget).to_be_hidden(timeout=8000)
+    expect(page.locator(_STATUS)).to_have_attribute("data-mcp-state", "none")
+    test_btn.click()
+    expect(page.locator(_STATUS)).to_have_attribute("data-mcp-state", "connected", timeout=30000)
+    expect(forget).to_be_visible(timeout=8000)
+    expect(forget).to_have_text("Forget tools list")
+    assert "confirm-delete" not in (forget.get_attribute("class") or "")
+    forget.click()
+    expect(forget).to_have_text("Forget tools list?")
+    assert len(_get_source(app_clean, sid)["config"].get("_cache", {}).get("tools", [])) > 0
 
 
 @pytest.mark.browser

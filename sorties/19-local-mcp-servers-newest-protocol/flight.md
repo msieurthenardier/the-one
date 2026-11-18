@@ -1,6 +1,6 @@
 # Sortie: Local-command MCP servers: newest protocol and Forget
 
-**Status**: ready
+**Status**: in-flight
 
 ## Charter
 
@@ -172,9 +172,9 @@ Verified against the working tree at `c317c878`.
 4. **HAT** on a scratch instance (never port 8484 or the default data directory), started only after the closing gate has finished: a real slow-starting local server, the Forget button on it, the note on a server that starts later than the window, and one HTTP server unchanged.
 
 ### Checkpoints
-- [ ] Unit tier green with the negotiation and client tests (`THE_ONE_TEST_NETNS=1 make test-unit`), the SDK parity test included
-- [ ] `mcp-connection` lane green with the button and note tests; `mcp`, `library`, `agents` and `agent-tabs` lanes green (other readers of the MCP source cache: `test_mcp_test_connection_button.py` runs a real local-command Test, `test_studio_mcps_tab.py` reads the cache)
-- [ ] Full local gate on the final tree, on a host with no other test run, finished before the HAT instance starts; a HAT fix re-runs the lanes above and the unit tier, and a fix wider than the editor re-runs the full gate (sortie 18 debrief, recommendation 4)
+- [x] Unit tier green with the negotiation and client tests (`THE_ONE_TEST_NETNS=1 make test-unit`), the SDK parity test included
+- [x] `mcp-connection` lane green with the button and note tests; `mcp`, `library`, `agents` and `agent-tabs` lanes green (other readers of the MCP source cache: `test_mcp_test_connection_button.py` runs a real local-command Test, `test_studio_mcps_tab.py` reads the cache)
+- [x] Full local gate on the final tree, on a host with no other test run, finished before the HAT instance starts; a HAT fix re-runs the lanes above and the unit tier, and a fix wider than the editor re-runs the full gate (sortie 18 debrief, recommendation 4)
 - [ ] HAT walked with the operator
 
 ### Adaptation Criteria
@@ -199,8 +199,8 @@ Verified against the working tree at `c317c878`.
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `patient-discover` - the patient probe for local-command servers, the fallback fact on the client and in the stored cache, fixture option, unit and integration tests, docs
-- [ ] `editor-forget-and-note` - "Forget tools list" on local-command servers, the fallback note in the Server section, flow tests, docs
+- [x] `patient-discover` - the patient probe for local-command servers, the fallback fact on the client and in the stored cache, fixture option, unit and integration tests, docs
+- [x] `editor-forget-and-note` - "Forget tools list" on local-command servers, the fallback note in the Server section, flow tests, docs
 - [ ] `hat-and-alignment` *(optional)* - Guided HAT session with iterative fixes
 
 ---

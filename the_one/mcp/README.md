@@ -272,6 +272,18 @@ id: its 404s read "Not Found" and never self-heal. The modern `serverInfo` carri
 `version: ''`. The 1 MiB SSE cap applies only to SSE responses (the handshake era in
 practice).
 
+**Local-command servers are asked patiently (sortie 19).** A stdio server is spawned by the
+connect, so a `server/discover` with no answer usually means "still starting". For a
+`stdio` source whose connect limit is above `HANDSHAKE_RESERVE_SECONDS` (10 s), `negotiate`
+re-sends the probe at the same version until the connect limit less that reserve (20 s of the
+default 30 s), then takes the handshake path as before; an instant -32001 (under
+`PROBE_NO_ANSWER_FLOOR_SECONDS`, 1 s) is an ordinary error, not "no answer". A connect that
+ends on the handshake because the probe got no answer is exposed as
+`MCPClient.negotiation_fallback == "no_answer"`, stored by Test as `_cache.protocol_fallback`
+(deleted by every other writer), and remembered in the era map only the second time in a row
+(`_era.record_result`; `forget_era` clears the count). HTTP servers are unchanged. See
+`the_one/agents.md` "MCP F2 Client Foundation".
+
 The Test route's auth-posture probe (`_probe_auth_posture`, an `httpx2` POST) has four
 verdicts: `no_auth` (200), `oauth` (401), `unexpected_status` (any other HTTP status) and
 `error` (transport failure or timeout; fails fast). On `unexpected_status` the route runs the

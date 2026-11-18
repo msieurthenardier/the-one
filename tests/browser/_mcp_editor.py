@@ -149,6 +149,19 @@ def _seed_stdio(base_url: str, name: str) -> str:
     )
 
 
+def _seed_stdio_cached(base_url: str, name: str, cache: dict, **config) -> str:  # noqa: ANN003
+    """A local-command source whose stored record carries `cache` (sortie 19)."""
+    return _seed_mcp_source(
+        base_url,
+        {
+            "name": name,
+            "type": "stdio",
+            "config": {"command": "echo", "env": {}, **config, "_cache": cache},
+            "secrets": {},
+        },
+    )
+
+
 def _hold_requests(page: Page, pattern, method: str) -> list:
     """Hold every request matching *pattern* + *method*; others continue."""
     held: list = []

@@ -27,6 +27,10 @@
 // than stdio and streamable-http; it is read-only here (the focus targets) and every use
 // tolerates null.
 //
+// Reset is for a signed-in HTTP server only. Forget tools list is shown for a cached HTTP
+// server without a sign-in and, since sortie 19, for a local-command server (type stdio)
+// whose cache holds a tools list.
+//
 // Reset and Forget are built once, on first need, and then only toggle `hidden`: a
 // refetch never rebuilds a button, armed or not (squawk 0088's invariant). Both are
 // disabled while a consent session runs (the session's mount hook). The sign-in popup is
@@ -152,6 +156,10 @@
       var reset = hasOAuthState(source);
       var forget = !!(source && source.type === 'streamable-http' && source.oauth_active !== true &&
         cache && (cache.auth_posture || cache.tools));
+      // A local-command server has no sign-in, but a stored tools list can go stale.
+      if (!forget && source && source.type === 'stdio' && cache && Array.isArray(cache.tools)) {
+        forget = true;
+      }
       resetBtn = syncButton(resetBtn, reset, function () {
         return confirmButton(App.ui.button({ testid: 'reset-mcp-connection-btn' }),
           'Reset connection', 'Reset connection?', function (b, revert) {

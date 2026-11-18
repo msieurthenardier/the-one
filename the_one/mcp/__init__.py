@@ -38,6 +38,16 @@ latter binds at module-load and breaks `monkeypatch.setattr` in tests.
 MCP_DEFAULT_TIMEOUT_SECONDS = 30
 """Default timeout for handshake (initialize) and list_tools — should be fast."""
 
+HANDSHAKE_RESERVE_SECONDS = 10
+"""Time a local-command connect keeps back for the older handshake (sortie 19, DD2):
+the patient ``server/discover`` window is the connect limit less this. A limit at or
+below it gives no patience. Read at connect time through the module (patchable)."""
+
+PROBE_NO_ANSWER_FLOOR_SECONDS = 1.0
+"""A ``REQUEST_TIMEOUT`` from a discover probe counts as "no answer" only after the
+probe was outstanding this long (sortie 19, DD1); sooner, the server answered the
+code itself. Read at call time inside ``_negotiate`` (patchable)."""
+
 MCP_DEFAULT_CALL_TIMEOUT_SECONDS = 60
 """Default timeout for call_tool — legitimate tools may run longer (e.g. static analyzer)."""
 

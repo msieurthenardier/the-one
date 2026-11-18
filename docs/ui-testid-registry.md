@@ -365,7 +365,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-connection-led` | studio | The status line's LED, decorative (`aria-hidden`); the line's words carry the state (M31 F5 L08b) |
 | `mcp-connection-status` | studio | The Connection section's status line (`App.ui.status`; `data-state` is the LED state, `data-mcp-state` is `App.usage.mcpState`'s state), with the words from `App.usage.mcpStateLabel`: "Connected · checked 3:42 PM", "Not connected", "Couldn't connect" (plus " · last connected …"), "Sign-in needed" (M31 F5 L08b, A6, A9) |
 | `mcp-consent-btn` | studio | The "Sign in" button in the Test result area (the auto-run after create, and the retry after a failed sign-in) |
-| `forget-mcp-connection-btn` | studio | "Forget tools list" (armed "Forget tools list?"), beside the status line, for a cached streamable-HTTP server without a sign-in; disabled during a consent session (M31 F5 L08b, A7, DD6) |
+| `forget-mcp-connection-btn` | studio | "Forget tools list" (armed "Forget tools list?"), beside the status line, for a cached streamable-HTTP server without a sign-in, and (sortie 19) for a local-command server with a stored tools list; disabled during a consent session (M31 F5 L08b, A7, DD6) |
 | `mcp-error-raw` | studio | |
 | `mcp-empty-state` | studio | |
 | `mcp-env-headers-section` | studio | The "Environment variables" / "Headers" `App.ui.section`; hidden while a create form has no type (M31 F5 L06, L07) |
@@ -381,6 +381,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-server-meta` | studio | The Metadata plain disclosure (hidden without `_meta`) (M31 F5 L09) |
 | `mcp-server-meta-content` | studio | The Metadata JSON `App.ui.codeBlock` (M31 F5 L09) |
 | `mcp-server-offers` | studio | The "Offers" facts row: the announced capabilities capitalised, or "Nothing announced" (M31 F5 L09, A16) |
+| `mcp-server-protocol-fallback` | studio | The Server section's warning `App.ui.banner` (role `note`) after the facts: this connection fell back to an older protocol because the server did not answer in time; shown only with a stored Protocol and `protocol_fallback: "no_answer"` (sortie 19) |
 | `mcp-server-protocol` | studio | The "Protocol" facts row (monospace), kept per B10 (M31 F5 L09) |
 | `mcp-server-subtitle` | studio | The server's name under its title, only when it differs (M31 F5 L09) |
 | `mcp-server-title` | studio | The server's title (or name) (M31 F5 L09) |
