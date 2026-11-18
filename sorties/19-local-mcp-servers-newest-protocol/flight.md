@@ -1,6 +1,6 @@
 # Sortie: Local-command MCP servers: newest protocol and Forget
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 
@@ -11,10 +11,12 @@ A local-command MCP server that is slow to start still connects on the newest pr
 The operator's `mcp-everything` server (local command, `npx`) shows protocol 2025-11-25 after moving to a release that speaks 2026-07-28, and Test takes more than 10 seconds on it. Squawk 0372 reproduced the cause on a scratch instance: a server that starts 12 s late is connected on the older protocol with no error, and with 16 tools where the same server offers 22. The operator also asked for "Forget tools list" on local-command servers (squawk 0373), which have never had it.
 
 ### Success Criteria
-- [ ] A local-command server that takes 12 seconds to start connects on 2026-07-28 with its full tool list, from Test and from a chat.
-- [ ] An older-protocol server still connects, and a server that starts promptly connects no slower than today.
-- [ ] "Forget tools list" is shown on a local-command server that has a stored tools list; pressing it clears the list, the per-agent tool lists and the remembered protocol, and it returns after the next Test that connects.
-- [ ] When a local-command connection does fall back to the older protocol because the newer-protocol check got no answer in time, the MCP editor's Server section says so in plain words.
+- [x] A local-command server that takes 12 seconds to start connects on 2026-07-28 with its full tool list, from Test and from a chat.
+- [x] An older-protocol server still connects, and a server that starts promptly connects no slower than today.
+- [x] "Forget tools list" is shown on a local-command server that has a stored tools list; pressing it clears the list, the per-agent tool lists and the remembered protocol, and it returns after the next Test that connects.
+- [x] When a local-command connection does fall back to the older protocol because the newer-protocol check got no answer in time, the MCP editor's Server section says so in plain words.
+
+Assessed in the [flight debrief](flight-debrief.md), 2026-11-18: all four met. The first is met for Test by a real run and for a chat by the shared connect code and its tests only; no chat connect to a slow server was run. The second is met by tests.
 
 ### Constraints
 - No use of private SDK modules in `the_one/mcp/` (the existing rule of `_negotiate.py`), and the `mcp==2.3.0` pin stays.

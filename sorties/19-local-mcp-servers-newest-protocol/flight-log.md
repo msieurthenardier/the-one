@@ -84,6 +84,13 @@ Run by the Flight Director after the fix pass, with no other test process on the
 - Documents: `CLAUDE.md`, `the_one/agents.md`, `the_one/mcp/README.md` and the testid registry were updated in the legs and read by the Reviewer; nothing further is needed at landing.
 - All three legs `completed`; the flight is `landed`. The charter's success criteria are assessed in the flight debrief, which is recommended on this branch before the merge.
 
+#### 2026-11-18 — PR ready, version bump and debrief
+- A Developer committed the landing artifacts (`a15ca064`); the Flight Director pushed, checked the pushed head and marked PR #379 ready. `[COMPLETE:flight]`.
+- At the operator's request the patch version was bumped on this branch (`6fa5c8b3`: `0.16.5` → `0.16.6`, with `docs/releases/v0.16.6.md`; a Developer made the edit and ran the release and packaging tests, 244 passed). No tag was created.
+- The debrief ran on this branch before the merge. Developer and Architect interviews (both Sonnet, reading only); test metrics reused from the closing gate, which was on the final code with a quiet start; the operator interview was skipped.
+- The debrief's findings that the flight log did not have: editing a local-command server's command is not treated as a change of server, so the fallback note can outlive the server it describes (squawk 0382; the gap is older than this flight); the "twice in a row" count goes up for any client's successful no-answer connect, a Test included, and two clients connecting at once each count; the chat half of the first charter criterion rests on shared code and tests, not on a chat run. One of the debrief Developer's findings was checked against the code and is not so: a failed connect does reset the count (`connect` calls `forget_era`, which clears it); only a cancelled connect leaves it.
+- Squawks 0382 to 0385 logged from the debrief. Charter criteria: all four met. Flight status `landed` → `completed`.
+
 ### patient-discover
 
 **Status**: completed
