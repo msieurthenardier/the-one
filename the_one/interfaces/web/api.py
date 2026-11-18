@@ -109,6 +109,7 @@ from the_one.mcp._era import forget_era
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS, configured_names, missing_values
 from the_one.mcp.override_validation import carries_credentials, validate_mcp_overrides
 from the_one.naming import (
+    GLEEPGLORP_AGENT_NAME,
     NAME_CONFLICT_AGENT,
     SAME_AS_CURRENT,
     NameRuleError,
@@ -208,6 +209,15 @@ def _checked_agent_name(value: object) -> str:
         raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
 
 
+def _reserved_binding_message(value: object) -> str:
+    """The refusal text for a reserved agent name used as a connector binding."""
+    try:
+        check_agent_name(value)
+    except NameRuleError as e:
+        return e.message
+    return "This is a reserved agent name. Choose another agent."
+
+
 def _reject_reserved_binding(config: object) -> None:
     """422 when a connector config binds a reserved agent name (Mission 36 F1 L02)."""
     if not isinstance(config, dict):
@@ -215,21 +225,13 @@ def _reject_reserved_binding(config: object) -> None:
     detail: list[dict] = []
     default_agent = config.get("default_agent")
     if is_reserved_agent_name(default_agent):
-        try:
-            check_agent_name(default_agent)
-            msg = "This is a reserved agent name. Choose another agent."
-        except NameRuleError as e:
-            msg = e.message
+        msg = _reserved_binding_message(default_agent)
         detail.append({"type": "name_rule", "loc": ["config", "default_agent"], "msg": msg})
     channel_map = config.get("channel_map")
     if isinstance(channel_map, dict):
         for key, value in channel_map.items():
             if is_reserved_agent_name(value):
-                try:
-                    check_agent_name(value)
-                    msg = "This is a reserved agent name. Choose another agent."
-                except NameRuleError as e:
-                    msg = e.message
+                msg = _reserved_binding_message(value)
                 detail.append(
                     {"type": "name_rule", "loc": ["config", "channel_map", str(key)], "msg": msg}
                 )
@@ -1417,7 +1419,10 @@ async def get_agent_context_window(name: str) -> dict[str, int]:
     # Must wire the SQLiteAgentStore (matches the live app's startup-time
     # factory construction in ``app.py:_state["factory"]``); the default
     # ``AgentFactory()`` ctor leaves ``store=None`` which 404s every named
-    # agent because the ``_load_config`` fallback only resolves "default".
+    # agent. The reserved name GleepGlorp has no agents row (M36 F1 DD1), so the
+    # factory would build the assistant from its settings: answer 404 here instead.
+    if name == GLEEPGLORP_AGENT_NAME:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     store = await _agent_store()
     factory = AgentFactory(store=store)
     try:
@@ -2191,7 +2196,7 @@ async def _session_notes_map(name: str, session_id: str | None) -> dict[int, str
     text: str | None = None
     live = _sessions.get(session_id)
     if live is not None and getattr(live, "agent", None) is not None:
-        if (live.agent_name or "default") != name:
+        if live.agent_name != name:
             return None
         msgs = getattr(live.agent, "messages", None)
         if msgs and isinstance(msgs[0].content, str):
@@ -2201,7 +2206,7 @@ async def _session_notes_map(name: str, session_id: str | None) -> dict[int, str
             row = await (await _chat_repo()).get(session_id)
         except KeyError:
             return None
-        if (row.agent_name or "default") != name:
+        if row.agent_name != name:
             return None
         msgs = decode_messages(row.messages)
         if not msgs or not isinstance(msgs[0].content, str):
@@ -3189,6 +3194,121 @@ async def update_time_settings(request: Request) -> dict[str, Any]:
     await time_zones.save_setting(conn, setting)
     _poke_scheduler()
     return await _time_settings_response(setting)
+
+
+# ── GleepGlorp settings (M36 F1 L03) ──────────────────────────────────────
+
+
+def _gleepglorp_422(loc: list[Any], msg: str) -> HTTPException:
+    return HTTPException(status_code=422, detail=[{"type": "value_error", "loc": loc, "msg": msg}])
+
+
+@router.get("/gleepglorp")
+async def get_gleepglorp() -> dict[str, Any]:
+    from the_one import gleepglorp
+
+    return await gleepglorp.response(await get_connection())
+
+
+@router.put("/gleepglorp")
+async def update_gleepglorp(request: Request) -> dict[str, Any]:
+    """Replace GleepGlorp's settings (the whole object); every refusal is a 422 list."""
+    from the_one import gleepglorp
+    from the_one.gleepglorp.settings import GleepGlorpSettings, provider_exists
+
+    try:
+        data = await request.json()
+    except Exception:  # noqa: BLE001 - malformed JSON is a client error, not a 500
+        raise _gleepglorp_422([], "Body must be a JSON object.")
+    if not isinstance(data, dict):
+        raise _gleepglorp_422([], "Body must be a JSON object.")
+    allowed = set(GleepGlorpSettings.model_fields)
+    for key in data:
+        if key not in allowed:
+            raise _gleepglorp_422([str(key)[:64]], "This setting does not exist.")
+    try:
+        parsed = GleepGlorpSettings.model_validate(data)
+    except ValidationError as e:
+        detail = []
+        for err in e.errors():
+            loc = [str(p) for p in err["loc"]]
+            if err["type"] in ("greater_than_equal", "less_than_equal"):
+                msg = "Keep chats for 1 to 365 days."
+            elif err["type"].endswith("_type"):
+                msg = "This value has the wrong type."
+            else:
+                msg = "This value is not valid."
+            detail.append({"type": "value_error", "loc": loc, "msg": msg})
+        raise HTTPException(status_code=422, detail=detail)
+    conn = await get_connection()
+    if parsed.provider_config_id is not None and not await provider_exists(
+        conn, parsed.provider_config_id
+    ):
+        raise _gleepglorp_422(["provider_config_id"], "This model provider doesn't exist.")
+    if parsed.model and parsed.provider_config_id is None:
+        raise _gleepglorp_422(["model"], "Choose a model provider first.")
+    await gleepglorp.save_settings(conn, parsed)
+    body = await gleepglorp.response(conn, parsed)
+    # M36 F1 L04: every open page follows the change (no coalescing; a refused PUT, which
+    # raised above, sends nothing). A broadcast failure never fails the save.
+    from the_one.sessions import broadcast_to_all
+
+    try:
+        await broadcast_to_all(
+            {"type": "gleepglorp_changed", "state": body["state"], "settings": body}
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("gleepglorp_changed broadcast failed", exc_info=True)
+    return body
+
+
+async def _gleepglorp_notes_changed() -> None:
+    """Tell every open page GleepGlorp's notes changed (a failure never fails the write)."""
+    from the_one.sessions import broadcast_to_all
+
+    try:
+        await broadcast_to_all({"type": "gleepglorp_changed", "notes": True})
+    except Exception:  # noqa: BLE001
+        logger.warning("gleepglorp_changed broadcast failed", exc_info=True)
+
+
+@router.get("/gleepglorp/notes")
+async def list_gleepglorp_notes() -> dict[str, Any]:
+    """GleepGlorp's saved notes, in the agent notes route's shape (no agent name or pending)."""
+    from the_one.gleepglorp import load_settings
+    from the_one.gleepglorp.notes import GleepGlorpNoteRepository
+
+    conn = await get_connection()
+    notes = await GleepGlorpNoteRepository(conn).list_for_agent()
+    return {
+        "enabled": (await load_settings(conn)).memory,
+        "notes": [n.model_dump(exclude={"agent_name"}) for n in notes],
+        "limits": _notes_limits(),
+        "usage": {"total_chars": sum(len(n.text) for n in notes)},
+    }
+
+
+@router.delete("/gleepglorp/notes/{note_id}")
+async def delete_gleepglorp_note(note_id: str) -> dict[str, str]:
+    from the_one.gleepglorp.notes import GleepGlorpNoteRepository
+    from the_one.naming import GLEEPGLORP_AGENT_NAME
+
+    repo = GleepGlorpNoteRepository(await get_connection())
+    try:
+        await repo.delete(GLEEPGLORP_AGENT_NAME, note_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Note not found: {note_id}")
+    await _gleepglorp_notes_changed()
+    return {"status": "ok"}
+
+
+@router.delete("/gleepglorp/notes")
+async def clear_gleepglorp_notes() -> dict[str, int]:
+    from the_one.gleepglorp.notes import GleepGlorpNoteRepository
+
+    deleted = await GleepGlorpNoteRepository(await get_connection()).clear()
+    await _gleepglorp_notes_changed()
+    return {"deleted": deleted}
 
 
 @router.get("/time-zones")
@@ -6427,7 +6547,16 @@ async def list_provider_agents(provider_id: str) -> dict[str, list[str]]:
         raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
     store = await _agent_store()
     names = await store.list_by_provider(provider_id)
+    if await _gleepglorp_uses_provider(provider_id):
+        names = [GLEEPGLORP_AGENT_NAME, *names]
     return {"agents": names}
+
+
+async def _gleepglorp_uses_provider(provider_id: str) -> bool:
+    from the_one.gleepglorp import load_settings
+
+    s = await load_settings(await get_connection())
+    return s.provider_config_id == provider_id
 
 
 @router.delete("/providers/{provider_id}")
@@ -6441,6 +6570,8 @@ async def delete_provider(provider_id: str) -> dict[str, str]:
     # Block deletion if agents reference this provider
     store = await _agent_store()
     agent_names = await store.list_by_provider(provider_id)
+    if await _gleepglorp_uses_provider(provider_id):
+        agent_names = [GLEEPGLORP_AGENT_NAME, *agent_names]
     if agent_names:
         raise HTTPException(
             status_code=409,
@@ -7069,7 +7200,7 @@ async def encryption_status() -> dict[str, Any]:
     ``last_rotated_at`` is the UTC ISO time the rotate route last committed a
     rotation on this install (``None`` before the first). ``credential_count``
     is the number of items holding at least one non-empty secret across the
-    eight encrypted corpora: one per provider, MCP source, connector, agent,
+    nine encrypted (table, column) pairs: one per provider, MCP source, connector, agent,
     tool config, external credential and Library secret (a provider with an API key and a
     secrets blob counts once). It is computed by decrypting in-process
     (``the_one.db.encryption_corpora``); nothing decrypted leaves it.
@@ -7156,7 +7287,7 @@ async def rotate_encryption_key() -> dict[str, str]:
     #    prevents that for the write below by holding the write lock across
     #    it (Squawk 0051; see Flight 2 DD-13 and the corrected comment at
     #    schema.py's v8 migration block for the measured rule).
-    #    The eight corpora are gathered by the helper the status route shares
+    #    The nine encrypted columns are gathered by the helper the status route shares
     #    (``the_one.db.encryption_corpora``), so the two cannot drift. Strict
     #    mode keeps this route's decrypt policy: the provider ``api_key`` and the
     #    external-credential ``secret`` decrypt strictly (an ``InvalidToken``

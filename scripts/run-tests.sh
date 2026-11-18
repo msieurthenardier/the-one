@@ -196,7 +196,8 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
                       'test_flow_chat_time_zone.py' 'test_flow_chat_routine_marker.py' 'test_flow_markdown_chat.py' \
                       'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
                       'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py' \
-                      'test_flow_chat_drafts.py' 'test_flow_chat_charts.py' 'test_flow_chat_turn_work.py' 'test_flow_chat_turn_work_states.py')
+                      'test_flow_chat_drafts.py' 'test_flow_chat_charts.py' 'test_flow_chat_turn_work.py' 'test_flow_chat_turn_work_states.py' \
+                      'test_flow_chat_gleepglorp.py')
 # Chats-widgets (M35 F2 L6): the widgets-in-chat flow tests, an explicit list kept out of `chats`
 # and `chats-transcript` (which sat at 430 s of 540 s at Flight 1). `chats` is `chats_pat` MINUS
 # this list and the transcript list.

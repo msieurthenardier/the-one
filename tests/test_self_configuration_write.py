@@ -38,11 +38,21 @@ from the_one.db.repositories import (
 )
 from the_one.encryption import Encryptor
 from the_one.interfaces.web import app as web_app
-from the_one.interfaces.web.app import Session, _process_and_broadcast, _resume_paused_session
+from the_one.interfaces.web.app import Session as _Session
+from the_one.interfaces.web.app import _process_and_broadcast, _resume_paused_session
 from the_one.llm.base import LLMProvider, Message, StreamChunk, ToolCall, ToolResult
 from the_one.mcp._tool import _TOOL_NAME_MAX_LEN, _normalize_source_name
 from the_one.self_configuration import manage, pending, surface
 from the_one.tools.base import Tool, ToolRegistry
+
+
+def Session(**kwargs):  # noqa: N802 - stands in for the class
+    """A chat always names its agent (M36 F1 L03, no Default agent). These tests record the
+    pending revision and store the agent under the arbitrary name ``default`` (they never go
+    through the naming rule), so a session built here carries that name."""
+    kwargs.setdefault("agent_name", "default")
+    return _Session(**kwargs)
+
 
 # A stub agent has no knowledge-base or execution tools in its registry.
 PLATFORM_STUB = render_platform(Capabilities(knowledge=False, exec_tools=False))
@@ -618,19 +628,21 @@ class TestAC4HookRunsAtNonPausedSettleOnly:
         assert agent.system_prompt == _NEW
         assert agent.messages[0].content == _NEW
 
-    async def test_default_agent_none_normalizes_like_a_named_agent(self, isolated_db) -> None:
-        """Session.agent_name is None for the default agent; the settle
-        sites must normalize via `or "default"` — a skip-on-None guard
-        would silently degrade next_turn to next_session for single-agent
-        installs (LD1)."""
+    async def test_a_session_with_no_agent_name_skips_the_hook(self, isolated_db) -> None:
+        """M36 F1 L03: a chat always names its agent; a missing name (impossible after
+        schema v53) skips the hook instead of falling back to a Default agent, so a pending
+        entry stays where it was."""
         agent = _StubAgent(step_messages=[Message.assistant("done")], system_prompt="OLD")
-        session = Session(id="cs-6", agent=agent, created="2026-08-24T00:00:00+00:00")
-        assert session.agent_name is None
+        session = Session(
+            id="cs-6", agent=agent, created="2026-08-24T00:00:00+00:00", agent_name=None
+        )
         pending.record("default", system_prompt="NEW")
 
         await _process_and_broadcast(session, "hi")
 
-        assert agent.system_prompt == _NEW
+        assert agent.system_prompt == "OLD"
+        assert "default" in pending._pending
+        pending._pending.pop("default", None)
 
 
 class TestRulesAtSettle:

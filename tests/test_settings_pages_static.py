@@ -40,8 +40,9 @@ def _code(path: Path) -> str:
     return "\n".join(out)
 
 
-def test_the_table_is_the_six_settings_pages_in_nav_order() -> None:
+def test_the_table_is_the_seven_settings_pages_in_nav_order() -> None:
     assert table() == [
+        ("gleepglorp", "GleepGlorp", "Assistant"),
         ("appearance", "Appearance", "General"),
         ("date-and-time", "Date and time", "General"),
         ("prompts", "Prompts", "General"),

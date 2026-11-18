@@ -115,7 +115,7 @@
       id: row.id,
       label: title,
       time: timeOf(d, bucket),
-      meta: row.agent_name || 'Default agent',
+      meta: row.agent_name || 'Unknown agent',
       href: App.router.href({ destination: 'chats', id: row.id }),
       dataset: { id: row.id },
       testid: 'chat-row',

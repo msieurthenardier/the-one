@@ -381,13 +381,9 @@
       dropContinue();
       var n = Number(steps);
       var used = n >= 1 ? 'used its ' + n + ' steps' : 'reached its step limit';
-      var rows = App.store.peek('agents').value;
-      var hasRecord = false;
-      if (agentName && Array.isArray(rows)) {
-        for (var i = 0; i < rows.length; i++) {
-          if (rows[i] && rows[i].name === agentName) { hasRecord = true; break; }
-        }
-      }
+      // M36 F1 L04: through App.chat.agentKind; GleepGlorp's link goes to its settings page.
+      var kindInfo = agentName ? App.chat.agentKind(agentName) : { kind: 'unknown' };
+      var hasRecord = kindInfo.kind === 'agent' || kindInfo.kind === 'gleepglorp';
       var sid = ctx.chatState.activeId();
       var canContinue = !state.bannerActive && !ctx.composer.input.disabled && !!sid &&
         ctx.holdQueue.count(sid) === 0;
@@ -396,7 +392,7 @@
         (canContinue ? 'Click Continue or raise ' : 'Send another message to continue, or raise ')));
       if (hasRecord) {
         var link = document.createElement('a');
-        link.href = App.router.href({ destination: 'agents', id: agentName });
+        link.href = kindInfo.settingsHref;
         link.textContent = 'max iterations';
         link.setAttribute('data-testid', 'chat-step-limit-link');
         body.appendChild(link);

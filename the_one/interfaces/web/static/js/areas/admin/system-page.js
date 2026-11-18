@@ -170,6 +170,8 @@
 
   function renderPromptsPage(container) {
     var App = window.App;
+    var gleepglorp = promptBlock('GleepGlorp prompt');
+    gleepglorp.el.setAttribute('data-testid', 'gleepglorp-prompt-content');
     var platform = el('div', { className: 'platform-sections' }, [
       el('p', { className: 'admin-system-text', text: 'Loading…' })
     ]);
@@ -189,12 +191,16 @@
     var loadError = el('div', {});
     loadError.setAttribute('data-testid', 'prompts-load-error');
     renderPage(container, 'Prompts', null, [
-      text('Every agent’s system prompt is assembled from these layers, in this order, ' +
+      text('GleepGlorp has its own prompt, shown first. Every other agent’s system prompt is ' +
+        'assembled from the layers after it, in this order, ' +
         'separated by ---: the platform prompt, the agent’s own system prompt (set on its General tab), ' +
         'then rules, notes and the date. Parts of the platform prompt apply only when the agent ' +
         'can use them (each block says when). They are read-only and only change via code releases. ' +
         'The Rules and Notes layers below show placeholder content.'),
       loadError,
+      promptLayer('GleepGlorp', 'Applies when: a chat with GleepGlorp. It replaces the ' +
+        'platform prompt; GleepGlorp gets no rules, persona or secrets. Its notes (when ' +
+        'memory is on) and the date line follow it.', [gleepglorp.el]).el,
       promptLayer('Platform prompt', null, [platform]).el,
       promptLayer('Rules', 'Added when the agent has enabled rules, numbered in your order.',
         [rules.el]).el,
@@ -219,7 +225,7 @@
     function fill(block, value) {
       block.set(typeof value === 'string' ? value : '(unavailable)');
     }
-    var blocks = [rules, notes, notesFree, secretsBlock, dateWith, dateWithout];
+    var blocks = [gleepglorp, rules, notes, notesFree, secretsBlock, dateWith, dateWithout];
     App.api.fetchJson('/api/info').then(function (data) {
       if (!platform.isConnected) { return; }
       if (Array.isArray(data.platform_sections)) {
@@ -229,6 +235,7 @@
         platform.appendChild(App.ui.status({ state: 'danger', role: 'alert',
           text: 'The platform prompt is not available.' }).el);
       }
+      fill(gleepglorp, data.gleepglorp_prompt);
       fill(rules, data.rules_prompt_example);
       fill(notes, data.notes_prompt_example);
       fill(notesFree, data.notes_prompt_example_tool_free);

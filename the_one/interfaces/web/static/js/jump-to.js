@@ -28,7 +28,8 @@
 //
 // Candidates, in this order (DD10, A17): agents A-Z; chats newest first
 // (`sessions` by updated_at, stable; an empty title reads "Untitled chat"; the
-// agent is the stored agent_name, "Default agent" for none); the New chat…
+// agent is the stored agent_name, "Unknown agent" for none; GleepGlorp, "Built in", comes
+// first among the agents while it is enabled, M36 L04); the New chat…
 // action; model providers, knowledge bases, MCP servers, connectors and secrets (each A-Z); the Settings
 // pages in nav order (App.settingsPages).
 // Rows (testid `jump-to-result`, data-kind / data-id) show the label and the
@@ -124,6 +125,11 @@
   function candidates() {
     var out = [];
     var i;
+    // M36 F1 L04: GleepGlorp, first among the agents, while it is enabled.
+    var gg = App.gleepglorp && App.gleepglorp.peek().value;
+    if (gg && gg.enabled) {
+      out.push({ kind: 'gleepglorp', key: 'GleepGlorp', label: 'GleepGlorp', where: 'Built in' });
+    }
     var agents = sortedByName(rows('agents'));
     for (i = 0; i < agents.length; i++) {
       out.push({ kind: 'agent', key: String(agents[i].name), label: String(agents[i].name), where: 'Agent' });
@@ -135,7 +141,7 @@
         kind: 'chat',
         key: String(s.id),
         label: s.title ? String(s.title) : 'Untitled chat',
-        where: 'Chat · ' + (s.agent_name ? String(s.agent_name) : 'Default agent')
+        where: 'Chat · ' + (s.agent_name ? String(s.agent_name) : 'Unknown agent')
       });
     }
     out.push({ kind: 'action', key: 'new-chat', label: 'New chat…', where: 'Action' });
@@ -171,7 +177,7 @@
       var live = [];
       var list = rows('agents');
       for (var i = 0; i < list.length; i++) {
-        if (isNamed(list[i]) && list[i].name !== 'default') live.push(list[i]);
+        if (isNamed(list[i])) live.push(list[i]);
       }
       var recent = arr(picker.recentAgents(live, rows('sessions')));
       for (var k = 0; k < recent.length && out.length < RECENT_AGENTS; k++) {
@@ -271,6 +277,9 @@
           App.studio.clearAgentFilter();
         }
       });
+    } else if (c.kind === 'gleepglorp') {
+      // The pending GleepGlorp chat, through the router (a dirty editor asks once).
+      R.go(R.href({ destination: 'chats', create: true, agent: c.key }), goOpts);
     } else if (c.kind === 'chat') {
       R.go(R.href({ destination: 'chats', id: c.key }), goOpts);
     } else if (c.kind === 'action') {
@@ -316,6 +325,10 @@
       }
       p.then(function () { refresh(entry); }, function () { /* left out silently */ });
     });
+    // GleepGlorp's settings (its candidate shows while it is enabled).
+    if (App.gleepglorp) {
+      App.gleepglorp.get().then(function () { refresh(entry); }, function () { /* left out */ });
+    }
   }
 
   function open(opener) {

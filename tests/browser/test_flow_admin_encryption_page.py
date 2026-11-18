@@ -280,6 +280,7 @@ def test_prompt_headings_layers_are_h2_and_platform_blocks_h3(app_clean: str, pa
     panel = page.locator(".content-panel.active")
     layers = panel.locator("h2.section-title")
     assert [t.lower() for t in layers.all_inner_texts()] == [
+        "gleepglorp",
         "platform prompt",
         "rules",
         "notes",
@@ -299,8 +300,8 @@ def test_prompt_variants_are_subheadings_not_eyebrows(app_clean: str, page: Page
     _open_prompts(page, app_clean)
     assert page.locator(".platform-sections .prompt-variant").count() == 0
     assert page.locator(".content-panel.active .prompt-variant").count() == 4
-    # The eyebrow family is only the five layer titles.
-    assert page.locator(".content-panel.active .section-title").count() == 5
+    # The eyebrow family is only the six layer titles.
+    assert page.locator(".content-panel.active .section-title").count() == 6
 
 
 @pytest.mark.browser

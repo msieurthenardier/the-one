@@ -342,7 +342,7 @@ def test_badge_kinds_text_and_throws(engine_page: Page) -> None:
     )
     assert out == {
         "cls": "badge badge--ollama", "tag": "SPAN", "text": "<i>x</i> & y", "italic": False,
-        "title": "T", "tid": "bd-1", "neutral": "badge", "kinds": 11, "all": True,
+        "title": "T", "tid": "bd-1", "neutral": "badge", "kinds": 12, "all": True,
     }  # fmt: skip
     assert "unknown kind" in _throws(engine_page, "App.ui.badge({text: 'x', kind: 'nope'})")
     assert "text is required" in _throws(engine_page, "App.ui.badge({kind: 'ollama'})")

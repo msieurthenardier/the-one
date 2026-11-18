@@ -58,6 +58,15 @@
     build_failed: "This chat's agent could not be set up. Check the agent's settings; the app log has the details."
   };
 
+  // M36 F1 L04: the GleepGlorp statuses carry the same banner sentences as the joined chat's
+  // banner (agent-kind.js owns them; this module loads alone in its unit tests, so it is
+  // read at use time).
+  function reasonFor(status) {
+    var gg = App.chat.GLEEPGLORP_STATUSES && App.chat.GLEEPGLORP_STATUSES[status];
+    if (gg) return App.chat.gleepglorpBanner(gg);
+    return DEGRADED_REASONS[status] || 'This chat cannot start.';
+  }
+
   function isOk(frame) {
     return frame.status == null || frame.status === 'ok';
   }
@@ -218,7 +227,7 @@
             return {
               accept: true, startFailed: true, clientId: sid, payload: copyPayload(payload),
               error: (typeof frame.reason === 'string' && frame.reason) ||
-                DEGRADED_REASONS[frame.status] || 'This chat cannot start.'
+                reasonFor(frame.status)
             };
           }
           enter('joined', { id: sid });

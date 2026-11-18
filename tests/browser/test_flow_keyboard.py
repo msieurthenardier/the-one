@@ -199,6 +199,7 @@ def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> No
 # former section nav's roving-tabindex test is rewritten for the new control:
 # keyboard coverage stays, the behaviour under test changes with it.
 _SETTINGS_NAV_ORDER = (
+    "gleepglorp",
     "appearance",
     "date-and-time",
     "prompts",
@@ -227,7 +228,7 @@ def test_settings_nav_links_are_in_tab_order(app_clean: str, page: Page) -> None
         assert link.get_attribute("tabindex") is None, section
 
     # Focus the first link, then Tab walks the rest in order.
-    _lists.settings_nav_link(page, "appearance").focus()
+    _lists.settings_nav_link(page, _SETTINGS_NAV_ORDER[0]).focus()
     for section in _SETTINGS_NAV_ORDER[1:]:
         page.keyboard.press("Tab")
         link = _lists.settings_nav_link(page, section)

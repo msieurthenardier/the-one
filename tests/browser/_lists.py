@@ -56,7 +56,7 @@ segment links to its root ("Agents" -> ``#agents``, "Knowledge bases" ->
 
 Settings (leg 5a) is a grouped nav of plain links (``App.ui.navGroups``, testid
 ``settings-nav``) beside the page; its items are ``settings-nav-{section}``, one
-per page (``SETTINGS_PAGES``: the four General pages, Built-in tools and
+per page (``SETTINGS_PAGES``: GleepGlorp, the four General pages, Built-in tools and
 Knowledge indexing):
 
 * ``settings_nav(page)`` -- the ``<nav aria-label="Settings">``;
@@ -244,6 +244,7 @@ def close_item(page: Page, timeout: float = 8000) -> None:
 
 # The Settings pages in nav order, by route section, with their page titles.
 SETTINGS_PAGE_TITLES: dict[str, str] = {
+    "gleepglorp": "GleepGlorp",
     "appearance": "Appearance",
     "date-and-time": "Date and time",
     "prompts": "Prompts",

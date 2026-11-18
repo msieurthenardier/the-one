@@ -46,7 +46,7 @@ def patched_app(conn):
     async def mock_chat_repo():
         return ChatSessionRepository(conn)
 
-    async def mock_factory_create(name="default"):
+    async def mock_factory_create(name="alpha"):
         return _make_fake_agent()
 
     # Mock the factory so we don't need a real LLM provider
@@ -64,7 +64,7 @@ def patched_app(conn):
 
 class TestCreateSession:
     async def test_creates_in_memory_and_db(self, patched_app, chat_repo):
-        session = await patched_app._create_session()
+        session = await patched_app._create_session("alpha")
         # In memory
         assert session.id in patched_app._sessions
         assert patched_app._sessions[session.id] is session
@@ -73,33 +73,37 @@ class TestCreateSession:
         assert db_session.id == session.id
         assert db_session.title == "New chat"
 
-    async def test_default_agent_name_is_none_in_db(self, patched_app, chat_repo):
-        session = await patched_app._create_session(agent_name="default")
-        assert session.agent_name is None
+    async def test_the_agent_name_is_stored_as_given(self, patched_app, chat_repo):
+        session = await patched_app._create_session(agent_name="GleepGlorp")
+        assert session.agent_name == "GleepGlorp"
         db_session = await chat_repo.get(session.id)
-        assert db_session.agent_name is None
+        assert db_session.agent_name == "GleepGlorp"
 
-    async def test_empty_agent_name_is_none_in_db(self, patched_app, chat_repo):
-        session = await patched_app._create_session(agent_name="")
-        assert session.agent_name is None
-        db_session = await chat_repo.get(session.id)
-        assert db_session.agent_name is None
+    @pytest.mark.parametrize("name", [None, ""])
+    async def test_a_missing_agent_name_is_refused_and_stores_nothing(
+        self, patched_app, chat_repo, name
+    ):
+        with pytest.raises(ValueError, match="Choose an agent to start a chat."):
+            await patched_app._create_session(agent_name=name, session_id="refused-1")
+        assert "refused-1" not in patched_app._sessions
+        with pytest.raises(KeyError):
+            await chat_repo.get("refused-1")
 
     async def test_custom_session_id(self, patched_app, chat_repo):
-        session = await patched_app._create_session(session_id="custom-123")
+        session = await patched_app._create_session("alpha", session_id="custom-123")
         assert session.id == "custom-123"
         db_session = await chat_repo.get("custom-123")
         assert db_session.id == "custom-123"
 
     async def test_agent_has_system_message(self, patched_app):
-        session = await patched_app._create_session()
+        session = await patched_app._create_session("alpha")
         assert len(session.agent.messages) >= 1
         assert session.agent.messages[0].role.value == "system"
 
 
 class TestSaveSessionToDb:
     async def test_saves_messages(self, patched_app, chat_repo):
-        session = await patched_app._create_session(session_id="save-test")
+        session = await patched_app._create_session("alpha", session_id="save-test")
         # Simulate a conversation
         session.agent.messages.append(Message.user("hello"))
         session.agent.messages.append(Message.assistant("hi there"))
@@ -116,7 +120,7 @@ class TestSaveSessionToDb:
         assert messages[2].content == "hi there"
 
     async def test_save_updates_timestamp(self, patched_app, chat_repo):
-        session = await patched_app._create_session(session_id="ts-test")
+        session = await patched_app._create_session("alpha", session_id="ts-test")
         db_before = await chat_repo.get("ts-test")
         original_updated_at = db_before.updated_at
 
@@ -135,7 +139,9 @@ class TestSaveSessionToDb:
 
         fake_session = Session(
             id="nonexistent",
-            agent=patched_app._sessions.get("x", (await patched_app._create_session()).agent),
+            agent=patched_app._sessions.get(
+                "x", (await patched_app._create_session("alpha")).agent
+            ),
             created="2024-01-01T00:00:00",
         )
         # Remove from DB but keep the agent
@@ -153,7 +159,7 @@ class TestSaveSessionToDb:
 class TestRestoreSession:
     async def test_restores_from_db(self, patched_app, chat_repo):
         # Create and save a session with messages
-        session = await patched_app._create_session(session_id="restore-test")
+        session = await patched_app._create_session("alpha", session_id="restore-test")
         session.agent.messages.append(Message.user("hello"))
         session.agent.messages.append(Message.assistant("world"))
         session.title = "hello"
@@ -169,7 +175,7 @@ class TestRestoreSession:
         assert restored is not None
         assert restored.id == "restore-test"
         assert restored.title == "hello"
-        assert restored.agent_name is None
+        assert restored.agent_name == "alpha"
         # Agent has the messages
         assert len(restored.agent.messages) == 3  # system + user + assistant
         assert restored.agent.messages[1].content == "hello"
@@ -189,7 +195,7 @@ class TestRestoreSession:
         assert result.db_session is None
 
     async def test_restore_caches_in_memory(self, patched_app):
-        session = await patched_app._create_session(session_id="cache-test")
+        session = await patched_app._create_session("alpha", session_id="cache-test")
         await patched_app._save_session_to_db(session)
         del patched_app._sessions["cache-test"]
 
@@ -200,7 +206,7 @@ class TestRestoreSession:
 
     async def test_restore_empty_messages(self, patched_app):
         """Session with no conversation should restore with just the system message."""
-        await patched_app._create_session(session_id="empty-test")
+        await patched_app._create_session("alpha", session_id="empty-test")
         # Don't add any user messages — DB has "[]"
         del patched_app._sessions["empty-test"]
 
@@ -221,7 +227,7 @@ class TestRestoreSession:
         """
         from the_one.agent.factory import AgentNotFoundError
 
-        await patched_app._create_session(session_id="orphan-agent")
+        await patched_app._create_session("alpha", session_id="orphan-agent")
         del patched_app._sessions["orphan-agent"]
 
         mock_factory = patched_app._get_factory.return_value
@@ -234,16 +240,14 @@ class TestRestoreSession:
         assert result.status == "agent_deleted"
         assert result.db_session is not None
         assert "orphan-agent" not in patched_app._sessions
-        # Regression guard: must NOT silently fall back to "default" with a
-        # second call to factory.create. The fixture stores agent_name=None
-        # in the DB, so factory is called once with "default".
-        mock_factory.create.assert_called_once_with("default")
+        # Regression guard: the factory is called once, with the stored agent name.
+        mock_factory.create.assert_called_once_with("alpha")
 
     async def test_restore_returns_provider_missing_via_not_configured(self, patched_app):
         """ProviderNotConfiguredError → provider_missing."""
         from the_one.agent.factory import ProviderNotConfiguredError
 
-        await patched_app._create_session(session_id="no-prov")
+        await patched_app._create_session("alpha", session_id="no-prov")
         del patched_app._sessions["no-prov"]
 
         mock_factory = patched_app._get_factory.return_value
@@ -264,7 +268,7 @@ class TestRestoreSession:
         """ProviderNotFoundError → provider_missing."""
         from the_one.agent.factory import ProviderNotFoundError
 
-        await patched_app._create_session(session_id="dead-prov")
+        await patched_app._create_session("alpha", session_id="dead-prov")
         del patched_app._sessions["dead-prov"]
 
         mock_factory = patched_app._get_factory.return_value
@@ -282,7 +286,7 @@ class TestRestoreSession:
         """Degraded restores must not populate `_sessions`."""
         from the_one.agent.factory import AgentNotFoundError
 
-        await patched_app._create_session(session_id="never-cached")
+        await patched_app._create_session("alpha", session_id="never-cached")
         del patched_app._sessions["never-cached"]
 
         mock_factory = patched_app._get_factory.return_value
@@ -294,7 +298,7 @@ class TestRestoreSession:
     async def test_restore_degrades_an_unrecognized_build_error(self, patched_app, caplog):
         """Sortie 07 DD7: any other build failure (once it propagated and dropped the
         socket) is `build_failed` with a fixed reason; the text goes to the log only."""
-        await patched_app._create_session(session_id="weird")
+        await patched_app._create_session("alpha", session_id="weird")
         # A cached entry must be dropped too (the rebuild-in-place path).
         assert "weird" in patched_app._sessions
 
@@ -316,7 +320,7 @@ class TestGetOrRestoreSession:
     async def test_preserves_session_identity_across_rejoin(self, patched_app):
         """C-lite: a join for an already-cached session updates in place,
         preserving the Session object identity (subscribers etc.)."""
-        session = await patched_app._create_session(session_id="mem-test")
+        session = await patched_app._create_session("alpha", session_id="mem-test")
         # Save so _restore_session can find it
         await patched_app._save_session_to_db(session)
         result = await patched_app._get_or_restore_session("mem-test")
@@ -326,7 +330,7 @@ class TestGetOrRestoreSession:
         assert result.db_session is not None
 
     async def test_falls_back_to_db(self, patched_app):
-        session = await patched_app._create_session(session_id="fallback-test")
+        session = await patched_app._create_session("alpha", session_id="fallback-test")
         await patched_app._save_session_to_db(session)
         del patched_app._sessions["fallback-test"]
 
@@ -346,7 +350,7 @@ class TestGetOrRestoreSession:
         agent_deleted (the cache short-circuit was removed in flight 05 HAT)."""
         from the_one.agent.factory import AgentNotFoundError
 
-        session = await patched_app._create_session(session_id="warm-cache")
+        session = await patched_app._create_session("alpha", session_id="warm-cache")
         await patched_app._save_session_to_db(session)
         # Make the factory hostile after the session was cached
         mock_factory = patched_app._get_factory.return_value
@@ -368,13 +372,13 @@ class TestGetOrRestoreSession:
         arrives while a turn is in flight (it waits for the first join after the turn)."""
         flag = {"on": True}
 
-        async def create(name="default"):
+        async def create(name="alpha"):
             agent = _make_fake_agent()
             agent.rich_visuals = flag["on"]
             return agent
 
         patched_app._get_factory.return_value.create = create
-        session = await patched_app._create_session(session_id="visuals-join")
+        session = await patched_app._create_session("alpha", session_id="visuals-join")
         await patched_app._save_session_to_db(session)
         assert session.agent.rich_visuals is True
 
@@ -394,3 +398,75 @@ class TestGetOrRestoreSession:
         after = await patched_app._get_or_restore_session("visuals-join")
         assert after.session is session
         assert session.agent.rich_visuals is False
+
+
+class TestNoDefaultAgent:
+    """M36 F1 L03: a chat names its agent; nothing falls back to a Default agent."""
+
+    async def test_restore_builds_from_the_stored_name(self, patched_app):
+        await patched_app._create_session("GleepGlorp", session_id="gg-chat")
+        del patched_app._sessions["gg-chat"]
+        patched_app._get_factory.return_value.create = AsyncMock(return_value=_make_fake_agent())
+        result = await patched_app._restore_session("gg-chat")
+        assert result.status == "ok"
+        patched_app._get_factory.return_value.create.assert_called_once_with("GleepGlorp")
+
+    @pytest.mark.parametrize(
+        ("state", "status"),
+        [
+            ("off", "gleepglorp_off"),
+            ("needs_model", "gleepglorp_needs_model"),
+            ("provider_missing", "gleepglorp_provider_missing"),
+        ],
+    )
+    async def test_restore_of_an_unready_gleepglorp_has_its_own_status(
+        self, patched_app, state, status
+    ):
+        from the_one.agent.factory import GleepGlorpUnavailableError
+
+        await patched_app._create_session("GleepGlorp", session_id="gg-off")
+        del patched_app._sessions["gg-off"]
+        patched_app._get_factory.return_value.create = AsyncMock(
+            side_effect=GleepGlorpUnavailableError(state)
+        )
+        result = await patched_app._restore_session("gg-off")
+        assert result.session is None
+        assert result.status == status
+        assert result.is_degraded
+        assert "gg-off" not in patched_app._sessions
+
+    async def test_restore_of_a_chat_with_no_agent_name_is_agent_deleted(
+        self, patched_app, chat_repo
+    ):
+        from the_one.db.models import ChatSession
+
+        await chat_repo.create(ChatSession(id="nameless", agent_name=None))
+        factory = patched_app._get_factory.return_value
+        factory.create = AsyncMock(return_value=_make_fake_agent())
+        result = await patched_app._restore_session("nameless")
+        assert result.session is None
+        assert result.status == "agent_deleted"
+        factory.create.assert_not_called()
+
+    async def test_api_chat_with_no_agent_answers_cannot_start(self, patched_app, chat_repo):
+        class _Req:
+            async def json(self):
+                return {"message": "hi"}
+
+        result = await patched_app.chat(_Req())
+        assert result == {"error": "Cannot start chat: Choose an agent to start a chat."}
+        assert patched_app._sessions == {}
+        assert await chat_repo.list() == []
+
+    async def test_selftest_with_gleepglorp_not_ready_returns_a_plain_failure(self, patched_app):
+        from the_one.agent.factory import GleepGlorpUnavailableError
+
+        patched_app._get_factory.return_value.create = AsyncMock(
+            side_effect=GleepGlorpUnavailableError("needs_model")
+        )
+        resp = await patched_app.selftest()
+        import json
+
+        body = json.loads(resp.body)
+        assert body["status"] == "fail"
+        assert body["checks"][0]["detail"] == "GleepGlorp needs a model."

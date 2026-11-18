@@ -86,19 +86,13 @@
       else ctx.transcript.addMsg('system', text);
     }
 
-    function agentListed(list, name) {
-      if (!Array.isArray(list)) return false;
-      for (var i = 0; i < list.length; i++) if (list[i] && list[i].name === name) return true;
-      return false;
-    }
-
     // Every start intent (the agent picker: the Chats list's New chat, the
     // empty state's New chat, "Pick a different agent") is a route,
     // `#chats/~new/{agent}` (DD2): the router's hydrate performs the pick. A re-pick while already on a `~new` route replaces
     // it (AC12). Inert while setup is incomplete. opts.opener (the picker's
     // opener) is where a guard Stay returns focus.
     function requestPick(agent, opts) {
-      if (state.setupIncomplete || !agent) return;
+      if (ctx.setupBlocked() || !agent) return;
       // M31 F6 L05a (0.1, DD11 1): a completed PICKER pick lands in the message box (a guard Stay
       // resolves false, so focus stays at the opener). Only this path: chatWith, direct hash
       // entry and re-renders never move focus.
@@ -246,15 +240,29 @@
       var agent = null;
       try { agent = decodeURIComponent(seg || ''); } catch (e) { agent = null; }
       var intent = state.pickIntent !== null && state.pickIntent === agent;
-      if (!agent || agent === 'default') { heal(); return; }
+      if (!agent) { heal(); return; }
       var st = chatState.state();
       // AC9, the rail restore: back on the `~new` route of the pending chat
       // that became this joined session, with no pick or open since. Keep the
       // session; the router's post-hydrate sync re-canonicalises the URL.
       if (!intent && st.name === 'joined' && st.startedFrom &&
           st.startedFrom.agent === agent && st.startedFrom.cid === st.id) return;
-      var peek = App.store.peek('agents');
-      if (peek.loaded && agentListed(peek.value, agent)) {
+      var kind = App.chat.agentKind(agent).kind;
+      if (kind === 'gleepglorp' && !App.gleepglorp.peek().loaded) {
+        // M36 F1 L04: GleepGlorp's state is not known yet (a cold deep link): pending at once
+        // with the neutral pane until its settings load. Never healed away.
+        if (!((st.name === 'pending' || st.name === 'starting') && st.agent === agent)) {
+          state.validating = true;
+          pickAgent(agent);
+        }
+        var settle = function () {
+          var cur = chatState.state();
+          if (cur.name === 'pending' && cur.agent === agent && state.validating) finishValidation();
+        };
+        App.gleepglorp.get().then(settle, settle);
+        return;
+      }
+      if (kind === 'gleepglorp' || (App.store.peek('agents').loaded && kind === 'agent')) {
         var wasValidating = state.validating;
         state.validating = false;
         // The same agent's cold pending chat, still validating: validated now.
@@ -264,7 +272,7 @@
         // M25 F6 L2: the cached list can lag an API-side delete (nothing
         // invalidates the store), so a pending chat renders at once from it
         // and a background forced read re-validates: a deleted agent heals.
-        if (chatState.state().name === 'pending') {
+        if (chatState.state().name === 'pending' && kind === 'agent') {
           App.store.get('agents', { force: true }).then(function (list) {
             validatePending(agent, list);
           }, function () { /* unverifiable: the server's start_session validates */ });
@@ -288,7 +296,7 @@
     function validatePending(agent, list) {
       var st = chatState.state();
       if (st.name !== 'pending' || st.agent !== agent) return; // moved on
-      if (list && !agentListed(list, agent)) { heal(); return; }
+      if (list && App.chat.agentKind(agent).kind === 'unknown') { heal(); return; }
       if (!state.validating) return;
       // Known (or unverifiable: the server's start_session validates too).
       finishValidation();

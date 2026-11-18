@@ -12,7 +12,7 @@ from rich.panel import Panel
 
 from the_one import __version__
 from the_one.agent._context import TurnContext, current_turn
-from the_one.agent.factory import AgentFactory
+from the_one.agent.factory import AgentFactory, GleepGlorpUnavailableError
 from the_one.config import settings
 from the_one.db import close_connection, init_db
 from the_one.db.connection import get_connection
@@ -70,11 +70,17 @@ async def _run_cli() -> None:
     factory = AgentFactory(store=store)
     try:
         agent = await factory.create()
+    except GleepGlorpUnavailableError as exc:
+        console.print(f"[red]{exc}[/red] Choose a model in Settings > GleepGlorp.")
+        # The database connection's thread would keep the process alive: close it first.
+        await close_connection()
+        raise SystemExit(1)
     except ValueError as exc:
         console.print(
             f"[red]No provider configured:[/red] {exc}\n"
             f"Set one up in Admin at http://{settings.host}:{settings.port}"
         )
+        await close_connection()
         return
 
     session: PromptSession[str] = PromptSession(

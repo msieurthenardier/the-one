@@ -83,6 +83,8 @@ seed_datas = collect_data_files("the_one", includes=["llm/data/*.json"])
 embedding_datas = collect_data_files("the_one", includes=["embeddings/data/**/*"])
 # Chart-image fonts (M35 F3 L1): the bundled Geist TTFs and their licence.
 font_datas = collect_data_files("the_one", includes=["visuals/fonts/*"])
+# GleepGlorp's app guide (M36 F1 L07): the help topics get_app_guide reads.
+guide_datas = collect_data_files("the_one", includes=["gleepglorp/guide/*.md"])
 tzdata_datas = collect_data_files("tzdata")
 tzdata_hidden = collect_submodules("tzdata")
 tzlocal_hidden = collect_submodules("tzlocal")
@@ -117,6 +119,7 @@ datas = [
     *seed_datas,
     *embedding_datas,
     *font_datas,
+    *guide_datas,
     *tzdata_datas,
     *mcp_metadata,
     *uvicorn_datas,

@@ -39,6 +39,7 @@ from the_one.agent._context import (
 from the_one.agent.factory import (
     AgentFactory,
     AgentNotFoundError,
+    GleepGlorpUnavailableError,
     ProviderNotConfiguredError,
     ProviderNotFoundError,
 )
@@ -104,7 +105,7 @@ from the_one.llm.base import (
     tag_post_step_visibility,
 )
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
-from the_one.naming import is_reserved_agent_name
+from the_one.naming import GLEEPGLORP_AGENT_NAME, is_reserved_agent_name
 from the_one.routines import runner as _routine_runner
 from the_one.routines.scheduler import RoutineScheduler as _RoutineScheduler
 from the_one.routines.scheduler import set_scheduler as _set_routine_scheduler
@@ -1291,6 +1292,23 @@ async def _locked_message_processing(
             await _resync_session_from_db(session)
         except Exception:
             logger.warning("re-sync of session %s failed; proceeding", session.id, exc_info=True)
+        # M36 F1 L04: a GleepGlorp chat is refused while its settings are not `ready`, read
+        # now (not from the agent cached on the session), so a stale tab and a second tab
+        # are both covered. `turn.ran` is already set above; that is harmless here.
+        if session.agent_name == GLEEPGLORP_AGENT_NAME:
+            from the_one.gleepglorp import settings as gg_settings
+            from the_one.gleepglorp.messages import unavailable_sentence
+
+            conn = await get_connection()
+            gg_state = await gg_settings.state(conn, await gg_settings.load_settings(conn))
+            if gg_state != "ready":
+                if turn_info is not None:
+                    turn_info["error"] = unavailable_sentence(gg_state)
+                with contextlib.suppress(Exception):
+                    await _send_to_session(
+                        session, {"type": "system", "content": unavailable_sentence(gg_state)}
+                    )
+                return
         # F5 L5: bind the current chat_session_id into the per-task
         # ContextVar so any pool-spawned MCP OAuth provider construction
         # below (via ``_entry_worker`` → ``build_oauth_provider_for_source``)
@@ -1699,6 +1717,15 @@ SESSION_STATUS_NOT_FOUND = "not_found"
 SESSION_STATUS_AGENT_DELETED = "agent_deleted"
 SESSION_STATUS_PROVIDER_MISSING = "provider_missing"
 SESSION_STATUS_BUILD_FAILED = "build_failed"
+# GleepGlorp (M36 F1 L04): a stored GleepGlorp chat whose settings are not `ready`.
+SESSION_STATUS_GLEEPGLORP_OFF = "gleepglorp_off"
+SESSION_STATUS_GLEEPGLORP_NEEDS_MODEL = "gleepglorp_needs_model"
+SESSION_STATUS_GLEEPGLORP_PROVIDER_MISSING = "gleepglorp_provider_missing"
+_GLEEPGLORP_STATUS_BY_STATE = {
+    "off": SESSION_STATUS_GLEEPGLORP_OFF,
+    "needs_model": SESSION_STATUS_GLEEPGLORP_NEEDS_MODEL,
+    "provider_missing": SESSION_STATUS_GLEEPGLORP_PROVIDER_MISSING,
+}
 
 # The one sentence a client gets when the agent build fails for any other reason
 # (sortie 07 DD7). The raw exception goes to the log only, never into a frame.
@@ -1729,6 +1756,7 @@ class RestoredSession:
             SESSION_STATUS_AGENT_DELETED,
             SESSION_STATUS_PROVIDER_MISSING,
             SESSION_STATUS_BUILD_FAILED,
+            *_GLEEPGLORP_STATUS_BY_STATE.values(),
         )
 
 
@@ -1763,10 +1791,13 @@ async def _create_session(
     row (or masks a primary-key collision).
     """
     sid = session_id or uuid.uuid4().hex[:12]
-    # Normalize agent_name: "default" or empty -> None in DB (FK constraint)
-    db_agent_name = None if (not agent_name or agent_name == "default") else agent_name
+    # M36 F1 L03: there is no Default agent. A chat names its agent (a stored agent, or
+    # GleepGlorp, which has no agents row: chat_sessions.agent_name carries no foreign key).
+    if not agent_name:
+        raise ValueError("Choose an agent to start a chat.")
+    db_agent_name = agent_name
     factory = _get_factory()
-    agent = await factory.create(agent_name or "default")
+    agent = await factory.create(agent_name)
     now = datetime.now(timezone.utc).isoformat()
     session = Session(
         id=sid,
@@ -1867,9 +1898,22 @@ async def _restore_session(session_id: str) -> RestoredSession:
         return RestoredSession(cached, SESSION_STATUS_OK, db_session)
 
     factory = _get_factory()
-    agent_name_for_factory = db_session.agent_name or "default"
+    agent_name_for_factory = db_session.agent_name
     try:
+        if not agent_name_for_factory:
+            # Impossible after schema v53; defensive.
+            raise AgentNotFoundError("The chat names no agent.")
         agent = await factory.create(agent_name_for_factory)
+    except GleepGlorpUnavailableError as exc:
+        # Before the generic ProviderNotConfiguredError catch (its parent class).
+        logger.warning("Session %s degraded: GleepGlorp is %s", session_id, exc.state)
+        async with _sessions_lock:
+            _sessions.pop(session_id, None)
+        return RestoredSession(
+            None,
+            _GLEEPGLORP_STATUS_BY_STATE.get(exc.state, SESSION_STATUS_BUILD_FAILED),
+            db_session,
+        )
     except ProviderNotFoundError as exc:
         logger.warning(
             "Session %s degraded: status=provider_missing agent=%r exc=%s",
@@ -2237,26 +2281,37 @@ async def _ensure_ollama_model_loaded(session: Session) -> None:
 
     try:
         # Resolve agent config from DB (Option B from leg spec)
-        agent_name = session.agent_name or "default"
+        agent_name = session.agent_name
+        if not agent_name:
+            return
         conn = await get_connection()
-        store = SQLiteAgentStore(conn)
 
-        if not await store.exists(agent_name):
-            return  # default agent without DB record — skip
+        if agent_name == GLEEPGLORP_AGENT_NAME:
+            # GleepGlorp has no agents row: its provider and model are in its settings.
+            from the_one.gleepglorp import settings as gg_settings
 
-        agent_config = await store.load(agent_name)
+            gg = await gg_settings.load_settings(conn)
+            if not gg.provider_config_id or not gg.model:
+                return
+            provider_config_id: str | None = gg.provider_config_id
+            model_name = gg.model
+        else:
+            store = SQLiteAgentStore(conn)
+            if not await store.exists(agent_name):
+                return  # no stored agent — skip
+            agent_config = await store.load(agent_name)
+            provider_config_id = agent_config.provider_config_id
+            model_name = agent_config.llm_model
 
-        if agent_config.provider_config_id is None:
+        if provider_config_id is None:
             return
 
         encryptor = get_encryptor(settings.data_dir)
         provider_repo = LLMProviderRepository(conn, encryptor)
-        provider_config = await provider_repo.get(agent_config.provider_config_id)
+        provider_config = await provider_repo.get(provider_config_id)
 
         if provider_config.type != "ollama":
             return
-
-        model_name = agent_config.llm_model
 
         # The runtime window we want the runner loaded at. Ollama defaults
         # num_ctx to 4096 and the /v1 chat endpoint can't raise it, so a model
@@ -2951,14 +3006,13 @@ async def _process_and_broadcast(
 
         # M21 F01 L03 (LD1): apply any pending next_turn self-revision at
         # THIS turn's exit — the only non-paused settle site in this
-        # function. `or "default"` is load-bearing: Session.agent_name is
-        # None for the default agent while the pending registry (and
-        # _calling_agent) key on the literal "default"; a skip-on-None
-        # guard would silently degrade next_turn to next_session for
-        # single-agent installs.
-        await _self_configuration_pending.apply_pending_revision(
-            session.agent_name or "default", session.agent
-        )
+        # function. A chat always names its agent now (no Default agent, M36 F1 L03);
+        # a missing name (impossible after v53) skips the call. For GleepGlorp
+        # nothing is ever pending, so the call is a no-op.
+        if session.agent_name:
+            await _self_configuration_pending.apply_pending_revision(
+                session.agent_name, session.agent
+            )
 
         # DD8 F2: broadcast-only (never add_event), so neither Session.history
         # nor the DB holds it; immediately before ``done``, after the save.
@@ -3040,9 +3094,10 @@ async def _resume_paused_session(session: Session) -> None:
             # — apply any pending next_turn self-revision here too. NOT in
             # the unconditional tail below `_save_session_to_db`, which
             # also runs when the resume re-pauses (that is not a settle).
-            await _self_configuration_pending.apply_pending_revision(
-                session.agent_name or "default", session.agent
-            )
+            if session.agent_name:
+                await _self_configuration_pending.apply_pending_revision(
+                    session.agent_name, session.agent
+                )
             # DD8 F2: broadcast-only, immediately before this branch's ``done``.
             if session.agent.stopped_at_step_limit:
                 await _send_to_session(
@@ -3159,6 +3214,7 @@ async def info() -> dict[str, Any]:
     from the_one.db._notes import render_notes_block
     from the_one.db._rules import render_rules_block
     from the_one.db._secrets import render_secrets_block
+    from the_one.gleepglorp.prompt import compose as gleepglorp_compose
     from the_one.time_zones import render_date_line
 
     # The rules and notes layers are rendered by the same functions that build a
@@ -3166,8 +3222,12 @@ async def info() -> dict[str, Any]:
     # ``platform_sections`` is the platform prompt by section (Flight 2 leg 1c,
     # DD8): ``{id, title, applies_when, text, variant}``, ``variant`` "tools" or
     # "tool_free"; it replaces the old ``base_prompt`` string.
+
     return {
         "version": __version__,
+        "gleepglorp_prompt": gleepglorp_compose(
+            date_line=render_date_line("{today's date}", "{time zone}", tool_available=True)
+        ),
         "platform_sections": platform_sections_for_ui(),
         "date_prompt_example": render_date_line(
             "{today's date}", "{time zone}", tool_available=True
@@ -3371,7 +3431,12 @@ async def selftest() -> dict[str, Any]:
 
     checks: list[dict[str, Any]] = []
     factory = _get_factory()
-    agent = await factory.create()
+    try:
+        agent = await factory.create()
+    except Exception as e:  # noqa: BLE001 - a plain reason, never an unhandled error
+        reason = str(e) if isinstance(e, ValueError) else "GleepGlorp could not be built."
+        checks.append({"name": "build", "pass": False, "detail": reason[:200]})
+        return JSONResponse(content={"status": "fail", "checks": checks}, status_code=500)
 
     # Check 1: basic chat
     try:
@@ -3396,12 +3461,12 @@ async def selftest() -> dict[str, Any]:
         got_tool_result = False
         _tt = current_turn.set(TurnContext())
         try:
-            async for msg in agent.step("Read the file /app/pyproject.toml"):
+            async for msg in agent.step("What is the current time? Use your current_time tool."):
                 if msg.role == Role.TOOL and msg.tool_result and not msg.tool_result.is_error:
                     got_tool_result = True
         finally:
             current_turn.reset(_tt)
-        detail = "read_file executed" if got_tool_result else "no tool result"
+        detail = "current_time executed" if got_tool_result else "no tool result"
         checks.append(
             {
                 "name": "tool_use",
@@ -3609,7 +3674,9 @@ async def _websocket_loop(ws: WebSocket) -> None:
                 if (
                     not isinstance(start_agent, str)
                     or not start_agent
-                    or is_reserved_agent_name(start_agent)
+                    or (
+                        is_reserved_agent_name(start_agent) and start_agent != GLEEPGLORP_AGENT_NAME
+                    )
                 ):
                     await ws.send_json(_start_failed_frame(start_sid, "Invalid agent name."))
                     continue
@@ -3700,6 +3767,10 @@ async def _websocket_loop(ws: WebSocket) -> None:
                         created_session = await _create_session(
                             agent_name=start_agent, session_id=start_sid, strict=True
                         )
+                    except GleepGlorpUnavailableError as exc:
+                        # Nothing is stored; the plain sentence for its state.
+                        await ws.send_json(_start_failed_frame(start_sid, str(exc)))
+                        continue
                     except Exception as exc:
                         logger.exception(
                             "start_session create failed for %s (agent %r)",

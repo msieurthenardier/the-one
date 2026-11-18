@@ -31,13 +31,11 @@
     // 0.3: false only when the agents store is loaded and ok and holds no agent of this name
     // (a deleted agent). An unloaded store (a cold deep link) says "may exist": the eager
     // resolve still runs.
+    // M36 F1 L04: through App.chat.agentKind. GleepGlorp (no agents row, no context-window
+    // route) never fetches.
     function agentMayExist(name) {
-      var peeked = App.store.peek('agents');
-      if (!peeked.loaded || !peeked.ok || !Array.isArray(peeked.value)) return true;
-      for (var i = 0; i < peeked.value.length; i++) {
-        if (peeked.value[i] && peeked.value[i].name === name) return true;
-      }
-      return false;
+      var kind = App.chat.agentKind(name).kind;
+      return kind === 'agent' || kind === 'loading';
     }
 
     function socketOpen() {
@@ -111,6 +109,24 @@
           state.sessions = data.sessions || [];
           ctx.sessionFlow.pruneDrafts(state.sessions.map(function (s) { return s.id; }));
           App.store.prime('sessions', state.sessions.map(toSessionSummary));
+          return;
+        }
+
+        if (data.type === 'gleepglorp_changed') {
+          // GleepGlorp's settings changed (any tab, any state, so before the gate): update the
+          // client's copy, then follow it. A joined GleepGlorp chat re-joins (deferred until
+          // its own turn ends) so its banner and composer follow. A pending one, the picker and
+          // the drawer re-render from chat.js's App.gleepglorp subscription (prime notifies).
+          // A notes-only push (L06: a delete or Clear all in Settings > GleepGlorp) carries
+          // no settings: it only tells an open Memory list to reload.
+          if (!data.settings) {
+            window.dispatchEvent(new Event('gleepglorp-notes-changed'));
+            return;
+          }
+          App.gleepglorp.prime(data.settings);
+          if (chatState.state().name === 'joined' && state.currentAgentName === App.chat.GLEEPGLORP) {
+            ctx.sessionFlow.requestRefresh(chatState.boundId());
+          }
           return;
         }
 

@@ -165,7 +165,53 @@
     ]);
   }
 
+  // M36 F1 L04 (board screen 4): the GleepGlorp drawer body, from its settings and the
+  // `providers` rows already in the store (no per-agent fetch). Returns the nodes to append:
+  // the description, Facts, "What it can use" (a fixed list that follows the web and memory
+  // switches) and the read-only line.
+  function gleepglorpBody(gg, providers) {
+    gg = gg || {};
+    var provider = null;
+    var plist = arr(providers);
+    for (var i = 0; i < plist.length; i++) {
+      if (plist[i] && plist[i].id === gg.provider_config_id) provider = plist[i];
+    }
+    var dl = el('dl', { className: 'chat-drawer-facts' });
+    dl.setAttribute('data-testid', 'chat-drawer-facts');
+    [
+      ['Model', gg.model ? String(gg.model) : '—', 'chat-drawer-mono'],
+      ['Provider', provider ? String(provider.name || provider.id) : '—'],
+      ['Web access', gg.web_access === false ? 'Off' : 'On'],
+      ['Memory', gg.memory === false ? 'Off' : 'On'],
+      ['Keeps chats', (gg.retention_days || 30) + ' days']
+    ].forEach(function (pair) {
+      dl.appendChild(el('dt', { text: pair[0] }));
+      dl.appendChild(el('dd', { className: pair[2] || null, text: pair[1] }));
+    });
+    var items = ["Your app's settings and status, read only, secrets hidden", 'The app guide'];
+    if (gg.web_access !== false) items.push('Web search and web pages');
+    if (gg.memory !== false) items.push('Its own notes');
+    var ul = el('ul', { className: 'chat-drawer-list' });
+    items.forEach(function (text) {
+      ul.appendChild(el('li', null, [el('span', { className: 'chat-drawer-item-name', text: text })]));
+    });
+    var uses = el('div', { className: 'chat-drawer-uses' }, [
+      el('h3', { className: 'chat-drawer-uses-title', text: 'What it can use' }),
+      el('div', { className: 'chat-drawer-group', dataset: { group: 'gleepglorp' } }, [ul])
+    ]);
+    uses.setAttribute('data-testid', 'chat-drawer-uses');
+    var readOnly = el('p', { className: 'chat-drawer-note', text: "GleepGlorp can't change anything by itself." });
+    readOnly.setAttribute('data-testid', 'chat-drawer-note');
+    return [
+      el('p', { className: 'chat-drawer-description', text: 'Help setting up the app' }),
+      dl,
+      uses,
+      readOnly
+    ];
+  }
+
   window.App.chat.drawerParts = {
+    gleepglorpBody: gleepglorpBody,
     richVisualsGroup: richVisualsGroup,
     grantedSecrets: grantedSecrets,
     noticesGroup: noticesGroup,

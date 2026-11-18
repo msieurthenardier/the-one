@@ -6,8 +6,9 @@ a chat with…", 640 wide at top 72, the "Esc" close button, the footer), built
 fresh on every open with focus on its search (``agent-picker-search``).
 
 * An empty query shows "Recently used" (up to five agents, by the latest
-  ``updated_at`` over web sessions of live agents: connector sessions, deleted
-  agents and the default agent are excluded) and "All agents" (A-Z).
+  ``updated_at`` over web sessions of live agents: connector sessions and deleted
+  agents are excluded) and "All agents" (A-Z). While GleepGlorp is enabled a "Built in"
+  group with GleepGlorp comes first (M36 F1 L04; ``test_flow_chat_gleepglorp.py``).
 * A query shows one "{n} matching" group, A-Z, matched case-insensitively over
   the name, the model, the provider type slug and the description.
 * Enter picks the active row: the picker closes, then the pick routes to
@@ -111,6 +112,7 @@ def _dirty(page: Page, dirty: bool) -> None:
 
 
 def _settled(page: Page, base: str) -> None:
+    _chats.gleepglorp_off(base)  # these tests are about the agents alone (Built in: its own file)
     _nav.goto(page, base, "chats")
     page.wait_for_function(
         "() => { const a = (App.areas || []).find(x => x.id === 'chat');"

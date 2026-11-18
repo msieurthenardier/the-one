@@ -257,7 +257,7 @@ async def test_rehydration_after_eviction(_isolated_data_dir: Path) -> None:
     )
     await store.save(
         AgentConfig(
-            name="default",
+            name="alpha",
             provider_config_id="mock-rehydrate",
             llm_model="mock-default",
         )
@@ -277,6 +277,7 @@ async def test_rehydration_after_eviction(_isolated_data_dir: Path) -> None:
     await repo.create(
         ChatSessionModel(
             id=sid,
+            agent_name="alpha",
             title="Rehydration test",
             messages=encoded,
             created_at="2026-01-01T00:00:00+00:00",
@@ -513,7 +514,7 @@ async def test_cached_session_rebuilds_agent_from_edited_stored_config(
     original_prompt = "ORIGINAL_MARKER_PROMPT_be2f"
     await store.save(
         AgentConfig(
-            name="default",
+            name="alpha",
             provider_config_id="mock-restore-rebuild",
             llm_model="mock-default",
             system_prompt=original_prompt,
@@ -525,7 +526,7 @@ async def test_cached_session_rebuilds_agent_from_edited_stored_config(
 
     # Create a chat session — this both caches it in `_sessions` and
     # persists a row via `_create_session`'s own DB write.
-    session = await app_mod._create_session(session_id="edited-config-01")
+    session = await app_mod._create_session("alpha", session_id="edited-config-01")
     assert session.id in app_mod._sessions
     assert original_prompt in session.agent.system_prompt
     assert original_prompt in session.agent.messages[0].content
@@ -540,7 +541,7 @@ async def test_cached_session_rebuilds_agent_from_edited_stored_config(
     # NOT going through `_create_session` or `_restore_session`, just the
     # store directly, as Studio's PUT /api/agents/{name} does.
     edited_prompt = "EDITED_MARKER_PROMPT_9a41"
-    stored_config = await store.load("default")
+    stored_config = await store.load("alpha")
     stored_config.system_prompt = edited_prompt
     await store.save(stored_config)
 

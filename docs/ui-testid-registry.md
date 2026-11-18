@@ -75,6 +75,7 @@ caught — but it cannot see where the attribute is emitted.
 | `platform-sections` | admin | The Prompts page's mount for the platform prompt blocks (Flight 2 leg 1c, DD8; it replaced `base-prompt-content`) |
 | `routine-flag` | studio | the flag (`App.ui.noteFlag`, subject routine) on a flagged routine row (M33 F2 L5) |
 | `routine-origin` | studio | "Made by the agent" on a routine row whose `created_by` is `agent` (M33 F2 L5) |
+| `gleepglorp-prompt-content` | admin | The Prompts page's read-only GleepGlorp prompt block, the first layer (M36 F1 L08; `/api/info` `gleepglorp_prompt`) |
 | `rules-prompt-content` | admin | The Prompts page's read-only rules-layer example (M27 F3 L3) |
 | `notes-prompt-content` | admin | The Prompts page's read-only notes-layer example (M27 F3 L3) |
 | `secrets-prompt-content` | admin | The Prompts page's read-only secrets-layer example (sortie 10 B4) |
@@ -170,7 +171,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-drawer-routine-item` | chat | one routine in the drawer's Routines group (`<li>`, name + "Next …"/"Off"/"Done" meta, full name in `title`) (M33 F1 L7) |
 | `chat-drawer-rules` | chat | the drawer Rules group's bulleted `<ul>` of enabled rules (M27 F1 L2) |
 | `chat-drawer-rules-off` | chat | the Rules group's "{n} off" line, present only when some rules are disabled (M27 F1 L2) |
-| `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for the default, a deleted or a loading agent (M25 F4 L6) |
+| `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for a deleted or a loading agent (M25 F4 L6); for GleepGlorp (M36 F1 L04) the label is "Open GleepGlorp settings" and it goes to `#settings/gleepglorp` |
 | `chat-drawer-toggle` | chat | The chat header's drawer toggle at its end (`btn-ghost btn-icon`, the `panel-right` icon, `aria-label="Show this chat's agent"`, `aria-pressed` = open, `aria-controls="chat-drawer"`); hidden while idle (M25 F4 L6) |
 | `chat-drawer-uses` | chat | The drawer's "What it can use" (A13): an `h3`, then `.chat-drawer-group[data-group=rules|knowledge|mcp|secrets|tools|self-configuration]` (Rules first, Secrets between MCP servers and Built-in tools in sortie 10, M27 F1 L2), each an `h4` over a list, "None", "Loading…" or "Couldn't load" (M25 F4 L6) |
 | `chat-discarded` | chat | The muted "Queued message discarded." line after "Stopped." when the Stop discarded a held message; never stored (M31 F6 L05c, B9) |
@@ -180,6 +181,11 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-input` | chat | The composer's `<textarea rows=2>` (an `<input>` before M25 F4 L5), labelled by a visually hidden `<label for>` "Message" (no `aria-label`); placeholder "Message {agent}…"; Enter sends, Shift+Enter is a newline, an IME-composing Enter does nothing |
 | `chat-model` | chat | The composer toolbar's model id: the open or pending chat's agent's `llm_model` from the `agents` store, 11px `--font-family-mono` in `--fg-muted`; empty when unknown (M25 F4 L5) |
 | `chat-new-state` | chat | The new-chat state (reference spec 5.4), shown only while a chat is pending: a `badge badge--{providerType}` whose text is the model (A20), the agent name (`h2`), the description, and `chat-pick-different-btn` (M25 F4 L4b) |
+| `chat-new-state-model` | chat | The new-chat state's model line for GleepGlorp (M36 F1 L04): the badge reads "Built in" (`badge--builtin`), this line carries the model; hidden for any other agent and with no model |
+| `chat-new-gleepglorp-setup` | chat | The new-chat state's GleepGlorp setup block (M36 F1 L04, board screen 3): an `App.ui.banner` warning, shown only while GleepGlorp is off ("GleepGlorp is turned off."), needs a model ("GleepGlorp needs a model first.") or has no model provider at all ("Add a model provider first."); holds the action below |
+| `chat-new-gleepglorp-setup-live` | chat | A persistent visually hidden `role="status"` region in the new-chat state (built once, not a second banner): holds the setup sentence while the block above shows and is empty otherwise, so a screen reader announces it (WCAG 4.1.3) |
+| `chat-new-gleepglorp-setup-action` | chat | The setup block's one primary button (M36 F1 L04): "Open GleepGlorp settings" (off), "Choose a model for GleepGlorp" (needs a model; both go to `#settings/gleepglorp`) or "Add a model provider" (no providers; `#library/providers/~new`) |
+| `chat-health-banner-action` | chat | The chat health banner's button (M36 F1 L04), present only for a stored GleepGlorp chat in a `gleepglorp_off`, `gleepglorp_needs_model` or `gleepglorp_provider_missing` status: "Open GleepGlorp settings" (`#settings/gleepglorp`); the banner text is the state's sentence (off adds "Turn it on to continue this chat.") |
 | `chat-pick-different-btn` | chat | The new-chat state's "Pick a different agent" (`btn-ghost btn-sm`); opens the agent picker, and a pick replaces the pending chat (M25 F4 L4b) |
 | `chat-row` | chat | A Chats list row: an `App.ui.listPane` `<a href="#chats/{id}">` with `data-id` (rowStyle `chats`: title, time, agent, a connector's platform badge), or the pending chat's row (`data-pending="true"`, no `data-id`, href `#chats/~new/{agent}`) (M25 F4 L4a) |
 | `chat-row-delete` | chat | A Chats list row's delete action ("Delete chat: {title}"; arm, then confirm through `App.ui.confirm`); never on the pending row (M25 F4 L4a) |
@@ -325,6 +331,34 @@ caught — but it cannot see where the attribute is emitted.
 | `knowledge-reconcile-interval-echo` | admin | Knowledge settings panel — the interval echoed in words beside the field, empty when invalid (A22, M31 F4 L10) |
 | `knowledge-settings-chunking-section` | admin | Knowledge settings panel — Chunking section container (M24 F06 L04) |
 | `knowledge-settings-embedding-section` | admin | Knowledge settings panel — Embedding (read-only) section container (M24 F06 L04) |
+| `gleepglorp-behavior-section` | admin | GleepGlorp page — the Behavior `App.ui.section` (the three switches and "Keep chats for"; M36 F1 L03) |
+| `gleepglorp-cancel-btn` | admin | GleepGlorp page — Cancel in the page header; patches the fields back to the baseline (M36 F1 L03) |
+| `gleepglorp-enabled` | admin | GleepGlorp page — the "GleepGlorp" switch (on the native input; M36 F1 L03) |
+| `gleepglorp-error` | admin | GleepGlorp page — the shell's error span after a save failure with no field of its own (M36 F1 L03) |
+| `gleepglorp-flash` | admin | GleepGlorp page — region holding the "Saved." `App.ui.status` (cleared by the next attempt or after 3 s; M36 F1 L03) |
+| `gleepglorp-intro` | admin | GleepGlorp page — the header subtitle (M36 F1 L03) |
+| `gleepglorp-load-error` | admin | GleepGlorp page — the shell's error span when the settings did not load (M36 F1 L03) |
+| `gleepglorp-memory` | admin | GleepGlorp page — the "Memory" switch (turns GleepGlorp's own notes on or off; M36 F1 L03, live in L06) |
+| `gleepglorp-memory-clear` | admin | GleepGlorp page — Memory section's Clear all (through `App.confirmDialog`; acts at once, hidden with no notes; M36 F1 L06) |
+| `gleepglorp-memory-delete` | admin | GleepGlorp page — one Memory row's armed Delete (the two-step `App.ui.confirm`; acts at once; M36 F1 L06) |
+| `gleepglorp-memory-empty` | admin | GleepGlorp page — "No saved notes yet." inside the Memory list (M36 F1 L06) |
+| `gleepglorp-memory-error` | admin | GleepGlorp page — the Memory section's `role=alert` error line (load or change failure; M36 F1 L06) |
+| `gleepglorp-memory-list` | admin | GleepGlorp page — wrapper of the Memory rows (the shared `notes-row*` rows of `App.studio.noteRow`, or the empty line; M36 F1 L06) |
+| `gleepglorp-memory-off` | admin | GleepGlorp page — "Memory is off. GleepGlorp keeps no new notes; these stay until you delete them." (shown while the saved Memory setting is off; M36 F1 L06) |
+| `gleepglorp-memory-section` | admin | GleepGlorp page — the Memory `App.ui.section` (M36 F1 L06) |
+| `gleepglorp-model` | admin | GleepGlorp page — the model `<select>` (placeholder first, refilled from the chosen provider's model list; M36 F1 L03) |
+| `gleepglorp-model-error` | admin | GleepGlorp page — the model field's error element (M36 F1 L03) |
+| `gleepglorp-model-hint` | admin | GleepGlorp page — the model field's hint ("Small local models may struggle."; M36 F1 L03) |
+| `gleepglorp-model-section` | admin | GleepGlorp page — the Model `App.ui.section` (M36 F1 L03) |
+| `gleepglorp-provider` | admin | GleepGlorp page — the provider `<select>` (placeholder first; a stored provider that no longer exists shows as "Removed provider"; M36 F1 L03) |
+| `gleepglorp-provider-error` | admin | GleepGlorp page — the provider field's error element (M36 F1 L03) |
+| `gleepglorp-retention` | admin | GleepGlorp page — the "Keep chats for" number input (1 to 365 days; M36 F1 L03) |
+| `gleepglorp-retention-error` | admin | GleepGlorp page — the retention field's error element (M36 F1 L03) |
+| `gleepglorp-save-btn` | admin | GleepGlorp page — Save in the page header; PUT /api/gleepglorp (M36 F1 L03) |
+| `gleepglorp-settings` | admin | GleepGlorp page — the page body wrapper (M36 F1 L03) |
+| `gleepglorp-web` | admin | GleepGlorp page — the "Web access" switch (gives GleepGlorp `fetch_url` and `web_search`; M36 F1 L03, live in L06) |
+| `gleepglorp-web-hint` | admin | GleepGlorp page — under the Web access switch: "Web search isn't set up, so GleepGlorp can only read pages you give it." A persistent `role="status"` paragraph (always in the DOM): its text and link are present while the switch is on and `web_search_available` is false (a keyed engine with a field empty, or the tool switched off app-wide), empty otherwise (M36 F1 L06) |
+| `gleepglorp-web-hint-link` | admin | GleepGlorp page — the hint's "Set up web search" link to `#settings/tools/web_search` (M36 F1 L06) |
 | `knowledge-settings-flash` | admin | Knowledge settings panel — region holding the "Saved." `App.ui.status` (inserted on success, cleared by the next attempt or after 3 s; M31 F4 L10) |
 | `knowledge-settings-load-error` | admin | Knowledge settings panel — `GET /api/knowledge-settings` failure text, set on the shell's error span (`errorRole: 'alert'`); the fields are disabled and Save never enables (M24 F06 L04, M31 F4 L10) |
 | `knowledge-settings-monitoring-section` | admin | Knowledge settings panel — Monitoring section container (M24 F06 L04) |
@@ -669,7 +703,7 @@ too-large or cut-off source.
 | `mcp-tools-checkbox-group-` | studio | |
 | `mcp-tools-error-` | studio | |
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
-| `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
+| `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-gleepglorp`, `settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
 | `tab-` | admin, studio | `tab-{id}` from `App.ui.tabs` items (ids `tools-tab-{id}` / `tools-panel-{id}` on the Built-in tools page, `idPrefix: 'tools'`, M31 F4 L06): the Built-in tools page's tabs and (M31 F2 L06a, now built from the item id) the agent editor's six: `tab-general`, `tab-rules-and-notes` (label "Rules and notes", route `#agents/{name}/rules-and-notes`, M27 F1 L2), `tab-knowledge`, `tab-tools` (label "Tools"), `tab-routines` (label "Routines", route `#agents/{name}/routines`, M33 F1 L8), `tab-self-configuration` |
 
 ## Manual exceptions (variable-carried literals)

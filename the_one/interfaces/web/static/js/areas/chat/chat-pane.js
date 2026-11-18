@@ -21,7 +21,7 @@
 //   the chrome (div.chat-chrome)
 //     The header (header.chat-header, testid chat-header): an h1 (the chat's
 //     title, or "New chat") and "with {agent}" (span.chat-agent-line, testid
-//     chat-agent-line; "Default agent" for a null agent); hidden while idle.
+//     chat-agent-line; "Unknown agent" for a null agent); hidden while idle.
 //     chat.js appends the agent drawer's toggle at its end (M25 F4 L6,
 //     areas/chat/agent-drawer.js).
 //     Then the new-chat state (div.chat-new-state, testid chat-new-state),
@@ -52,8 +52,11 @@
 //     badge kind from the providers resolution (App.chat.agentPicker.
 //     providerType); a type outside App.ui.badge.KINDS, no provider or an
 //     unknown agent is 'unknown'.
-//   App.chat.chatPane.agentLine(agent) -> 'with {agent}' ('Default agent' for
+//   App.chat.chatPane.agentLine(agent) -> 'with {agent}' ('Unknown agent' for
 //     a null or empty agent)
+//   agentInfo(GleepGlorp) -> {kind: 'builtin', gleepglorp: true, state, hasProviders, ...}
+//     (M36 L04): the new-chat state shows "Built in", the model and, when its state is not
+//     ready, the setup block (chat-new-gleepglorp-setup / -action).
 //   App.chat.chatPane.guidance(setup) -> the guidance <p> (setup incomplete)
 (function () {
   'use strict';
@@ -95,11 +98,31 @@
     return p;
   }
 
+  // A row with no agent (impossible after schema v53) reads "Unknown agent".
   function agentLine(agent) {
-    return 'with ' + (agent ? String(agent) : 'Default agent');
+    return 'with ' + (agent ? String(agent) : 'Unknown agent');
+  }
+
+  var GLEEPGLORP_DESCRIPTION = 'Help setting up the app';
+
+  // GleepGlorp's info: the "Built in" badge, its model, and the state its setup block shows
+  // (null while its settings have not loaded yet).
+  function gleepglorpInfo(providers) {
+    var s = App.chat.gleepglorpSettings();
+    return {
+      name: App.chat.GLEEPGLORP,
+      model: s && s.model ? String(s.model) : '',
+      description: GLEEPGLORP_DESCRIPTION,
+      kind: 'builtin',
+      known: true,
+      gleepglorp: true,
+      state: s ? s.state : null,
+      hasProviders: Array.isArray(providers) ? providers.length > 0 : true
+    };
   }
 
   function agentInfo(name, agents, providers) {
+    if (App.chat.agentKind(name).kind === 'gleepglorp') return gleepglorpInfo(providers);
     var row = null;
     var list = Array.isArray(agents) ? agents : [];
     for (var i = 0; i < list.length; i++) {
@@ -189,7 +212,64 @@
       testid: 'chat-pick-different-btn',
       onClick: function () { if (opts.onPickDifferent) opts.onPickDifferent(pickDifferentButton); }
     });
-    var newInner = el('div', { className: 'chat-new-state-inner' }, [badge.el, agentName, description, pickDifferentButton]);
+    // M36 F1 L04: GleepGlorp's setup block (board screen 3): a warning with one primary action
+    // while GleepGlorp is off, needs a model or has lost its provider.
+    var setupAction = App.ui.button({
+      variant: 'primary',
+      label: 'Open GleepGlorp settings',
+      className: 'chat-new-gleepglorp-setup-action',
+      testid: 'chat-new-gleepglorp-setup-action',
+      onClick: function () { if (setupAction.dataset.href) App.router.go(setupAction.dataset.href); }
+    });
+    // Built on first need and taken out of the DOM when not shown, so no other chat has a
+    // (hidden) second banner beside the health banner.
+    var setupBlock = null;
+    var modelLine = el('p', { className: 'chat-new-state-model', hidden: true });
+    modelLine.setAttribute('data-testid', 'chat-new-state-model');
+    // A persistent live region (WCAG 4.1.3; not a second `.ui-banner`): built once, its text
+    // set when the setup block shows and cleared when it does not, so a screen reader
+    // announces the setup sentence even though the visible block is inserted on demand.
+    var setupLive = el('span', { className: 'visually-hidden' });
+    setupLive.setAttribute('role', 'status');
+    setupLive.setAttribute('data-testid', 'chat-new-gleepglorp-setup-live');
+    var newInner = el('div', { className: 'chat-new-state-inner' }, [badge.el, modelLine, agentName, description, pickDifferentButton, setupLive]);
+
+    // The setup block's sentence, action label and target for a GleepGlorp info.
+    function renderSetupBlock(view) {
+      var show = !!(view.gleepglorp && view.state && view.state !== 'ready');
+      if (!show) {
+        setupLive.textContent = '';
+        if (setupBlock && setupBlock.el.parentNode) setupBlock.el.parentNode.removeChild(setupBlock.el);
+        return;
+      }
+      if (!setupBlock) {
+        setupBlock = App.ui.banner({
+          tone: 'warning',
+          className: 'chat-new-gleepglorp-setup',
+          testid: 'chat-new-gleepglorp-setup',
+          children: [setupAction]
+        });
+      }
+      if (setupBlock.el.parentNode !== newInner) newInner.insertBefore(setupBlock.el, pickDifferentButton);
+      var text, label, href;
+      if (view.state === 'off') {
+        text = 'GleepGlorp is turned off.';
+        label = 'Open GleepGlorp settings';
+        href = App.chat.agentKind(App.chat.GLEEPGLORP).settingsHref;
+      } else if (!view.hasProviders) {
+        text = 'Add a model provider first.';
+        label = 'Add a model provider';
+        href = App.router.href({ destination: 'library', section: 'providers', create: true });
+      } else {
+        text = 'GleepGlorp needs a model first.';
+        label = 'Choose a model for GleepGlorp';
+        href = App.chat.agentKind(App.chat.GLEEPGLORP).settingsHref;
+      }
+      setupBlock.set(text);
+      if (setupLive.textContent !== text) setupLive.textContent = text;
+      setupAction.setAttribute('data-href', href);
+      setupAction.textContent = label;
+    }
     var newState = el('div', { className: 'chat-new-state', hidden: true }, [newInner]);
     newState.setAttribute('data-testid', 'chat-new-state');
 
@@ -203,7 +283,16 @@
       // state (the agent may be unknown and heal to #chats).
       newInner.hidden = !!view.blank;
       if (view.blank) return;
-      badge.set({ kind: view.kind || 'unknown', text: view.model });
+      if (view.gleepglorp) {
+        // "Built in", with the model in its own line (the badge reads the kind, not the type).
+        badge.set({ kind: 'builtin', text: 'Built in' });
+        modelLine.textContent = view.model || '';
+        modelLine.hidden = !view.model;
+      } else {
+        badge.set({ kind: view.kind || 'unknown', text: view.model });
+        modelLine.hidden = true;
+      }
+      renderSetupBlock(view);
       agentName.textContent = view.name || '';
       description.textContent = view.description || '';
       description.hidden = !view.description;

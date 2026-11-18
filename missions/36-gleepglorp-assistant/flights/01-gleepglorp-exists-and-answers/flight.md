@@ -211,7 +211,11 @@ in first, so the flight's new tests have room.
     fields are empty (`searxng_base_url`; `google_pse_api_key` +
     `google_pse_cse_id`; `brave_api_key`; `tavily_api_key`), and the Settings
     page says so.
-- The read views come from the same functions the API uses. The response
+- *(Amended in flight, Leg 5 design review, 2026-11-18: GleepGlorp's reads use
+  separate whitelist views in `the_one/gleepglorp/views.py`, built field by
+  field from repositories, with `kind` reduced to ten values and `name`
+  optional; the API helpers are not moved. See the flight log. The original
+  text follows.)* The read views come from the same functions the API uses. The response
   helpers in `api.py` (`_agent_response`, `_provider_response`,
   `_mcp_source_response` with `_mask_secrets`, `_connector_response`, the
   secrets `_response`, the settings responses) and the two inline views
@@ -706,13 +710,22 @@ match the changed lists runs, not only the owning one.
       (`chats-list.js`, `chat-pane.js`, `agent-drawer.js`, `jump-to.js`,
       `agent-picker.js`, `session-flow.js`, `transcript.js`) with the browser
       tests that pin them.
-- [ ] `gleepglorp-knows-the-app` - DD4, DD5, DD6, DD7 (the Memory section):
-      the Memory and Web access settings take effect, the notes table and
-      repository, the shared read views and
-      `read_app_config`, the app guide with its tool, drift test and packaging,
-      web tools under the switches, the shipped prompt with link and pasted-key
-      guidance, `/api/info` and Settings › Prompts, and the allowlist and
-      secret-parity tests.
+- [ ] `gleepglorp-reads-the-app` - DD5 (split from the original
+      `gleepglorp-knows-the-app` during execution; see the flight log): the
+      shared view module moved out of `api.py`, strict masking,
+      `read_app_config`, the read-only proof, the allowlist and secret-parity
+      tests, `SECURITY-MODEL.md`.
+- [x] ~~`gleepglorp-guide-memory-web`~~ - aborted before starting; split at its
+      design review into the three legs below (flight log).
+- [ ] `gleepglorp-memory-and-web` - DD4, the web part of DD5, DD7 (the Memory
+      section): the GleepGlorp notes repository and tools, its notes heading,
+      the Memory section, the notes routes, the web tools under the switch,
+      `web_search_available` and its hint.
+- [ ] `gleepglorp-guide` - DD6 (the guide): the topic files, `get_app_guide`,
+      the drift and format test, package data in every installer.
+- [ ] `gleepglorp-prompt` - DD6 (the prompt): the shipped prompt (version 1),
+      its token measurement, `/api/info` `gleepglorp_prompt` and the Prompts
+      block.
 - [ ] `prompt-and-evals` - DD12: the builder switch in the harness, the new
       checks, the scenario set, measured rounds under the budget and stop
       rule, the baseline, the operator's Haiku pass bar, small-model readings

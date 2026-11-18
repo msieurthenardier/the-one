@@ -27,6 +27,7 @@ PREFIXES = (
     "/api/knowledge-bases",
     "/api/mcp-sources",
     "/api/secrets",
+    "/api/gleepglorp",
 )
 
 CHECKED = {
@@ -50,6 +51,7 @@ _ITEM = "acts on a knowledge base item; the knowledge base name is untouched"
 _PROVIDER_ACTION = "acts on the provider in the path; its name is untouched"
 
 EXEMPT = {
+    ("PUT", "/api/gleepglorp"): "GleepGlorp's settings (a provider id, a model id); no name is set",
     ("PUT", "/api/agents/{name}"): "the name is forced from the path of an existing row",
     (
         "PUT",

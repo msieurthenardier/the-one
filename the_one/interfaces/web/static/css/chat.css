@@ -262,12 +262,23 @@
     color: var(--fg-secondary);
   }
   .area-chat .chat-new-state-pick { margin-top: 8px; }
+  .area-chat .chat-new-state-model {
+    margin: 0;
+    font-size: var(--font-size-body-sm);
+    font-family: var(--font-family-mono);
+    color: var(--fg-secondary);
+  }
   .area-chat .chat-chrome--new .messages { flex: 0 1 auto; }
   .area-chat .chat-chrome--new .messages:empty { padding: 0; }
 
   /* The health banner is App.ui.banner (a persistent warning live region above the composer);
      only its place in the chrome column is the area's. */
   .area-chat .chat-health-banner { flex-shrink: 0; }
+  .area-chat .chat-health-banner .btn { margin-left: 12px; vertical-align: middle; }
+  /* M36 F1 L04: the new-chat state's GleepGlorp setup block (a warning banner, then the one
+     action); both are library controls, this only spaces them. */
+  .area-chat .chat-new-gleepglorp-setup { width: 100%; text-align: left; }
+  .area-chat .chat-new-gleepglorp-setup-action { margin-top: 4px; }
   .area-chat .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
   /* MCP OAuth "Login required" button rendered inline in the chat history.
      The .messages container is a flex column with default align-items:

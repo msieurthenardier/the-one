@@ -203,7 +203,7 @@ include = ["the_one*"]
 # save_pretrained emits (README.md, config.json, model.safetensors,
 # modules.json, tokenizer.json) — model2vec's loader validates the layout, so a
 # partial glob fails at load rather than degrading silently.
-the_one = ["interfaces/web/static/**/*", "llm/data/*.json", "embeddings/data/**/*", "visuals/fonts/*"]
+the_one = ["interfaces/web/static/**/*", "llm/data/*.json", "embeddings/data/**/*", "visuals/fonts/*", "gleepglorp/guide/*.md"]
 
 [build-system]
 requires = ["setuptools>=75"]

@@ -1962,6 +1962,9 @@
   .badge--openrouter { background: var(--badge-openrouter); color: var(--badge-ink-openrouter); }
   .badge--remote { background: var(--badge-remote); color: var(--badge-ink-remote); }
   .badge--unknown { background: var(--badge-unknown); color: var(--badge-ink-unknown); }
+  /* M36 F1 L04: the neutral "Built in" badge (GleepGlorp). A quiet hairline chip on the
+     surface ladder; --fg-secondary on --surface-elevated is already a gated body-AA pair. */
+  .badge--builtin { background: var(--surface-elevated); color: var(--fg-secondary); box-shadow: inset 0 0 0 1px var(--border); }
   /* A text-less 8px disc in a kind's fill (reference spec section 6.1: the
      agents list's provider dot, an item.lead). Decorative: always aria-hidden,
      with the meaning carried in text (the row's accessible name). --none is a

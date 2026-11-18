@@ -113,13 +113,16 @@ def _neutralise(text: str) -> str:
     return _DELIM_RE.sub(r"&lt;\1", text)
 
 
-def render_notes_block(notes: Sequence[Any], *, tools: bool = True) -> str:
+def render_notes_block(
+    notes: Sequence[Any], *, tools: bool = True, heading: str | None = None
+) -> str:
     """The DD9 notes layer: heading, blank line, then a ``<saved_notes>`` block.
 
     Each note renders ``[n] text`` (``[n] (unverified) text`` when untrusted).
     ``<saved_notes`` / ``</saved_notes`` inside a note's text are neutralised
     case-insensitively so a note cannot close the block. ``tools=False`` uses
-    :data:`NOTES_HEADING_TOOL_FREE` (no saving instructions).
+    :data:`NOTES_HEADING_TOOL_FREE` (no saving instructions). ``heading`` replaces
+    the heading text outright (GleepGlorp's own); ``None`` keeps the defaults.
     """
     if notes:
         lines = [
@@ -129,7 +132,8 @@ def render_notes_block(notes: Sequence[Any], *, tools: bool = True) -> str:
         body = "\n".join(lines)
     else:
         body = NOTES_EMPTY_TEXT
-    heading = NOTES_HEADING if tools else NOTES_HEADING_TOOL_FREE
+    if heading is None:
+        heading = NOTES_HEADING if tools else NOTES_HEADING_TOOL_FREE
     return f"{heading}\n\n<saved_notes>\n{body}\n</saved_notes>"
 
 

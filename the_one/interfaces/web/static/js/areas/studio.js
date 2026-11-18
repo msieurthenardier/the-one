@@ -648,9 +648,8 @@ App.registerArea({
       }
       libraryPane.render();
     });
-    App.store.subscribe('agents', function () {
-      libraryPane.render(); // the "{n} agents" counts
-    });
+    App.store.subscribe('agents', function () { libraryPane.render(); }); // "{n} agents"
+    App.gleepglorp.subscribe(function () { libraryPane.render(); }); // GleepGlorp in a provider meta
 
 
     self._refresh = function () {

@@ -49,6 +49,10 @@
         var errActive = chatState.activeId();
         if (errActive && state.inFlightSessions[errActive]) {
           delete state.inFlightSessions[errActive];
+          // M36 F1 L04: clearLiveRefresh wipes the own-turn flag AND a re-join that waited for
+          // this turn (a settings push that landed meanwhile); that one must still run, so it
+          // is read first and performed after the turn's reset below.
+          var waitedForTurn = !!state.refreshAfterTurn[errActive];
           ctx.sessionFlow.clearLiveRefresh(errActive);
           // Also clear any pending queued message — the session is no longer
           // processing so the queue slot is moot (the error terminated the turn).
@@ -58,6 +62,8 @@
           if (errHeld) ctx.transcript.addDiscardedNotice(errHeld);
           ctx.send.updateStopControl();
           ctx.applyComposerState();
+          // A re-join that waited for this turn (a push that landed meanwhile) runs now.
+          if (waitedForTurn) ctx.sessionFlow.rejoinForUpdate(errActive);
         }
       }
     }

@@ -2421,6 +2421,14 @@ class AgentNoteRepository:
             return None
         return await self.list_for_agent(name)
 
+    async def count_for_agent(self, name: str) -> int:
+        """How many notes the agent holds (a read-only count; never the text)."""
+        async with self.conn.execute(
+            "SELECT COUNT(*) FROM agent_notes WHERE agent_name = ?", (name,)
+        ) as cur:
+            row = await cur.fetchone()
+        return int(row[0]) if row else 0
+
     async def list_for_agent(self, name: str) -> list[AgentNote]:
         async with self.conn.execute(
             f"SELECT {self._COLS} {self._FROM} WHERE n.agent_name = ? ORDER BY n.number",

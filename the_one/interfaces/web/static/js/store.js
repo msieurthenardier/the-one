@@ -143,9 +143,13 @@
     return n;
   }
 
-  // Agents whose provider is `providerId`.
-  function providerAgents(agents, providerId) {
-    return countAgents(agents, function (a) { return a.provider_config_id === providerId; });
+  // Agents whose provider is `providerId`. `gleepglorp` (GleepGlorp's settings, optional;
+  // M36 F1 L03) adds 1 when GleepGlorp uses that provider: it has no agents row, so it is
+  // never in `agents`.
+  function providerAgents(agents, providerId, gleepglorp) {
+    var n = countAgents(agents, function (a) { return a.provider_config_id === providerId; });
+    if (gleepglorp && gleepglorp.provider_config_id === providerId) n += 1;
+    return n;
   }
 
   // Agents with the knowledge base `kbId` attached.

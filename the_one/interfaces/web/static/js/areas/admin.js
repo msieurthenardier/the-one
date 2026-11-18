@@ -56,7 +56,7 @@ App.registerArea({
     }
 
 
-    var validIds = this.GENERAL_SUBS.concat(['tools', 'knowledge']);
+    var validIds = this.GENERAL_SUBS.concat(['tools', 'knowledge', 'gleepglorp']);
     if (validIds.indexOf(sub) === -1) return;
 
     // Set category FIRST — _setCategory wipes pending state on category change,
@@ -222,6 +222,7 @@ App.registerArea({
       // Every page render replaces the content; Built-in tools mounts a fresh
       // scaffold.
       destroyKnowledgePage();
+      destroyGleepGlorpPage();
       destroyGeneralPage();
       tools.reset();
       if (GENERAL_RENDERERS[currentCategory]) {
@@ -230,7 +231,28 @@ App.registerArea({
         tools.render();
       } else if (currentCategory === 'knowledge') {
         renderKnowledgePanel();
+      } else if (currentCategory === 'gleepglorp') {
+        renderGleepGlorpPanel();
       }
+    }
+
+    // ── GleepGlorp page (M36 F1 L03, DD7) ─────────────────────────────
+    // Like Knowledge indexing, the whole category is one form: it delegates to the
+    // sub-module and bridges its dirty state onto the shared `dirty` mirror.
+    var gleepglorpPage = null;
+    function destroyGleepGlorpPage() {
+      if (gleepglorpPage) {
+        gleepglorpPage.destroy();
+        gleepglorpPage = null;
+      }
+    }
+    function renderGleepGlorpPanel() {
+      destroyGleepGlorpPage();
+      editorDomStale = false;
+      dirty = false;
+      gleepglorpPage = App.admin.renderGleepGlorpPage(contentEl, {
+        onDirtyChange: function (d) { dirty = d; }
+      });
     }
 
     // ── Knowledge Panel (F6 leg 04, DD-7) ─────────────────────────────
@@ -267,6 +289,9 @@ App.registerArea({
         // silently clobbers an unsaved edit. A dirty knowledge panel simply
         // keeps showing its own state.
         renderKnowledgePanel();
+      } else if (currentCategory === 'gleepglorp' && !dirty) {
+        // Same rule as Knowledge: a dirty page keeps its own state.
+        renderGleepGlorpPanel();
       }
     };
     // Leave-guard source (M25 F2 L5, DD5). `isDirty` is the
@@ -275,7 +300,8 @@ App.registerArea({
     // `discard` is teardown only (never a URL write) and bumps editorGen.
     function editorOpen() {
       return (currentCategory === 'tools' && tools.isOpen())
-        || currentCategory === 'knowledge';
+        || currentCategory === 'knowledge'
+        || currentCategory === 'gleepglorp';
     }
     self._discardEditor = function () {
       editorGen += 1;
@@ -290,6 +316,8 @@ App.registerArea({
         destroyGeneralPage();
         if (currentCategory === 'knowledge') {
           destroyKnowledgePage();
+        } else if (currentCategory === 'gleepglorp') {
+          destroyGleepGlorpPage();
         } else {
           self._closeOpenItem();
           if (!tools.scaffoldFor(currentCategory)) editorDomStale = true;
@@ -339,7 +367,8 @@ App.registerArea({
       }
       // Knowledge has no grid/editor split (the whole panel is the form), so
       // re-hydrating it re-renders from the saved settings: Continue discards.
-      var itemOpen = !!(tools.toolFormMode || currentCategory === 'knowledge');
+      var itemOpen = !!(tools.toolFormMode || currentCategory === 'knowledge'
+        || currentCategory === 'gleepglorp');
       if (currentCategory !== sub || itemOpen || editorDomStale) {
         editorGen += 1;
         App.focusAfter.cancel();

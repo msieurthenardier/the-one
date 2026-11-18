@@ -30,8 +30,18 @@ if TYPE_CHECKING:
 # tool handled in ``core.py``) feeds back the model's own reason text. The routine
 # tools and ``current_time`` carry no outside text (DD7); ``list_my_routines`` is
 # trusted only while its result lacks the sentinel below.
+# ``get_app_guide`` (M36 F1 L07, GleepGlorp's help topics) returns text shipped in the
+# package, never outside content; the literal matches ``GET_APP_GUIDE_TOOL_NAME`` in
+# ``the_one/gleepglorp/guide_tool.py`` (a test pins it; that module imports the tool base).
 TRUSTED_TOOL_NAMES = frozenset(
-    {*NOTES_TOOL_NAMES, *ROUTINE_TOOL_NAMES, CURRENT_TIME_TOOL_NAME, "search_tools", "continue"}
+    {
+        *NOTES_TOOL_NAMES,
+        *ROUTINE_TOOL_NAMES,
+        CURRENT_TIME_TOOL_NAME,
+        "search_tools",
+        "continue",
+        "get_app_guide",
+    }
 )
 
 # The first line of a ``list_my_routines`` result when any listed routine or pending

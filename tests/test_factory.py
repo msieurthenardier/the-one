@@ -9,8 +9,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from conftest import FakeLLM, StubTool
 
-from tests._platform_prompt_pins import PLATFORM_TOOLS_ALL_ON_PIN as PLATFORM_TOOLS
-from the_one.agent.config import AgentConfig, compose_system_prompt
+from the_one.agent.config import AgentConfig
 from the_one.agent.core import CONTINUE_SCHEMA, SEARCH_TOOLS_SCHEMA
 from the_one.agent.factory import AgentFactory
 from the_one.db.models import LLMProviderConfig, ToolConfig
@@ -186,28 +185,40 @@ def builtin_factory(store: InMemoryStore) -> AgentFactory:
 # ---------------------------------------------------------------------------
 
 
-class TestDefaultAgent:
-    async def test_create_default_raises_without_provider(self, store: InMemoryStore) -> None:
-        """Default agent has no provider_config_id, so create() should raise."""
-        with patch("the_one.agent.factory.settings") as mock_settings:
+class TestNoDefaultAgent:
+    """M36 F1 L03: there is no Default agent; create() with no name builds GleepGlorp."""
+
+    async def test_create_with_no_name_needs_a_gleepglorp_model(self, store: InMemoryStore) -> None:
+        from the_one.agent.factory import GleepGlorpUnavailableError
+        from the_one.gleepglorp.settings import GleepGlorpSettings
+
+        with (
+            patch("the_one.agent.factory.settings") as mock_settings,
+            patch("the_one.db.connection.get_connection", new_callable=AsyncMock),
+            patch(
+                "the_one.gleepglorp.settings.load_settings",
+                AsyncMock(return_value=GleepGlorpSettings()),
+            ),
+        ):
             mock_settings.ensure_dirs = lambda: None
             factory = AgentFactory(store=store, tool_providers=[StubToolProvider()])
-            with pytest.raises(ValueError, match="no provider configured"):
+            with pytest.raises(GleepGlorpUnavailableError) as info:
                 await factory.create()
+            assert info.value.state == "needs_model"
+            assert isinstance(info.value, ValueError)
 
-    async def test_default_has_system_prompt(self, store: InMemoryStore) -> None:
-        """Default config should have a system prompt even without a provider."""
-        factory = AgentFactory(store=store, tool_providers=[StubToolProvider()])
-        # Use _default_config directly since create() will fail without provider
-        config = factory._default_config()
-        assert compose_system_prompt(PLATFORM_TOOLS, config.system_prompt) != ""
+    async def test_default_is_an_unknown_agent(self, factory: AgentFactory) -> None:
+        from the_one.agent.factory import AgentNotFoundError
+
+        with pytest.raises(AgentNotFoundError):
+            await factory.create("default")
 
 
 class TestSecretResolverInjection:
     """Sortie 10 DD7 (AC7): every factory-built Agent has a resolver, grants or not."""
 
     @pytest.mark.parametrize(
-        ("name", "secret_ids"), [("plain", []), ("granted", ["s1"]), ("default", [])]
+        ("name", "secret_ids"), [("plain", []), ("granted", ["s1"]), ("assistant", [])]
     )
     async def test_every_agent_has_a_resolver(
         self, factory: AgentFactory, store: InMemoryStore, name: str, secret_ids: list[str]
@@ -890,9 +901,8 @@ class TestNotesToolWiring:
 
 
 class TestListAgents:
-    async def test_includes_default(self, factory: AgentFactory) -> None:
-        names = await factory.list_agents()
-        assert "default" in names
+    async def test_lists_no_default(self, factory: AgentFactory) -> None:
+        assert await factory.list_agents() == []
 
     async def test_includes_stored_agents(
         self, factory: AgentFactory, store: InMemoryStore
@@ -900,9 +910,7 @@ class TestListAgents:
         await store.save(AgentConfig(name="alpha"))
         await store.save(AgentConfig(name="bravo"))
         names = await factory.list_agents()
-        assert "default" in names
-        assert "alpha" in names
-        assert "bravo" in names
+        assert names == ["alpha", "bravo"]
 
 
 class TestProviderTypeMap:

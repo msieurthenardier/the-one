@@ -259,7 +259,7 @@ class TestRestoreSkipsRebuildDuringInflight:
 
                 return ChatSessionModel(
                     id=s.id,
-                    agent_name=None,
+                    agent_name="alpha",
                     title="DBTitle",
                     messages="[]",
                     created_at="2020-01-01T00:00:00",

@@ -398,14 +398,22 @@ class TestMessagePathUsesTheValidator:
         assert await _row_ids() == set()
         assert recorder.creates == []
 
-    async def test_bare_message_auto_creates_and_processes(self, recorder: _Recorder) -> None:
-        ws = FakeWebSocket([{"action": "message", "message": "hi"}, WaitFrame("done")])
+    async def test_bare_message_with_no_session_is_refused_and_creates_nothing(
+        self, recorder: _Recorder
+    ) -> None:
+        """M36 F1 L03: there is no Default agent, so a message with no session cannot start
+        a chat: the client gets "Cannot start chat: …" and nothing is stored."""
+        ws = FakeWebSocket([{"action": "message", "message": "hi"}, {"action": "list_sessions"}])
         await _run(ws)
-        joined = ws.frames("session_joined")
-        assert len(joined) == 1
-        sid = joined[0]["session_id"]
-        assert recorder.steps == [("default", "hi")]
-        assert await _persisted(sid) == [("user", "hi"), ("assistant", "reply to hi")]
+        assert ws.frames("session_joined") == []
+        assert (
+            ws.frames("system")[0]["content"]
+            == "Cannot start chat: Choose an agent to start a chat."
+        )
+        assert recorder.steps == []
+        assert recorder.creates == []
+        assert app_module._sessions == {}
+        assert await _row_ids() == set()
         assert _session_inflight == {}
 
 
@@ -521,8 +529,9 @@ _OVERSIZED = [
         (_start(_sid(7), agent=""), _sid(7), "Invalid agent name."),
         (_start(_sid(7), agent="default"), _sid(7), "Invalid agent name."),
         (_start(_sid(7), agent="Default"), _sid(7), "Invalid agent name."),
-        (_start(_sid(7), agent="GleepGlorp"), _sid(7), "Invalid agent name."),
+        # M36 F1 L04: exactly `GleepGlorp` is admitted (TestGleepGlorp); any other spelling is not.
         (_start(_sid(7), agent="gleepglorp"), _sid(7), "Invalid agent name."),
+        (_start(_sid(7), agent="GLEEPGLORP"), _sid(7), "Invalid agent name."),
         (_start(_sid(7), agent=7), _sid(7), "Invalid agent name."),
         (_start(_sid(7), message=""), _sid(7), "Message is empty."),
         (_start(_sid(7), message=None), _sid(7), "Message is empty."),
@@ -567,8 +576,8 @@ _OVERSIZED = [
         "agent-empty",
         "agent-default",
         "agent-Default",
-        "agent-GleepGlorp",
         "agent-gleepglorp",
+        "agent-GLEEPGLORP",
         "agent-int",
         "message-empty",
         "message-null",
@@ -892,6 +901,123 @@ class TestReservation:
 # ── AC6: the strict create ────────────────────────────────────────────────
 
 
+async def _gleepglorp(*, provider: str = "p1", **over: Any) -> None:
+    """Store GleepGlorp's settings (a provider row is inserted unless `provider` is not `p1`)."""
+    from the_one.gleepglorp import GleepGlorpSettings, save_settings
+
+    conn = await get_connection()
+    await conn.execute(
+        "INSERT OR IGNORE INTO llm_providers (id, name, type, base_url) "
+        "VALUES ('p1', 'P', 'ollama', 'http://x')"
+    )
+    await conn.commit()
+    fields: dict[str, Any] = {"provider_config_id": provider, "model": "m"}
+    fields.update(over)
+    await save_settings(conn, GleepGlorpSettings(**fields))
+
+
+_UNAVAILABLE = {
+    "off": ({"enabled": False}, "GleepGlorp is turned off.", "gleepglorp_off"),
+    "needs_model": (
+        {"provider_config_id": None, "model": None},
+        "GleepGlorp needs a model.",
+        "gleepglorp_needs_model",
+    ),
+    "provider_missing": (
+        {"provider": "gone"},
+        "GleepGlorp's model provider was removed.",
+        "gleepglorp_provider_missing",
+    ),
+}
+
+
+class TestGleepGlorp:
+    """M36 F1 L04: the built-in assistant over the WebSocket."""
+
+    async def test_start_admits_the_exact_name_and_runs_the_turn(self, recorder: _Recorder) -> None:
+        sid = _sid(70)
+        await _gleepglorp()
+        ws = FakeWebSocket([_start(sid, "hi", agent="GleepGlorp"), WaitFrame("done")])
+        await _run(ws)
+        assert ws.sent[0]["status"] == "ok"
+        assert ws.sent[0]["agent_name"] == "GleepGlorp"
+        assert (await (await _repo()).get(sid)).agent_name == "GleepGlorp"
+        assert recorder.steps == [("GleepGlorp", "hi")]
+
+    @pytest.mark.parametrize("state", sorted(_UNAVAILABLE))
+    async def test_start_unavailable_sends_the_sentence_and_stores_nothing(
+        self, recorder: _Recorder, state: str
+    ) -> None:
+        from the_one.agent.factory import GleepGlorpUnavailableError
+
+        sid = _sid(71)
+        recorder.fail_create = GleepGlorpUnavailableError(state)
+        ws = FakeWebSocket([_start(sid, "hi", agent="GleepGlorp"), {"action": "list_sessions"}])
+        await _run(ws)
+        failed = ws.frames("start_failed")
+        assert [f["error"] for f in failed] == [_UNAVAILABLE[state][1]]
+        assert await _row_ids() == set()
+        assert recorder.steps == []
+
+    @pytest.mark.parametrize("state", sorted(_UNAVAILABLE))
+    async def test_join_of_a_stored_chat_is_degraded_with_its_status(
+        self, recorder: _Recorder, state: str
+    ) -> None:
+        from the_one.agent.factory import GleepGlorpUnavailableError
+
+        sid = _sid(72)
+        await _precreate(sid, "GleepGlorp")
+        app_module._sessions.pop(sid, None)
+        recorder.fail_create = GleepGlorpUnavailableError(state)
+        ws = FakeWebSocket([{"action": "join", "session_id": sid}])
+        await _run(ws)
+        joined = ws.frames("session_joined")
+        assert [f["status"] for f in joined] == [_UNAVAILABLE[state][2]]
+        assert joined[0]["agent_name"] == "GleepGlorp"
+        assert app_module.RestoredSession(None, _UNAVAILABLE[state][2]).is_degraded
+
+    @pytest.mark.parametrize("state", sorted(_UNAVAILABLE))
+    async def test_a_message_is_refused_from_the_settings_read_now(
+        self, recorder: _Recorder, state: str
+    ) -> None:
+        sid = _sid(73)
+        await _gleepglorp()
+        await _precreate(sid, "GleepGlorp")  # built while ready: the session caches that
+        await _gleepglorp(**_UNAVAILABLE[state][0])
+        ws = FakeWebSocket(
+            [
+                {"action": "list_sessions"},
+                Do(lambda: app_module.add_subscriber(sid, ws)),
+                Do(lambda: _spawn_to(sid, ws, "hello")),
+                WaitFrame("system"),
+            ]
+        )
+        await _run(ws)
+        assert [f["content"] for f in ws.frames("system")] == [_UNAVAILABLE[state][1]]
+        assert ws.frames("done") == []
+        assert recorder.steps == []
+        assert await _persisted(sid) == []
+
+    async def test_a_message_runs_while_ready(self, recorder: _Recorder) -> None:
+        sid = _sid(74)
+        await _gleepglorp()
+        await _precreate(sid, "GleepGlorp")
+        ws = FakeWebSocket(
+            [
+                {"action": "list_sessions"},
+                Do(lambda: app_module.add_subscriber(sid, ws)),
+                Do(lambda: _spawn_to(sid, ws, "hello")),
+                WaitFrame("done"),
+            ]
+        )
+        await _run(ws)
+        assert recorder.steps == [("GleepGlorp", "hello")]
+
+
+def _spawn_to(sid: str, ws: Any, text: str) -> None:
+    app_module._spawn_web_message(app_module._sessions[sid], text, ws)
+
+
 class TestStrictCreate:
     @pytest.mark.parametrize("failure", ["factory", "persist"])
     async def test_create_failure_leaves_nothing_and_keeps_the_binding(
@@ -1104,14 +1230,16 @@ class TestJoinFailed:
         # One rebuild for the first join; none for the failed one.
         assert len(recorder.creates) == creates_before + 1
 
-    async def test_join_without_an_id_still_auto_creates(self, recorder: _Recorder) -> None:
-        ws = FakeWebSocket([{"action": "join"}])
+    async def test_join_without_an_id_is_refused_and_creates_nothing(
+        self, recorder: _Recorder
+    ) -> None:
+        ws = FakeWebSocket([{"action": "join"}, {"action": "list_sessions"}])
         await _run(ws)
-        joined = ws.frames("session_joined")
-        assert len(joined) == 1
-        assert len(joined[0]["session_id"]) == 12
-        assert await _row_ids() == {joined[0]["session_id"]}
-        assert recorder.creates == ["default"]
+        assert ws.frames("session_joined") == []
+        assert ws.frames("system")[0]["content"].startswith("Cannot start chat: ")
+        assert recorder.creates == []
+        assert app_module._sessions == {}
+        assert await _row_ids() == set()
 
 
 # ── AC8b: the restore guard ───────────────────────────────────────────────

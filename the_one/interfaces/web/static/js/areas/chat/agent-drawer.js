@@ -79,11 +79,9 @@
 // agent, and App.store.get for `knowledge-bases` and `mcp-sources` once per
 // open (cached, so usually no request). Responses from an earlier open are
 // dropped.
-// Three explicit non-agent states, each with no settings link:
-//   default   a null agent, or "default" not in the `agents` store: "Default
-//             agent", "The default agent"
-//   deleted   a name not in the LOADED `agents` store: the name, "This agent
-//             no longer exists"
+// Non-agent states (App.chat.agentKind): gleepglorp (M36 L04: "Built in" badge, its settings
+// facts, no per-agent fetches, footer to #settings/gleepglorp); deleted (a null agent, "Unknown
+// agent", or a name not in the LOADED `agents` store: "This agent no longer exists", no link)
 //   loading   the `agents` store not loaded yet, or the header's agent line
 //             still blank: a neutral "Loading…", never "deleted"
 //
@@ -191,6 +189,7 @@
     var applying = false;
     var openGen = 0;
     var current = null; // the agent name the settings link opens
+    var ggView = false; // the view is GleepGlorp: the link opens its settings
     var configs = { gen: -1, status: 'idle', value: null };
     var selfConf = { gen: -1, agent: null, status: 'idle', value: null };
     var rulesState = { gen: -1, agent: null, status: 'idle', value: null };
@@ -257,11 +256,11 @@
     toggle.hidden = true;
 
     function openSettings() {
-      var name = current;
-      if (!name) return;
-      App.router.go(App.router.href({ destination: 'agents', id: name }), { opener: settingsBtn })
+      if (!current && !ggView) return;
+      var href = App.chat.agentKind(ggView ? App.chat.GLEEPGLORP : current).settingsHref;
+      App.router.go(href, { opener: settingsBtn })
         .then(function (navigated) {
-          if (navigated && App.studio && typeof App.studio.clearAgentFilter === 'function') {
+          if (navigated && !ggView && App.studio && typeof App.studio.clearAgentFilter === 'function') {
             App.studio.clearAgentFilter();
           }
         });
@@ -272,24 +271,19 @@
       if (!view) return { kind: 'none' };
       if (view.loading) return { kind: 'loading' };
       var name = view.agent;
-      if (!name) return { kind: 'default' };
-      var peek = App.store.peek('agents');
-      var row = findBy(peek.value, 'name', name);
-      if (row) return { kind: 'agent', name: name, row: row };
-      if (name === 'default') return { kind: 'default' };
-      if (!peek.loaded) return { kind: 'loading' };
-      return { kind: 'deleted', name: name };
+      if (!name) return { kind: 'deleted', name: 'Unknown agent' };
+      var kind = App.chat.agentKind(name).kind;
+      if (kind === 'gleepglorp') return { kind: 'gleepglorp' };
+      if (kind === 'agent') return { kind: 'agent', name: name, row: findBy(App.store.peek('agents').value, 'name', name) };
+      return kind === 'loading' ? { kind: 'loading' } : { kind: 'deleted', name: name };
     }
 
     // The `sessions` rows of this agent, connector sessions included (DD4).
-    // A null name counts the default agent's rows (no agent, or "default").
     function chatsCount(name) {
       var rows = arr(App.store.peek('sessions').value);
       var n = 0;
       for (var i = 0; i < rows.length; i++) {
-        if (!rows[i]) continue;
-        var a = rows[i].agent_name || null;
-        if (name ? a === name : (a === null || a === 'default')) n += 1;
+        if (rows[i] && rows[i].agent_name === name) n += 1;
       }
       return n;
     }
@@ -534,7 +528,7 @@
 
       box.appendChild(rulesGroup(agent.name));
       box.appendChild(notesGroup());
-      if (agent.name && agent.name !== 'default') box.appendChild(App.chat.drawerParts.routinesGroup(routinesState));
+      box.appendChild(App.chat.drawerParts.routinesGroup(routinesState));
 
       var kbStatus = storeStatus('knowledge-bases');
       var kbs = [];
@@ -596,6 +590,7 @@
       var providers = App.store.peek('providers').value;
       content.textContent = '';
       current = null;
+      ggView = info.kind === 'gleepglorp';
       var name = '';
       var type = null;
       if (info.kind === 'agent') {
@@ -619,10 +614,10 @@
         var needsEl = App.chat.drawerParts.noticesGroup(info.name, info.row.notices);
         if (needsEl) content.appendChild(needsEl);
         content.appendChild(uses(info.row));
-      } else if (info.kind === 'default') {
-        name = 'Default agent';
-        content.appendChild(note('The default agent'));
-        content.appendChild(facts([['Chats', String(chatsCount(null))]]));
+      } else if (info.kind === 'gleepglorp') {
+        name = App.chat.GLEEPGLORP;
+        type = 'builtin';
+        App.chat.drawerParts.gleepglorpBody(App.chat.gleepglorpSettings(), providers).forEach(function (n) { content.appendChild(n); });
       } else if (info.kind === 'deleted') {
         name = info.name;
         content.appendChild(note('This agent no longer exists'));
@@ -633,8 +628,9 @@
       nameEl.textContent = name;
       nameEl.hidden = !name;
       var kind = type && App.ui.badge.KINDS.indexOf(type) !== -1 ? type : 'unknown';
-      badge.set({ kind: kind, text: type || '' });
-      footerEl.hidden = info.kind !== 'agent';
+      badge.set({ kind: kind, text: ggView ? 'Built in' : (type || '') });
+      footerEl.hidden = info.kind !== 'agent' && !ggView;
+      settingsBtn.lastChild.nodeValue = ggView ? 'Open GleepGlorp settings' : 'Open agent settings';
     }
 
     // The per-open fetches (only while open, for a known agent).
@@ -713,9 +709,9 @@
     function renderKey() {
       var want = active && !!view && !!state.open[state.mode];
       var info = want ? describe() : { kind: 'none' };
-      var n = info.kind === 'default' ? chatsCount(null) : null;
-      if (info.kind === 'agent' || info.kind === 'deleted') n = chatsCount(info.name);
-      return JSON.stringify([view, state.mode, want, n]);
+      var n = info.kind === 'agent' || info.kind === 'deleted' ? chatsCount(info.name) : null;
+      // A GleepGlorp view re-renders on a settings push.
+      return JSON.stringify([view, state.mode, want, n, info.kind === 'gleepglorp' ? App.chat.gleepglorpSettings() : null]);
     }
 
     function render() {
@@ -756,6 +752,8 @@
       }));
     }
     for (var s = 0; s < STORES.length; s++) subscribeStore(STORES[s]);
+    // GleepGlorp's settings are a module of their own, not an App.store collection (M36 L04).
+    unsubs.push(App.gleepglorp.subscribe(function () { if (renderKey() !== lastKey) render(); }));
 
     function destroy() {
       for (var i = 0; i < unsubs.length; i++) unsubs[i]();

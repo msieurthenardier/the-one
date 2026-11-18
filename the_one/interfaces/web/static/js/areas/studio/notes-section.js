@@ -80,6 +80,55 @@
     return wrap;
   }
 
+  // The row's frame: the list item, the [n] number and the body column.
+  function noteRowShell(note) {
+    var row = el('li', 'notes-row');
+    row.setAttribute('data-testid', 'notes-row');
+    row.setAttribute('data-id', note.id);
+    row.setAttribute('data-number', String(note.number));
+    row.appendChild(el('span', 'notes-row-number', '[' + note.number + ']'));
+    row.appendChild(el('div', 'notes-row-body'));
+    return row;
+  }
+
+  // One note's read-only row: text, the "Check this" flag, time, origin and "Edited by
+  // you", then `opts.actions` (an element, or null) at the end. Pure: no state and no
+  // callbacks, so the agent Notes tab and GleepGlorp's Memory section share it. The note's
+  // text is attacker-influenced and is written with textContent only.
+  function noteRow(note, opts) {
+    var row = noteRowShell(note);
+    var body = row.querySelector('.notes-row-body');
+
+    var textEl = el('p', 'rules-row-text notes-row-text', note.text);
+    textEl.setAttribute('data-testid', 'notes-row-text');
+    body.appendChild(textEl);
+
+    var meta = el('div', 'notes-row-meta');
+    meta.setAttribute('data-testid', 'notes-row-meta');
+    if (note.untrusted) {
+      var check = App.ui.noteFlag({ sources: note.untrusted_sources || [] });
+      check.setAttribute('data-testid', 'notes-row-flag');
+      meta.appendChild(check);
+    }
+    var changed = note.updated_at && note.updated_at !== note.created_at;
+    var when = formatWhen(changed ? note.updated_at : note.created_at);
+    if (when) {
+      var time = el('span', 'notes-row-time', (changed ? 'Updated ' : '') + when);
+      time.setAttribute('data-testid', 'notes-row-time');
+      meta.appendChild(time);
+    }
+    meta.appendChild(buildOrigin(note));
+    if (note.updated_by === 'operator') {
+      var edited = el('span', 'notes-row-edited', 'Edited by you');
+      edited.setAttribute('data-testid', 'notes-row-edited');
+      meta.appendChild(edited);
+    }
+    body.appendChild(meta);
+
+    if (opts && opts.actions) row.appendChild(opts.actions);
+    return row;
+  }
+
   function buildNotesSection(panel, agent, cb) {
     var name = agent.name || '';
     var section = makeSection(panel, 'notes', 'Notes');
@@ -176,16 +225,10 @@
 
     function buildRow(note) {
       var label = 'note ' + note.number;
-      var row = el('li', 'notes-row');
-      row.setAttribute('data-testid', 'notes-row');
-      row.setAttribute('data-id', note.id);
-      row.setAttribute('data-number', String(note.number));
-      row.appendChild(el('span', 'notes-row-number', '[' + note.number + ']'));
-
-      var body = el('div', 'notes-row-body');
-      row.appendChild(body);
 
       if (editingId === note.id) {
+        var row = noteRowShell(note);
+        var body = row.querySelector('.notes-row-body');
         var editor = buildInlineEditor({
           value: note.text,
           max: maxChars,
@@ -220,32 +263,6 @@
         return row;
       }
 
-      var textEl = el('p', 'rules-row-text notes-row-text', note.text);
-      textEl.setAttribute('data-testid', 'notes-row-text');
-      body.appendChild(textEl);
-
-      var meta = el('div', 'notes-row-meta');
-      meta.setAttribute('data-testid', 'notes-row-meta');
-      if (note.untrusted) {
-        var check = App.ui.noteFlag({ sources: note.untrusted_sources || [] });
-        check.setAttribute('data-testid', 'notes-row-flag');
-        meta.appendChild(check);
-      }
-      var changed = note.updated_at && note.updated_at !== note.created_at;
-      var when = formatWhen(changed ? note.updated_at : note.created_at);
-      if (when) {
-        var time = el('span', 'notes-row-time', (changed ? 'Updated ' : '') + when);
-        time.setAttribute('data-testid', 'notes-row-time');
-        meta.appendChild(time);
-      }
-      meta.appendChild(buildOrigin(note));
-      if (note.updated_by === 'operator') {
-        var edited = el('span', 'notes-row-edited', 'Edited by you');
-        edited.setAttribute('data-testid', 'notes-row-edited');
-        meta.appendChild(edited);
-      }
-      body.appendChild(meta);
-
       var actions = el('div', 'rules-row-actions');
       var edit = App.ui.button({
         variant: 'ghost',
@@ -278,8 +295,7 @@
       del.setAttribute('data-testid', 'notes-row-delete');
       actions.appendChild(edit);
       actions.appendChild(del);
-      row.appendChild(actions);
-      return row;
+      return noteRow(note, { actions: actions });
     }
 
     function renderList() {
@@ -356,4 +372,6 @@
   }
 
   window.App.studio.buildNotesSection = buildNotesSection;
+  window.App.studio.noteRow = noteRow;
+  window.App.studio.formatNotesCount = formatCount;
 })();
