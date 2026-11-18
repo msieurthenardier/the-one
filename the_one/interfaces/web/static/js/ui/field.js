@@ -267,35 +267,76 @@
   // flush: true drops the group's trailing margin (field-group--flush), so the
   //   control's bottom edge is the group's, for a control that shares a row.
   // setLabel(text) replaces the visible label text.
+  // Group mode (sortie 18 L01, flight DD2): group (an element, instead of control) names a
+  //   set of controls, such as a keyValueTable's el. The wrapper is div.field-group with
+  //   role="group" and aria-labelledby pointing at div.field-group-caption (the label text;
+  //   no <label>, nothing for it to point at). Children in order: caption, hint, group,
+  //   error. The hint and error ids join the WRAPPER's aria-describedby (hint first) and
+  //   are removed with their elements; the wrapper and the group never get aria-invalid or
+  //   is-invalid. controller.control is the group element. group with control, info or
+  //   labelHidden throws; a group may hold toggle columns (no own-label check). hintTestid,
+  //   errorTestid, testid, flush, setHint, setError and setLabel work as in normal mode.
   // The label is a direct child of the wrapper (the CSS keys off
   // .field-group > label). Hint and error elements each carry an id and are
   // joined into the control's aria-describedby, hint first, then error.
   App.ui.field = function (opts) {
     opts = opts || {};
-    var control = opts.control;
+    var groupMode = opts.group !== undefined && opts.group !== null;
+    var control = groupMode ? opts.group : opts.control;
+    if (groupMode) {
+      if (!opts.group || opts.group.nodeType !== 1) {
+        throw new Error('App.ui.field: group must be an element');
+      }
+      if (opts.control) throw new Error('App.ui.field: group and control are exclusive');
+      if (opts.info) throw new Error('App.ui.field: group does not take info');
+      if (opts.labelHidden) throw new Error('App.ui.field: group does not take labelHidden');
+    }
     if (!control || control.nodeType !== 1) throw new Error('App.ui.field: control must be an element');
     if (!opts.label) throw new Error('App.ui.field: label is required');
-    if (control.getAttribute('data-ui-own-label') === 'true' ||
-        (control.querySelector && control.querySelector('[data-ui-own-label="true"]'))) {
-      throw new Error('field: checkbox/toggle carry their own label');
+    if (!groupMode) {
+      if (control.getAttribute('data-ui-own-label') === 'true' ||
+          (control.querySelector && control.querySelector('[data-ui-own-label="true"]'))) {
+        throw new Error('field: checkbox/toggle carry their own label');
+      }
+      if (!control.id) control.id = App.ui.util.uid('ctl');
     }
-    if (!control.id) control.id = App.ui.util.uid('ctl');
 
-    var label = App.ui.util.el('label', {
-      className: opts.labelHidden ? 'visually-hidden' : null,
-      text: opts.label
-    });
-    label.htmlFor = control.id;
-    var info = opts.info ? App.ui.infoButton({ description: opts.info, label: opts.label }) : null;
-    var head = info ? App.ui.util.el('div', { className: 'field-group-label' }, [label, info.el]) : label;
-    var wrapper = App.ui.util.el('div', {
-      className: opts.flush ? 'field-group field-group--flush' : 'field-group'
-    }, [head, opts.host || control]);
+    var label;
+    var info = null;
+    var head;
+    var wrapper;
+    if (groupMode) {
+      label = App.ui.util.el('div', {
+        className: 'field-group-caption',
+        id: App.ui.util.uid('cap'),
+        text: opts.label
+      });
+      head = label;
+      wrapper = App.ui.util.el('div', {
+        className: opts.flush ? 'field-group field-group--flush' : 'field-group',
+        role: 'group',
+        'aria-labelledby': label.id
+      }, [head, control]);
+    } else {
+      label = App.ui.util.el('label', {
+        className: opts.labelHidden ? 'visually-hidden' : null,
+        text: opts.label
+      });
+      label.htmlFor = control.id;
+      info = opts.info ? App.ui.infoButton({ description: opts.info, label: opts.label }) : null;
+      head = info ? App.ui.util.el('div', { className: 'field-group-label' }, [label, info.el]) : label;
+      wrapper = App.ui.util.el('div', {
+        className: opts.flush ? 'field-group field-group--flush' : 'field-group'
+      }, [head, opts.host || control]);
+    }
     if (opts.testid) wrapper.setAttribute('data-testid', opts.testid);
 
     var hintEl = null;
     var errorEl = null;
-    var foreign = tokens(control.getAttribute('aria-describedby'));
+    // Group mode: the wrapper carries aria-describedby and nothing is ever marked invalid.
+    var describeTarget = groupMode ? wrapper : control;
+    var invalidTarget = groupMode ? null : control;
+    var foreign = tokens(describeTarget.getAttribute('aria-describedby'));
     if (info) foreign.push(info.descriptionId);
 
     function wire() {
@@ -303,9 +344,9 @@
       if (hintEl) ids.push(hintEl.id);
       if (errorEl) ids.push(errorEl.id);
       if (ids.length) {
-        control.setAttribute('aria-describedby', ids.join(' '));
+        describeTarget.setAttribute('aria-describedby', ids.join(' '));
       } else {
-        control.removeAttribute('aria-describedby');
+        describeTarget.removeAttribute('aria-describedby');
       }
     }
 
@@ -324,7 +365,8 @@
           text: message
         });
         if (opts.hintTestid) hintEl.setAttribute('data-testid', opts.hintTestid);
-        wrapper.insertBefore(hintEl, errorEl);
+        // Group mode: the hint sits directly after the caption, before the group element.
+        wrapper.insertBefore(hintEl, groupMode ? head.nextSibling : errorEl);
       }
       wire();
     }
@@ -335,8 +377,10 @@
           wrapper.removeChild(errorEl);
           errorEl = null;
         }
-        control.classList.remove('is-invalid');
-        control.removeAttribute('aria-invalid');
+        if (invalidTarget) {
+          invalidTarget.classList.remove('is-invalid');
+          invalidTarget.removeAttribute('aria-invalid');
+        }
       } else {
         if (errorEl) {
           if (errorEl.textContent !== message) errorEl.textContent = message;
@@ -350,8 +394,10 @@
           if (opts.errorTestid) errorEl.setAttribute('data-testid', opts.errorTestid);
           wrapper.appendChild(errorEl);
         }
-        control.classList.add('is-invalid');
-        control.setAttribute('aria-invalid', 'true');
+        if (invalidTarget) {
+          invalidTarget.classList.add('is-invalid');
+          invalidTarget.setAttribute('aria-invalid', 'true');
+        }
       }
       wire();
     }

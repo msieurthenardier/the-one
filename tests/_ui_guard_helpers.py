@@ -310,10 +310,11 @@ _ATTR_ARIA_DESCRIBEDBY_PARAM = re.compile(r'aria-describedby="([^"\'\n]+)\'\s*\+
 # for-targets whose control ``id`` is emitted through a concatenation helper,
 # invisible to the literal-id scan but present at runtime.
 #
-# Empty since M31 F5 L06: the MCP editor's chip lists (``mf-args``,
-# ``mf-sandbox-writable-paths``) are library ``App.ui.chipList`` controls whose ``inputId``
-# is the label's ``for`` target; the runtime DOM guard in
-# ``tests/browser/test_flow_chiplist_label_resolver.py`` still proves it resolves.
+# Empty since M31 F5 L06: the MCP editor's chip list (``mf-sandbox-writable-paths``;
+# Arguments was a chip list too until sortie 18, now rows) is a library
+# ``App.ui.chipList`` control whose ``inputId`` is the label's ``for`` target; the
+# runtime DOM guard in ``tests/browser/test_flow_chiplist_label_resolver.py`` still
+# proves it resolves.
 FIELD_FOR_ID_HELPER_INDIRECTED: set[str] = set()
 
 

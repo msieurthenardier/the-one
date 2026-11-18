@@ -293,3 +293,25 @@ def _info_cache(**extra) -> dict:  # noqa: ANN003
     }
     cache.update(extra)
     return cache
+
+
+# The Arguments rows (sortie 18): one row is one argument.
+ARGS_ROWS = '[data-testid="mcp-args-row"]'
+ARGS_INPUTS = '[data-testid="mcp-args-input"]'
+
+
+def args_add(page: Page, value: str | None = None) -> None:
+    """Click Add row and, when ``value`` is given, type it into the new row (Add focuses it)."""
+    page.locator('[data-testid="mcp-args-add-row-btn"]').click()
+    if value is not None:
+        page.locator(ARGS_INPUTS).last.fill(value)
+
+
+def args_values(page: Page) -> list[str]:
+    """The argument rows' input values, in display order."""
+    return page.locator(ARGS_INPUTS).evaluate_all("els => els.map(e => e.value)")
+
+
+def args_click(page: Page, kind: str, n: int) -> None:
+    """Click row ``n``'s (1-based) ``kind`` button: ``move-up``, ``move-down`` or ``remove``."""
+    page.locator(ARGS_ROWS).nth(n - 1).locator(f'[data-testid="mcp-args-{kind}"]').click()

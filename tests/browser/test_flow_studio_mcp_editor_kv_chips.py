@@ -11,6 +11,7 @@ import json
 import pytest
 from browser import _nav
 from browser._mcp_editor import (
+    ARGS_ROWS,
     _expect_clean,
     _get_source,
     _http_source,
@@ -25,6 +26,9 @@ from browser._mcp_editor import (
     _open_source,
     _save_edit,
     _seed_mcp_source,
+    args_add,
+    args_click,
+    args_values,
 )
 from playwright.sync_api import Page, expect
 
@@ -39,6 +43,8 @@ def _seed_kv_shape(app_clean: str) -> str:
 
 
 def _add_chip(page: Page, field: str, text: str) -> None:
+    """Add a chip to a chip list (the writable paths; Arguments is rows, see args_add)."""
+    assert field != "args", "Arguments is a row table: use args_add"
     box = page.locator(f'[data-field="{field}"].chip-list-editor .chip-list-input')
     box.fill(text)
     box.press("Enter")
@@ -340,8 +346,8 @@ def test_payload_create_npx_y_args_and_writable_path(app_clean: str, page: Page)
     page.locator('[data-field="name"]').fill("payload-npx")
     page.locator('[data-field="type"]').select_option("stdio")
     page.locator('[data-field="command-runtime"]').select_option("npx -y")
-    _add_chip(page, "args", "@scope/pkg")
-    _add_chip(page, "args", "--flag")
+    args_add(page, "@scope/pkg")
+    args_add(page, "--flag")
     _add_chip(page, "sandbox-writable-paths", "/data/work")
     page.locator('[data-testid="save-mcp-source-btn"]').click()
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
@@ -360,7 +366,7 @@ def test_payload_create_pipx_run_args_and_writable_paths(app_clean: str, page: P
     page.locator('[data-field="name"]').fill("payload-pipx")
     page.locator('[data-field="type"]').select_option("stdio")
     page.locator('[data-field="command-runtime"]').select_option("pipx run")
-    _add_chip(page, "args", "mcp-server-time")
+    args_add(page, "mcp-server-time")
     _add_chip(page, "sandbox-writable-paths", "/a")
     _add_chip(page, "sandbox-writable-paths", "/b")
     page.locator('[data-testid="save-mcp-source-btn"]').click()
@@ -401,7 +407,7 @@ def test_payload_edit_name_only_keeps_npx_args(app_clean: str, page: Page) -> No
 
 
 @pytest.mark.browser
-def test_payload_edit_adds_chip(app_clean: str, page: Page) -> None:
+def test_payload_edit_adds_argument_row_and_chip(app_clean: str, page: Page) -> None:
     sid = _seed_mcp_source(
         app_clean,
         {
@@ -413,7 +419,7 @@ def test_payload_edit_adds_chip(app_clean: str, page: Page) -> None:
     )
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
-    _add_chip(page, "args", "--verbose")
+    args_add(page, "--verbose")
     _add_chip(page, "sandbox-writable-paths", "/scratch")
     page.locator('[data-testid="save-mcp-source-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
@@ -438,7 +444,7 @@ def test_payload_other_command_with_args(app_clean: str, page: Page) -> None:
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="mcp-command-custom"]')).to_have_value("bash /app/x.sh")
-    _add_chip(page, "args", "--two")
+    args_add(page, "--two")
     page.locator('[data-testid="save-mcp-source-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
@@ -474,14 +480,12 @@ def test_stored_network_off_cancel_returns_it_to_off(app_clean: str, page: Page)
 
 
 @pytest.mark.browser
-@pytest.mark.parametrize("field", ["args", "sandbox-writable-paths"])
+@pytest.mark.parametrize("field", ["sandbox-writable-paths"])
 def test_chip_edit_after_cancel_is_tracked_as_dirty(app_clean: str, page: Page, field: str) -> None:
-    config: dict = {"command": "uvx", "args": ["a", "b"]}
-    if field == "sandbox-writable-paths":
-        config = {
-            "command": "uvx",
-            "sandbox": {"network_allowed": True, "writable_paths": ["/a", "/b"]},
-        }
+    config: dict = {
+        "command": "uvx",
+        "sandbox": {"network_allowed": True, "writable_paths": ["/a", "/b"]},
+    }
     sid = _seed_mcp_source(
         app_clean, {"name": "defect-7", "type": "stdio", "config": config, "secrets": {}}
     )
@@ -503,6 +507,49 @@ def test_chip_edit_after_cancel_is_tracked_as_dirty(app_clean: str, page: Page, 
     expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("Unsaved changes")
     _add_chip(page, field, "/c")
     expect(chips).to_have_count(2)
+
+
+@pytest.mark.browser
+def test_argument_row_edit_after_cancel_is_tracked_as_dirty(app_clean: str, page: Page) -> None:
+    """The rows counterpart of defect 7: Cancel puts the saved rows back in place and an
+    edit after it is tracked."""
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "defect-7-rows",
+            "type": "stdio",
+            "config": {"command": "uvx", "args": ["a", "b"]},
+            "secrets": {},
+        },
+    )
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
+    save = page.locator('[data-testid="save-mcp-source-btn"]')
+    expect(save).to_be_visible(timeout=8000)
+    rows = page.locator(ARGS_ROWS)
+    expect(rows).to_have_count(2)
+    page.evaluate("() => { window.__editorEl = document.querySelector('.editor-title'); }")
+
+    args_click(page, "remove", 1)
+    expect(save).not_to_be_disabled()
+    page.locator('[data-testid="cancel-mcp-source-btn"]').click()
+    expect(save).to_be_disabled()
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("")
+    assert args_values(page) == ["a", "b"]
+    # In place: the editor was not remounted.
+    assert page.evaluate("() => window.__editorEl === document.querySelector('.editor-title')")
+
+    args_click(page, "move-down", 1)
+    assert args_values(page) == ["b", "a"]
+    page.locator('[data-testid="cancel-mcp-source-btn"]').click()
+    assert args_values(page) == ["a", "b"]
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("")
+
+    args_click(page, "remove", 2)
+    expect(save).not_to_be_disabled()
+    expect(page.locator('[data-testid="editor-unsaved"]')).to_have_text("Unsaved changes")
+    args_add(page, "c")
+    assert args_values(page) == ["a", "c"]
+    expect(save).not_to_be_disabled()
 
 
 @pytest.mark.browser

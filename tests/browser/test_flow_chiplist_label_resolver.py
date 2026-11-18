@@ -20,7 +20,7 @@ that every chip-list ``label[for]`` resolves to the real ``.chip-list-input``.
 Covers both cross-area consumers of the fix:
 - admin tools-editor (``fetch_url`` — WebConfig array fields render via
   ``App.toolConfigFields.render`` → ``App.ui.chipList`` with the id ``tef-{name}``);
-- studio mcp-server-editor (``mf-args`` + ``mf-sandbox-writable-paths`` — the
+- studio mcp-server-editor (``mf-sandbox-writable-paths`` — the
   placeholder-div repoint site, ``controlId=mf-{name}``).
 """
 
@@ -82,19 +82,18 @@ def test_admin_tools_editor_chiplist_labels_resolve(app_clean: str, page: Page) 
 
 @pytest.mark.browser
 def test_mcp_server_editor_chiplist_labels_resolve(app_clean: str, page: Page) -> None:
-    """The studio mcp-server-editor's stdio chip-lists (``args`` +
-    ``sandbox-writable-paths``) are the TRUE mount-time strip site: the label
-    targeted a placeholder ``<div id="mf-{name}">`` that ``mountChipListEditors``
-    replaces via ``outerHTML=``. Post-fix, ``controlId`` lands the id on the real
-    ``.chip-list-input`` and the placeholder div carries no id."""
+    """The studio mcp-server-editor's stdio ``sandbox-writable-paths`` chip list is the
+    TRUE mount-time strip site: the label targeted a placeholder ``<div id="mf-{name}">``
+    that ``mountChipListEditors`` replaced via ``outerHTML=``. Post-fix, ``controlId``
+    lands the id on the real ``.chip-list-input`` and the placeholder div carries no id.
+    (Arguments is a row table since sortie 18 and is no longer a chip list.)"""
     _nav.goto(page, app_clean, "library/mcp/~new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
-    # Stdio exposes the args + sandbox-writable-paths chip-lists.
     page.locator('[data-field="type"]').select_option("stdio")
-    expect(page.locator('label[for="mf-args"]')).to_be_visible(timeout=5000)
-    # Both chip-lists are mounted (mountChipListEditors replaced the placeholders).
-    for field in ("args", "sandbox-writable-paths"):
-        expect(
-            page.locator(f'[data-field="{field}"].chip-list-editor .chip-list-input')
-        ).to_have_count(1)
-    _assert_labels_resolve_to_chip_input(page, ["mf-args", "mf-sandbox-writable-paths"])
+    expect(page.locator('label[for="mf-sandbox-writable-paths"]')).to_be_visible(timeout=5000)
+    expect(
+        page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip-list-input')
+    ).to_have_count(1)
+    _assert_labels_resolve_to_chip_input(page, ["mf-sandbox-writable-paths"])
+    assert page.locator("#mf-args").count() == 0
+    assert page.locator('[data-field="args"] .chip-list-editor').count() == 0

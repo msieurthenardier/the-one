@@ -11,9 +11,15 @@ import json
 import pytest
 from browser import _nav
 from browser._mcp_editor import (
+    ARGS_INPUTS,
+    ARGS_ROWS,
+    _get_source,
     _kv_title,
     _list_sources,
     _seed_mcp_source,
+    args_add,
+    args_click,
+    args_values,
 )
 from playwright.sync_api import Page, expect
 
@@ -392,10 +398,8 @@ def test_stdio_command_runtime_switching_updates_hint_and_saves(app_clean: str, 
     # Custom row stays hidden for canonical runtimes.
     expect(page.locator(".mcp-command-custom-row")).to_be_hidden()
 
-    # Add a user arg via the chip-list (the package name).
-    args_input = page.locator('[data-field="args"].chip-list-editor .chip-list-input')
-    args_input.fill("mcp-server-time")
-    args_input.press("Enter")
+    # Add a user arg as a row (the package name).
+    args_add(page, "mcp-server-time")
 
     page.locator('[data-testid="save-mcp-source-btn"]').click()
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
@@ -438,11 +442,9 @@ def test_stdio_command_runtime_pipx_run_round_trip_collapses_to_dropdown(
     # Custom-command row is hidden (canonical runtime).
     expect(page.locator(".mcp-command-custom-row")).to_be_hidden()
 
-    # Args chip-list shows ONLY the operator's package name — the
-    # implicit `run` is hidden from the editable chips.
-    chips = page.locator('[data-field="args"].chip-list-editor .chip')
-    expect(chips).to_have_count(1)
-    expect(chips.first).to_contain_text("mcp-server-time")
+    # The rows show ONLY the operator's package name — the implicit `run` is hidden.
+    expect(page.locator(ARGS_ROWS)).to_have_count(1)
+    assert args_values(page) == ["mcp-server-time"]
 
 
 @pytest.mark.browser
@@ -505,10 +507,9 @@ def test_stdio_command_runtime_round_trip_canonical_uvx(app_clean: str, page: Pa
     expect(page.locator(".mcp-command-custom-row")).to_be_hidden()
     # Free-text input stays empty when dropdown is on a canonical runtime.
     expect(page.locator('[data-testid="mcp-command-custom"]')).to_have_value("")
-    # Operator's args still surface in the chip-list.
-    chips = page.locator('[data-field="args"].chip-list-editor .chip')
-    expect(chips).to_have_count(1)
-    expect(chips.first).to_contain_text("mcp-server-time")
+    # Operator's args still surface as rows.
+    expect(page.locator(ARGS_ROWS)).to_have_count(1)
+    assert args_values(page) == ["mcp-server-time"]
 
 
 @pytest.mark.browser
@@ -546,10 +547,8 @@ def test_stdio_command_runtime_npx_y_save_split(app_clean: str, page: Page) -> N
     page.locator('[data-field="type"]').select_option("stdio")
     page.locator('[data-field="command-runtime"]').select_option("npx -y")
 
-    # Add a user arg via the chip-list (the package name).
-    args_input = page.locator('[data-field="args"].chip-list-editor .chip-list-input')
-    args_input.fill("@modelcontextprotocol/server-everything")
-    args_input.press("Enter")
+    # Add a user arg as a row (the package name).
+    args_add(page, "@modelcontextprotocol/server-everything")
 
     page.locator('[data-testid="save-mcp-source-btn"]').click()
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
@@ -592,11 +591,9 @@ def test_stdio_command_runtime_npx_y_round_trip_collapses_to_dropdown(
     # Custom-command row is hidden (canonical runtime).
     expect(page.locator(".mcp-command-custom-row")).to_be_hidden()
 
-    # Args chip-list shows ONLY the operator's package name — the
-    # implicit `-y` is hidden from the editable chips.
-    chips = page.locator('[data-field="args"].chip-list-editor .chip')
-    expect(chips).to_have_count(1)
-    expect(chips.first).to_contain_text("@modelcontextprotocol/server-everything")
+    # The rows show ONLY the operator's package name — the implicit `-y` is hidden.
+    expect(page.locator(ARGS_ROWS)).to_have_count(1)
+    assert args_values(page) == ["@modelcontextprotocol/server-everything"]
 
 
 @pytest.mark.browser
@@ -716,7 +713,7 @@ def test_connection_field_labels_and_order(app_clean: str, page: Page) -> None:
     _open_create_stdio(page, app_clean)
     ids = page.evaluate(
         "() => Array.from(document.querySelectorAll('.mcp-connection-fields .field-group'))"
-        ".map(g => g.querySelector('label').textContent)"
+        ".map(g => (g.querySelector('label') || g.querySelector('.field-group-caption')).textContent)"
     )
     assert ids == [
         "Name",
@@ -800,7 +797,9 @@ def test_network_switch_is_a_labelled_inline_switch_and_marks_dirty(
 
 
 @pytest.mark.browser
-def test_long_chip_values_use_the_middle_ellipsis(app_clean: str, page: Page) -> None:
+def test_long_values_use_the_middle_ellipsis_and_the_argument_row_stays_in_the_block(
+    app_clean: str, page: Page
+) -> None:
     """B4: a 90-character argument and an 87-character path keep their full value in the
     accessible name and on hover, and show a shortened middle."""
     long_arg = "a" * 40 + "-middle-" + "z" * 42
@@ -821,32 +820,26 @@ def test_long_chip_values_use_the_middle_ellipsis(app_clean: str, page: Page) ->
     )
     _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
-    for field, full in (("args", long_arg), ("sandbox-writable-paths", long_path)):
-        chip = page.locator(f'[data-field="{field}"].chip-list-editor .chip')
-        expect(chip).to_have_count(1)
-        assert chip.get_attribute("data-value") == full
-        assert chip.get_attribute("title") == full
-        shown = chip.locator(".ui-chip-text").inner_text()
-        assert "\u2026" in shown and len(shown) < len(full)
-        expect(chip.get_by_role("button", name=f"Remove {full}")).to_have_count(1)
+    chip = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
+    expect(chip).to_have_count(1)
+    assert chip.get_attribute("data-value") == long_path
+    assert chip.get_attribute("title") == long_path
+    shown = chip.locator(".ui-chip-text").inner_text()
+    assert "\u2026" in shown and len(shown) < len(long_path)
+    expect(chip.get_by_role("button", name=f"Remove {long_path}")).to_have_count(1)
+    # The argument is a row: the full value in an input that does not widen the row.
+    expect(page.locator(ARGS_ROWS)).to_have_count(1)
+    assert args_values(page) == [long_arg]
+    box = page.locator('[data-testid="mcp-args-field"]').bounding_box()
+    row = page.locator(ARGS_ROWS).first.bounding_box()
+    assert row["x"] + row["width"] <= box["x"] + box["width"] + 1
 
 
 @pytest.mark.browser
-def test_chip_input_keys_still_work_in_both_lists(app_clean: str, page: Page) -> None:
-    """DD10: Enter and comma commit, a pasted comma list splits, Backspace removes the last
-    chip; the select keeps its native typeahead."""
+def test_chip_input_keys_still_work_in_the_writable_paths_list(app_clean: str, page: Page) -> None:
+    """DD10: a pasted comma list splits in the writable-paths chip list; the select keeps its
+    native typeahead. (Arguments is rows since sortie 18: a comma never splits it.)"""
     _open_create_stdio(page, app_clean)
-    save = page.locator('[data-testid="save-mcp-source-btn"]')
-    args = page.locator('[data-field="args"].chip-list-editor')
-    box = args.locator(".chip-list-input")
-    box.fill("one")
-    box.press("Enter")
-    box.fill("two")
-    box.press(",")
-    expect(args.locator(".chip")).to_have_count(2)
-    box.press("Backspace")
-    expect(args.locator(".chip")).to_have_count(1)
-    expect(save).not_to_be_disabled()
     paths = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor')
     pbox = paths.locator(".chip-list-input")
     pbox.focus()
@@ -881,14 +874,303 @@ def test_switching_type_keeps_args_and_cancel_reverts_visibility(
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
     page.locator('[data-field="type"]').select_option("streamable-http")
     expect(page.locator("#mf-url")).to_be_visible()
-    expect(page.locator("#mf-args")).to_be_hidden()
+    expect(page.locator('[data-testid="mcp-args-field"]')).to_be_hidden()
     expect(page.locator('[data-testid="mcp-sandbox-section"]')).to_be_hidden()
     page.locator('[data-field="type"]').select_option("stdio")
-    expect(page.locator('[data-field="args"].chip-list-editor .chip')).to_have_count(1)
+    expect(page.locator(ARGS_ROWS)).to_have_count(1)
     page.locator('[data-field="type"]').select_option("streamable-http")
     page.locator('[data-testid="cancel-mcp-source-btn"]').click()
     expect(page.locator('[data-field="type"]')).to_have_value("stdio")
     expect(page.locator("#mf-url")).to_be_hidden()
-    expect(page.locator("#mf-args")).to_be_visible()
+    expect(page.locator('[data-testid="mcp-args-field"]')).to_be_visible()
     expect(page.locator('[data-testid="mcp-sandbox-section"]')).to_be_visible()
     expect(_kv_title(page)).to_have_text("Environment variables")
+
+
+# ── Sortie 18 L02: the Arguments block is a row table ─────────────────────
+
+_SAVE_BTN = '[data-testid="save-mcp-source-btn"]'
+_UNSAVED = '[data-testid="editor-unsaved"]'
+_ARGS_FIELD = '[data-testid="mcp-args-field"]'
+
+
+def _open_args_source(page: Page, base: str, name: str, command: str, args: list[str]) -> str:
+    sid = _seed_mcp_source(
+        base,
+        {
+            "name": name,
+            "type": "stdio",
+            "config": {"command": command, "args": args},
+            "secrets": {},
+        },
+    )
+    _nav.goto_settled(page, base, f"library/mcp/{_nav.seg(sid)}")
+    expect(page.locator(_SAVE_BTN)).to_be_visible(timeout=8000)
+    return sid
+
+
+def _save_and_wait(page: Page) -> None:
+    page.locator(_SAVE_BTN).click()
+    expect(page.locator(_SAVE_BTN)).to_be_disabled(timeout=8000)
+
+
+@pytest.mark.browser
+def test_args_block_structure_and_names(app_clean: str, page: Page) -> None:
+    """AC1, AC2, AC5: the group, its parts in order, the row controls' names, no header,
+    full-width inputs, and no chip list or ``mf-args``."""
+    _open_args_source(page, app_clean, "args-shape", "uvx", ["one", "two"])
+    field = page.locator(_ARGS_FIELD)
+    expect(field).to_have_attribute("data-field", "args")
+    expect(field).to_have_attribute("role", "group")
+    expect(field).to_have_accessible_name("Arguments")
+    order = field.evaluate(
+        "el => Array.from(el.querySelectorAll('[data-testid]')).map(e => e.dataset.testid)"
+    )
+    firsts = [t for t in order if t in ("mcp-args-hint", "mcp-args-table", "mcp-args-add-row-btn")]
+    assert firsts[:3] == ["mcp-args-hint", "mcp-args-table", "mcp-args-add-row-btn"]
+    expect(field.locator(".field-group-caption")).to_have_text("Arguments")
+    expect(page.locator('[data-testid="mcp-args-hint"]')).to_have_text(
+        "One argument per row, in order."
+    )
+    expect(page.locator('[data-testid="mcp-args-add-row-btn"]')).to_have_text("+ Add row")
+    # After Working directory.
+    after = page.evaluate(
+        "() => { const c = document.querySelector('#mf-cwd');"
+        " const a = document.querySelector('[data-testid=\"mcp-args-field\"]');"
+        " return !!(c.compareDocumentPosition(a) & Node.DOCUMENT_POSITION_FOLLOWING); }"
+    )
+    assert after
+    rows = page.locator(ARGS_ROWS)
+    expect(rows).to_have_count(2)
+    for n in (1, 2):
+        row = rows.nth(n - 1)
+        expect(row.locator(ARGS_INPUTS)).to_have_accessible_name(f"Argument, row {n}")
+        expect(row.get_by_role("button", name=f"Move argument {n} up")).to_have_count(1)
+        expect(row.get_by_role("button", name=f"Move argument {n} down")).to_have_count(1)
+        expect(row.get_by_role("button", name=f"Remove argument {n}")).to_have_count(1)
+        expect(row.locator('[data-testid="mcp-args-move-up"]')).to_have_count(1)
+        expect(row.locator('[data-testid="mcp-args-move-down"]')).to_have_count(1)
+        expect(row.locator('[data-testid="mcp-args-remove"]')).to_have_count(1)
+    expect(field.locator("thead th:visible")).to_have_count(0)
+    head = field.locator("thead").bounding_box()
+    assert head is None or head["height"] < 2
+    cwd_w = page.locator("#mf-cwd").bounding_box()["width"]
+    arg_w = rows.first.locator(ARGS_INPUTS).bounding_box()["width"]
+    assert arg_w >= 0.7 * cwd_w
+    assert page.locator("#mf-args").count() == 0
+    assert field.locator(".chip-list-editor").count() == 0
+    expect(page.locator('[data-field="sandbox-writable-paths"].chip-list-editor')).to_have_count(1)
+
+
+@pytest.mark.browser
+def test_args_block_follows_the_type_and_keeps_typed_rows(app_clean: str, page: Page) -> None:
+    """AC3: hidden for HTTP, shown for a local command, follows the Type select in create
+    mode, and rows typed before a switch are still there after it."""
+    _open_create_stdio(page, app_clean)
+    expect(page.locator(_ARGS_FIELD)).to_be_visible()
+    args_add(page, "keep-me")
+    page.locator('[data-field="type"]').select_option("streamable-http")
+    expect(page.locator(_ARGS_FIELD)).to_be_hidden()
+    page.locator('[data-field="type"]').select_option("stdio")
+    expect(page.locator(_ARGS_FIELD)).to_be_visible()
+    assert args_values(page) == ["keep-me"]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize(
+    ("command", "stored", "runtime", "shown"),
+    [
+        ("npx", ["-y", "pkg", "--flag"], "npx -y", ["pkg", "--flag"]),
+        ("pipx", ["run", "pkg"], "pipx run", ["pkg"]),
+        ("uvx", [], "uvx", []),
+    ],
+)
+def test_args_rows_show_the_stored_display_arguments(
+    app_clean: str, page: Page, command: str, stored: list[str], runtime: str, shown: list[str]
+) -> None:
+    """AC4: the implicit runtime argument is part of the Command, not a row."""
+    _open_args_source(page, app_clean, f"show-{command}", command, stored)
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value(runtime)
+    expect(page.locator(ARGS_ROWS)).to_have_count(len(shown))
+    assert args_values(page) == shown
+
+
+@pytest.mark.browser
+def test_create_form_shows_no_argument_rows(app_clean: str, page: Page) -> None:
+    """AC4: the create form starts with no rows."""
+    _open_create_stdio(page, app_clean)
+    expect(page.locator(ARGS_ROWS)).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_args_save_keeps_order_and_repeats(app_clean: str, page: Page) -> None:
+    """AC6: repeats are kept, in order; a comma or a space never splits a value; a reload
+    shows what was stored."""
+    sid = _open_args_source(page, app_clean, "args-repeats", "uvx", ["seed"])
+    args_click(page, "remove", 1)
+    for v in ("--flag", "a", "--flag", "a", "--allow=a,b", "/home/me/My Documents"):
+        args_add(page, v)
+    _save_and_wait(page)
+    want = ["--flag", "a", "--flag", "a", "--allow=a,b", "/home/me/My Documents"]
+    assert _get_source(app_clean, sid)["config"]["args"] == want
+    _nav.goto_settled(page, app_clean, f"library/mcp/{_nav.seg(sid)}")
+    expect(page.locator(ARGS_ROWS)).to_have_count(6)
+    assert args_values(page) == want
+
+
+@pytest.mark.browser
+def test_args_save_trims_ends_and_drops_blank_rows(app_clean: str, page: Page) -> None:
+    """AC6, AC8: ends are trimmed and blank rows dropped; after the Save the form is clean
+    and the rows show the stored, trimmed arguments."""
+    sid = _open_args_source(page, app_clean, "args-trim", "pipx", ["run", "keep"])
+    args_add(page, "  padded  ")
+    args_add(page)
+    args_add(page, "   ")
+    expect(page.locator(ARGS_ROWS)).to_have_count(4)
+    _save_and_wait(page)
+    assert _get_source(app_clean, sid)["config"]["args"] == ["run", "keep", "padded"]
+    expect(page.locator(_UNSAVED)).to_have_text("")
+    expect(page.locator(ARGS_ROWS)).to_have_count(2)
+    assert args_values(page) == ["keep", "padded"]
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("blank", [False, True])
+def test_args_save_with_no_or_blank_rows_stores_no_args(
+    app_clean: str, page: Page, blank: bool
+) -> None:
+    """AC7: no rows, or only blank rows, store no ``args`` key."""
+    sid = _open_args_source(page, app_clean, f"args-none-{blank}", "uvx", ["x"])
+    args_click(page, "remove", 1)
+    if blank:
+        args_add(page, "  ")
+    page.locator('[data-field="name"]').fill(f"args-none-renamed-{blank}")
+    _save_and_wait(page)
+    assert "args" not in _get_source(app_clean, sid)["config"]
+
+
+@pytest.mark.browser
+def test_args_unsaved_marker_tracks_the_collected_list(app_clean: str, page: Page) -> None:
+    """AC9: blank rows, an add and remove, and a typed-then-restored value are clean; a
+    changed value, a non-blank add or remove and a move are dirty, and undoing a move is
+    clean again."""
+    _open_args_source(page, app_clean, "args-dirty", "uvx", ["a", "b"])
+    unsaved = page.locator(_UNSAVED)
+    expect(unsaved).to_have_text("")
+    args_add(page)  # a blank row
+    expect(unsaved).to_have_text("")
+    args_click(page, "remove", 3)
+    expect(unsaved).to_have_text("")
+    first = page.locator(ARGS_INPUTS).first
+    first.fill("changed")
+    expect(unsaved).to_have_text("Unsaved changes")
+    first.fill("a")
+    expect(unsaved).to_have_text("")
+    args_add(page, "c")
+    expect(unsaved).to_have_text("Unsaved changes")
+    args_click(page, "remove", 3)
+    expect(unsaved).to_have_text("")
+    args_click(page, "move-down", 1)
+    assert args_values(page) == ["b", "a"]
+    expect(unsaved).to_have_text("Unsaved changes")
+    args_click(page, "move-up", 2)
+    assert args_values(page) == ["a", "b"]
+    expect(unsaved).to_have_text("")
+    args_click(page, "remove", 1)
+    expect(unsaved).to_have_text("Unsaved changes")
+
+
+@pytest.mark.browser
+def test_args_stored_with_a_repeat_or_odd_values_opens_clean(app_clean: str, page: Page) -> None:
+    """AC10 and the DD7 limit: a stored repeat, outer whitespace and an empty string are
+    shown as stored and the form is clean."""
+    _open_args_source(page, app_clean, "args-odd", "uvx", ["a", "a", "b"])
+    expect(page.locator(ARGS_ROWS)).to_have_count(3)
+    expect(page.locator(_UNSAVED)).to_have_text("")
+    expect(page.locator(_SAVE_BTN)).to_be_disabled()
+    _open_args_source(page, app_clean, "args-odd-2", "uvx", [" pad ", "", "x"])
+    assert args_values(page) == [" pad ", "", "x"]
+    expect(page.locator(_UNSAVED)).to_have_text("")
+    expect(page.locator(_SAVE_BTN)).to_be_disabled()
+
+
+@pytest.mark.browser
+def test_args_test_sends_the_unsaved_rows(app_clean: str, page: Page) -> None:
+    """AC12: Test with unsaved rows sends the implicit argument plus the collected rows."""
+    sid = _open_args_source(page, app_clean, "args-test", "npx", ["-y", "pkg"])
+    seen: list[dict] = []
+
+    def handle(route):
+        seen.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({"status": "error", "error": "MCPConnectionError: refused"}),
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle)
+    args_add(page, "  --extra  ")
+    args_add(page, " ")
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text(
+        "Tested with your unsaved changes."
+    )
+    assert seen, "no /test/connect request was made"
+    assert seen[-1]["config"]["args"] == ["-y", "pkg", "--extra"]
+
+
+@pytest.mark.browser
+def test_args_field_error_shows_on_the_block_focuses_the_table_and_clears(
+    app_clean: str, page: Page
+) -> None:
+    """AC13: a 422 on ``args`` (stubbed: no seeded value is refused by the real server)
+    shows on the block's error line, moves focus into the table and clears on any row
+    change."""
+    sid = _open_args_source(page, app_clean, "args-422", "uvx", ["a", "b"])
+    reply = {
+        "detail": [
+            {"loc": ["body", "config", "args"], "msg": "Value error, bad argument", "type": "x"}
+        ]
+    }
+
+    def handle(route):
+        if route.request.method != "PUT":
+            return route.fallback()
+        route.fulfill(status=422, content_type="application/json", body=json.dumps(reply))
+
+    page.route(f"**/api/mcp-sources/{sid}", handle)
+    for action in ("edit", "add", "remove", "move"):
+        page.locator(ARGS_INPUTS).first.fill("changed-" + action)
+        page.locator(_SAVE_BTN).click()
+        expect(page.locator(_ARGS_FIELD)).to_contain_text("bad argument")
+        focused = page.evaluate(
+            "() => document.activeElement && document.activeElement.dataset.testid"
+        )
+        assert focused == "mcp-args-input"
+        if action == "edit":
+            page.locator(ARGS_INPUTS).first.fill("again")
+        elif action == "add":
+            args_add(page)
+        elif action == "remove":
+            args_click(page, "remove", 2)
+        else:
+            args_click(page, "move-down", 1)
+        expect(page.locator(_ARGS_FIELD)).not_to_contain_text("bad argument")
+
+
+@pytest.mark.browser
+def test_args_field_error_focus_goes_to_add_row_with_no_rows(app_clean: str, page: Page) -> None:
+    """AC13: with no rows the focus goes to Add row."""
+    sid = _open_args_source(page, app_clean, "args-422-empty", "uvx", [])
+    reply = {"detail": [{"loc": ["body", "config", "args"], "msg": "Nope", "type": "x"}]}
+
+    def handle(route):
+        if route.request.method != "PUT":
+            return route.fallback()
+        route.fulfill(status=422, content_type="application/json", body=json.dumps(reply))
+
+    page.route(f"**/api/mcp-sources/{sid}", handle)
+    page.locator('[data-field="name"]').fill("args-422-empty-2")
+    page.locator(_SAVE_BTN).click()
+    expect(page.locator(_ARGS_FIELD)).to_contain_text("Nope")
+    expect(page.locator('[data-testid="mcp-args-add-row-btn"]')).to_be_focused()
