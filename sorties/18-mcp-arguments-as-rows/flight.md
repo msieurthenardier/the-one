@@ -1,6 +1,6 @@
 # Sortie: MCP arguments as rows
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -183,7 +183,7 @@ Verified against the working tree at `ac1e2925`.
 ### Checkpoints
 - [x] All contract lanes green in both engines with the new options (`THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1`, `--lane contracts`)
 - [x] `mcp`, `mcp-connection` and `shared` lanes green with Arguments as rows (`THE_ONE_TEST_NETNS=1`); unit tier green
-- [ ] HAT walked with the operator
+- [x] HAT walked with the operator
 
 ### Adaptation Criteria
 
@@ -210,17 +210,17 @@ Verified against the working tree at `ac1e2925`.
 
 - [x] `control-row-moves` - `App.ui.keyValueTable` row moves, full-width layout, hidden header and `focus()`; `App.ui.field` group mode; contract tests; catalogue rows
 - [x] `arguments-rows` - the MCP editor's Arguments block on the table, the value model, the rewritten and new flow tests, docs
-- [ ] `hat-and-alignment` *(optional)* - Guided HAT session with iterative fixes
+- [x] `hat-and-alignment` *(optional)* - Guided HAT session with iterative fixes
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 - With `THE_ONE_TEST_NETNS=1` on the WSL host: `THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane contracts`, and `--lane mcp`, `--lane mcp-connection` and `--lane shared`, all green, plus every lane a grep for `mf-args`, `data-field="args"` and the table control's pins turns up.

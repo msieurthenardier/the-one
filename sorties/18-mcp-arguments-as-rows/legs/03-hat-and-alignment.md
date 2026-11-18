@@ -1,6 +1,6 @@
 # Leg: hat-and-alignment
 
-**Status**: ready
+**Status**: completed
 **Flight**: [MCP arguments as rows](../flight.md)
 
 ## Objective
@@ -27,17 +27,17 @@ The operator walks the new Arguments rows on a scratch instance, one step at a t
 - Any fixes, each tested and reviewed, committed on the sortie branch.
 
 ## Acceptance Criteria
-- [ ] Step 1 [existing server, clean]: opening the seeded server with arguments shows one row per argument in order under the "Arguments" label and its hint; the implicit `-y` is not shown; no column header; rows are full width; "Unsaved changes" is not shown; no error message.
-- [ ] Step 2 [clean → edited]: typing in a row shows "Unsaved changes"; restoring the text removes it. Adding a blank row does not show it.
-- [ ] Step 3 [edited → reordered]: Move up and Move down reorder rows; the first row's Move up and the last row's Move down are dimmed and do nothing; after a move, keyboard focus stays on the pressed button (or the row's other move button at an edge).
-- [ ] Step 4 [reordered → saved]: entering `--flag`, `a`, `--flag`, `a` and `--allow=a,b` as five rows and saving keeps all five in order; blank rows vanish; the form is clean; a reload shows the same rows.
-- [ ] Step 5 [saved → cancelled]: an edit and a move followed by Cancel return the saved rows in the saved order without the page jumping or reloading.
-- [ ] Step 6 [empty server]: the server with no arguments, and a new local-command server, show only "+ Add row"; the operator decides open choice 1.
-- [ ] Step 7 [type switch]: on a new server, rows typed under "Local command" survive a switch to HTTP and back; the block is hidden for HTTP.
-- [ ] Step 8 [both themes, narrow window]: the block looks right in light and dark and at the minimum supported width (1024px): three buttons on one line, a long argument stays inside its box.
-- [ ] Step 9 [the other tables]: Environment variables in the same editor, and one other table in the app (a connector's channel map or a secret's values), look and behave as before: no move buttons, their headers visible.
-- [ ] Step 10 [open choices]: the operator decides open choices 2, 3 and 4.
-- [ ] Every fix made during the walk has its tests, an independent review, and a green run of the lanes it touches.
+- [x] Step 1 [existing server, clean]: opening the seeded server with arguments shows one row per argument in order under the "Arguments" label and its hint; the implicit `-y` is not shown; no column header; rows are full width; "Unsaved changes" is not shown; no error message.
+- [x] Step 2 [clean → edited]: typing in a row shows "Unsaved changes"; restoring the text removes it. Adding a blank row does not show it.
+- [x] Step 3 [edited → reordered]: Move up and Move down reorder rows; the first row's Move up and the last row's Move down are dimmed and do nothing; after a move, keyboard focus stays on the pressed button (or the row's other move button at an edge).
+- [x] Step 4 [reordered → saved]: entering `--flag`, `a`, `--flag`, `a` and `--allow=a,b` as five rows and saving keeps all five in order; blank rows vanish; the form is clean; a reload shows the same rows.
+- [x] Step 5 [saved → cancelled]: an edit and a move followed by Cancel return the saved rows in the saved order without the page jumping or reloading.
+- [x] Step 6 [empty server]: the server with no arguments, and a new local-command server, show only "+ Add row"; the operator decides open choice 1.
+- [x] Step 7 [type switch]: on a new server, rows typed under "Local command" survive a switch to HTTP and back; the block is hidden for HTTP.
+- [x] Step 8 [both themes, narrow window]: the block looks right in light and dark and at the minimum supported width (1024px): three buttons on one line, a long argument stays inside its box.
+- [x] Step 9 [the other tables]: Environment variables in the same editor, and one other table in the app (a connector's channel map or a secret's values), look and behave as before: no move buttons, their headers visible.
+- [x] Step 10 [open choices]: the operator decides open choices 2, 3 and 4.
+- [x] Every fix made during the walk has its tests, an independent review, and a green run of the lanes it touches.
 
 ## Verification Steps
 - Each step is performed by the operator in their browser on the scratch instance and reported back; the Flight Director records the result and any wording the operator objects to.

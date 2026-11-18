@@ -7,6 +7,8 @@ Falls in the ``contracts-controls`` browser lane. No fixed sleeps.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from browser._ui_engines import load_harness
 from playwright.sync_api import Page, expect
@@ -1611,6 +1613,35 @@ def test_move_options_are_inert_when_not_passed(engine_page: Page) -> None:
         "() => ({mv: document.querySelectorAll('.ui-kv-move').length, live: document.querySelectorAll('.ui-kv-live').length, hh: window.__kv.el.querySelector('table').classList.contains('ui-kv-table--head-hidden'), cls: window.__kv.el.querySelector('table').className})"
     )
     assert out == {"mv": 0, "live": 0, "hh": False, "cls": "ui-kv-table"}, out
+
+
+def test_add_aria_label_names_the_button_and_is_inert_otherwise(engine_page: Page) -> None:
+    _mount(engine_page, "{addAriaLabel: 'Add row to Channels'}")
+    add = engine_page.get_by_test_id("kv-add")
+    expect(add).to_have_attribute("aria-label", "Add row to Channels")
+    expect(add).to_have_text("+ Add row")
+    expect(engine_page.get_by_role("button", name="Add row to Channels")).to_have_count(1)
+    add.click()
+    expect(engine_page.locator("[data-testid=kv-row]")).to_have_count(3)
+    assert engine_page.evaluate("() => window.__ev.pop()").startswith("add:")
+    # A custom visible label keeps its own text; the name is still the option's.
+    _mount(engine_page, "{addAriaLabel: 'Add channel row', addLabel: 'Add it'}")
+    expect(engine_page.get_by_test_id("kv-add")).to_have_text("Add it")
+    expect(engine_page.get_by_test_id("kv-add")).to_have_attribute("aria-label", "Add channel row")
+    # Not passed, or empty: no attribute at all. Read-only: no Add button.
+    for extra in ("null", "{addAriaLabel: ''}"):
+        _mount(engine_page, extra)
+        expect(engine_page.get_by_test_id("kv-add")).not_to_have_attribute(
+            "aria-label", re.compile(".*")
+        )
+        assert (
+            engine_page.evaluate(
+                "() => window.__kv.el.querySelector('.ui-kv-add').hasAttribute('aria-label')"
+            )
+            is False
+        )
+    _mount(engine_page, "{readOnly: true, addAriaLabel: 'Add row to Channels'}")
+    expect(engine_page.locator(".ui-kv-add")).to_have_count(0)
 
 
 @pytest.mark.parametrize("theme", ["light", "dark"])

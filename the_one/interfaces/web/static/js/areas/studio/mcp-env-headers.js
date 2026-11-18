@@ -91,6 +91,7 @@
         label: titleFor(type),
         testid: 'mcp-kv-table',
         addTestid: 'kv-add-row-btn',
+        addAriaLabel: 'Add row to ' + titleFor(type),
         keyColumn: 'key',
         columns: cols.columns,
         rows: rows,

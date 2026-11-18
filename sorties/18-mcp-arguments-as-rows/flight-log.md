@@ -3,7 +3,7 @@
 **Flight**: [MCP arguments as rows](flight.md)
 
 ## Summary
-Planning. Charter agreed with the operator on 2026-11-17. The Architect reviewed the flight spec the same day ("approve with changes") and every issue was folded in. The operator approved the spec and a clickable mockup the same day; the sortie is `ready`.
+Landed on 2026-11-17, the day it was planned. Three legs, all `completed`: `control-row-moves` (the table and field controls), `arguments-rows` (the MCP editor's Arguments block) and `hat-and-alignment` (ten steps walked by the operator, all passed, one accessible-name fix made and reviewed). Two commits on `sortie/18-mcp-arguments-as-rows`: the two build legs after two review cycles, an accessibility review, the unit tier and the full browser gate; then the HAT fix after its own lanes, a review and an accessibility review. Carried out of the flight: squawks 0375 (the agent Tools tab's Add buttons share one name) and 0376 (the `mcp` lane sits at its time budget), and two cosmetic comment lines. The flight debrief is the next step.
 
 ---
 
@@ -115,8 +115,9 @@ Developer design review (Sonnet): approve with changes; six medium and five low 
 
 ### hat-and-alignment
 
-**Status**: in-flight
+**Status**: completed
 **Started**: 2026-11-17
+**Completed**: 2026-11-17
 
 #### The walk (operator, scratch instance on port 8485)
 | Step | Result |
@@ -152,6 +153,21 @@ Design review (Developer, Sonnet, by reading only): approve with changes. `App.u
 - **Scope: both tables of the MCP server editor page.** Naming only Arguments would leave the other button on the page as a bare "+ Add row", so "click Add row" would still match two targets and the Environment variables button could not be addressed on its own. The Environment variables / Headers table of this editor therefore gets "Add row to Environment variables" or "Add row to Headers" (following its title) in the same change. This stays inside the page the operator's decision was about.
 - **Not in scope:** the agent Tools tab, where each expanded MCP server tile has its own "+ Add row" (`mcp-agent-credentials.js`). That is another page with the same pre-existing ambiguity; it is logged as a squawk, not folded in.
 - Added to the brief from the review: the not-passed case asserts there is no `aria-label` attribute at all; `addAriaLabel` is inert under `readOnly` (the button is not built into the page); a click on the named button still adds a row.
+
+#### HAT fix: Add row names (2026-11-17)
+- `ui/key-value-table.js`: new option `addAriaLabel`, passed to `App.ui.button` as `ariaLabel` only when a non-empty string (otherwise `null`, so no attribute); documented in the header comment. `mcp-connection-fields.js` passes "Add row to Arguments"; `mcp-env-headers.js` passes `'Add row to ' + titleFor(type)` (the table is rebuilt by `setType` when the title changes, so the name follows). `mcp-agent-credentials.js` untouched.
+- Tests: contract `test_add_aria_label_names_the_button_and_is_inert_otherwise` (both engines: name, visible text, click adds and fires `add`, custom `addLabel`, absent and empty give no attribute, `readOnly` builds no button); flow `test_add_row_buttons_have_distinct_accessible_names` in `test_flow_studio_mcp_editor_fields.py` (name and visible text for Arguments and Environment variables, role+name lookups, Headers after Type switch and back, click adds a row).
+- Falsified, each put back by editing: Arguments option removed (flow fails), env/headers option removed (flow fails), control change removed (contract fails).
+- Docs: catalogue row of the Key-value table, `agents.md` sortie 18 paragraph. No testid change. Grep of `tests/`, `scripts/`, `docs/`, `tests/behavior/` found nothing that locates an Add row button by accessible name.
+
+#### HAT fix review and close (Flight Director, 2026-11-17)
+- **Reviewer (Haiku, a fresh agent): `[HANDOFF:confirmed]`, no issue.** The diff is the fix and nothing else (eight files; `mcp-agent-credentials.js` untouched; no testid or visible label changed). It re-ran the table contract file in both engines (174 passed), the editor fields flow file (51 passed), the lint pair (clean, 917 files) and the guards (428 passed). It did not re-run the Developer's falsifications.
+- **Accessibility Reviewer (Sonnet): `[HANDOFF:confirmed]`, no blocking issue**, by reading only. On WCAG 2.5.3 it judged "Add row to Arguments" conformant with about 85% confidence (the "+" of the visible label is a symbol, and "Add row" is the name's prefix), and recommended keeping the plain form; "+ Add row to Arguments" would be the zero-doubt string, with "plus" possibly read aloud. The names are distinct, follow a Type switch, and can never end in "to " with nothing after it.
+- The Developer's lanes after the fix: `contracts-controls` 1274 passed, 4 skipped; `mcp` 105 (261 s on a quieter host, against 331 s in the loaded gate); `library` 122; `agent-tabs` 208; unit tier 10222 passed, 15 skipped. The full browser gate was not re-run after this fix: the change is one option that is inert when not passed, and the lanes of every consumer of the table were run.
+- Squawks logged from the HAT and the gate: 0375 (the agent Tools tab's per-tile Add buttons share one name) and 0376 (re-measure and re-budget the `mcp` lane on a quiet host).
+- The second commit was made by the Flight Director directly (a git operation over reviewed changes and artifacts, no source edit), to avoid a crew spawn for it. The first commit was made by a Developer, as the crew file says.
+- The scratch instance on port 8485 was stopped by its recorded PID after the commit; its data directory was left in place under the home folder.
+- All three legs `completed`; the flight is `landed`. The charter's success criteria are assessed in the flight debrief.
 
 ---
 

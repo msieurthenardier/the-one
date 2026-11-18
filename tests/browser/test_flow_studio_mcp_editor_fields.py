@@ -977,6 +977,29 @@ def test_args_block_follows_the_type_and_keeps_typed_rows(app_clean: str, page: 
 
 
 @pytest.mark.browser
+def test_add_row_buttons_have_distinct_accessible_names(app_clean: str, page: Page) -> None:
+    """HAT fix: each Add row button names its table; the visible label stays "+ Add row"
+    and the name follows a Type change."""
+    _open_args_source(page, app_clean, "add-names", "uvx", ["one"])
+    args_add_btn = page.locator('[data-testid="mcp-args-add-row-btn"]')
+    kv_add_btn = page.locator('[data-testid="kv-add-row-btn"]')
+    expect(args_add_btn).to_have_attribute("aria-label", "Add row to Arguments")
+    expect(args_add_btn).to_have_text("+ Add row")
+    expect(kv_add_btn).to_have_attribute("aria-label", "Add row to Environment variables")
+    expect(kv_add_btn).to_have_text("+ Add row")
+    expect(page.get_by_role("button", name="Add row to Arguments")).to_have_count(1)
+    expect(page.get_by_role("button", name="Add row to Environment variables")).to_have_count(1)
+    page.locator('[data-field="type"]').select_option("streamable-http")
+    expect(kv_add_btn).to_have_attribute("aria-label", "Add row to Headers")
+    expect(kv_add_btn).to_have_text("+ Add row")
+    expect(page.get_by_role("button", name="Add row to Headers")).to_have_count(1)
+    page.locator('[data-field="type"]').select_option("stdio")
+    expect(kv_add_btn).to_have_attribute("aria-label", "Add row to Environment variables")
+    args_add_btn.click()
+    expect(page.locator(ARGS_ROWS)).to_have_count(2)
+
+
+@pytest.mark.browser
 @pytest.mark.parametrize(
     ("command", "stored", "runtime", "shown"),
     [

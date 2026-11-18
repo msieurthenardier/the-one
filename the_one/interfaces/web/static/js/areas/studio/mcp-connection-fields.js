@@ -129,7 +129,7 @@
       movable: true, fill: true, headHidden: true,
       testid: 'mcp-args-table', rowTestid: 'mcp-args-row', removeTestid: 'mcp-args-remove',
       moveUpTestid: 'mcp-args-move-up', moveDownTestid: 'mcp-args-move-down',
-      addTestid: 'mcp-args-add-row-btn',
+      addTestid: 'mcp-args-add-row-btn', addAriaLabel: 'Add row to Arguments',
       removeLabel: function (n) { return 'Remove argument ' + n; },
       moveLabel: function (n, row, dir) { return 'Move argument ' + n + ' ' + dir; },
       onChange: function () { changed('args'); }

@@ -75,6 +75,10 @@
   //   span.visually-hidden in its th and adds ui-kv-table--head-hidden (the head row takes no
   //   height; emptyHidesHead still hides the thead). focus(): the first row's first input,
   //   else the Add row button; nothing for a readOnly table with no rows.
+  //   addAriaLabel (a string; sortie 18 HAT fix, inert when absent or empty: no aria-label
+  //   attribute at all): the Add button's accessible name, with the visible addLabel unchanged,
+  //   so a page with several tables can tell its Add buttons apart. The name deliberately omits
+  //   the "+" of the visible label. Not built under readOnly (there is no Add button).
   App.ui.keyValueTable = function (opts) {
     opts = opts || {};
     var util = App.ui.util;
@@ -174,6 +178,7 @@
       variant: 'secondary',
       label: opts.addLabel || '+ Add row',
       className: 'ui-kv-add',
+      ariaLabel: typeof opts.addAriaLabel === 'string' && opts.addAriaLabel ? opts.addAriaLabel : null,
       testid: opts.addTestid
     });
     root.appendChild(table);
