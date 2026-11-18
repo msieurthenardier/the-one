@@ -23,6 +23,14 @@ Untested variants worth trying if the record does not settle it: a server with a
 - `the_one/interfaces/web/api.py::_test_mcp_connection_inner` — after a Forget the cached posture is gone, so the next Test probes again and may take a different path from the one that first filled the cache.
 - `squawks/0371-forget-tools-list-returns-armed.md` — the reproduction that did not show this symptom, and the test it added (`test_forget_then_test_brings_the_button_back_at_rest`).
 
+- **Operator, 2026-11-17, on v0.16.5** (which carries squawk 0371's fix): the button is still absent on the server named `mcp-everything`.
+- **Second reproduction attempt, 2026-11-17, still not reproduced** (scratch instance on port 8485, this tree at `bc497ab2`, the public `@modelcontextprotocol/server-everything` over HTTP, API calls only; the button's rule was computed from each `GET /api/mcp-sources/{id}`):
+  - Version 1.0.0: Test, Forget, Test, Test. After every Test the record is `type=streamable-http`, `oauth_active=false`, `auth_posture=no_auth`, 13 tools: the rule is true. After the Forget the cache is empty and the rule is false, as designed.
+  - The server's process replaced by 2.3.0 under the same saved record, then Test, Forget, Test: the rule is true after every Test (22 tools, protocol `2026-07-28`).
+  - A local-command server never satisfies the rule, whatever its cache holds: `type` is `stdio`.
+- Code read of the Test route and the editor (`api.py::_test_mcp_connection_inner`, `::_build_and_test_no_auth_mcp`; `mcp-connection-status.js::syncFromServer`): for an HTTP server every successful Test writes `tools` and the editor re-reads the record afterwards. So with a successful Test the button can be absent only when the server's type is not HTTP, or when `oauth_active` is true (then Reset connection is shown in its place).
+- Still needed from the operator's `mcp-everything` page: the Type field's value; whether a "Reset connection" button is shown; whether the status line reads Connected with tools listed after a Test.
+
 ## Corrective Action
 *(written at completion)*
 
