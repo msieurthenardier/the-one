@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from evals import outcomes as oc
+from evals import tokens
 from evals.checks import CheckDecl, CheckResult, evaluate_all, safety_failures
 from evals.env import EvalEnv, EvalRefusalError, StartupOptions, shutdown, startup
 from evals.fixtures import FixtureServer, KBFixtures
@@ -54,6 +55,12 @@ class RunOptions:
     token_file: Path | None = None
     models_file: Path | None = None
     dry_run: bool = False
+    # A directory of prompt configurations (``evals/gleepglorp/measure``). When set, the prompt is
+    # measured offline (scripted provider, no model call) before the runs and written to the run
+    # directory's ``measure.json``, so the set's runs fingerprint that prompt (``compare
+    # --same-prompt`` refuses a changed one) and ``baseline`` needs no separate measure-prompt step.
+    measure_dir: Path | None = None
+    measure_counter: Any = None  # a test seam: the token counter (default: tiktoken)
 
 
 @dataclass
@@ -280,7 +287,7 @@ async def execute_run(
         attempt = await harness.run_once(spec)
         verdict = decide(attempt, inst.checks)
         if verdict.transient and waits:
-            await harness.discard_agent(spec.agent_name)
+            await harness.discard_agent(harness.agent_for(spec))
             await hooks.sleep(waits.pop(0))
             retries += 1
             continue
@@ -327,6 +334,17 @@ async def run_invocation(
         print(f"--resume: {opts.resume} is not a directory", flush=True)
         return 2
     run_dir = opts.resume or opts.run_dir or default_run_dir()
+    measure_doc: dict[str, Any] | None = None
+    if opts.measure_dir is not None:
+        try:
+            measure_doc = await _measure_for_run(opts, hooks)
+            _check_resume_prompt(run_dir, measure_doc, resume=bool(opts.resume))
+        except (EvalRefusalError, ScenarioError, PresetError) as exc:
+            print(str(exc), flush=True)
+            return 2
+        except tokens.TiktokenMissingError as exc:
+            print(str(exc), flush=True)
+            return 2
     try:
         env = await startup(
             StartupOptions(
@@ -341,6 +359,8 @@ async def run_invocation(
         return 2
     try:
         write_fingerprints(env.run_dir, opts, plan, resume=bool(opts.resume))
+        if measure_doc is not None:
+            _write_measure(env.run_dir, measure_doc)
     except EvalRefusalError as exc:
         await shutdown(env)
         print(str(exc), flush=True)
@@ -350,6 +370,39 @@ async def run_invocation(
     except EvalRefusalError as exc:  # e.g. the fixture hostname self-test (after cleanup)
         print(str(exc), flush=True)
         return 2
+
+
+async def _measure_for_run(opts: RunOptions, hooks: Hooks) -> dict[str, Any]:
+    """The offline prompt measurement of ``opts.measure_dir`` (before any run, so a missing
+    counter refuses before quota is spent). Its own scratch environment, torn down afterwards."""
+    return await tokens.measure_prompt(
+        tokens.MeasureOptions(
+            measure_dir=opts.measure_dir, counter=opts.measure_counter, environ=hooks.environ
+        )
+    )
+
+
+def _check_resume_prompt(run_dir: Path, doc: dict[str, Any], *, resume: bool) -> None:
+    """A resumed run must measure the same prompt it started with."""
+    import json
+
+    path = run_dir / "measure.json"
+    if not resume or not path.is_file():
+        return
+    try:
+        old = json.loads(path.read_text(encoding="utf-8"))["fingerprints"]["prompt"]
+    except (OSError, ValueError, KeyError):
+        return
+    if old != doc["fingerprints"]["prompt"]:
+        raise EvalRefusalError("--resume: the measured prompt changed since this run started")
+
+
+def _write_measure(run_dir: Path, doc: dict[str, Any]) -> None:
+    import json
+
+    (run_dir / "measure.json").write_text(
+        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def write_fingerprints(run_dir: Path, opts: RunOptions, plan: Plan, *, resume: bool) -> dict:

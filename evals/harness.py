@@ -276,6 +276,10 @@ class Harness:
         self.provider_hook = provider_hook
         self.turn_timeout = turn_timeout
         self._stack = contextlib.ExitStack()
+        # A builder run's seeded ``[app]`` rows ("agent" name / "mcp" id / "secret" id) and
+        # secret-bearing values, reset at the top of every builder ``_seed``.
+        self._app_rows: list[tuple[str, str]] = []
+        self._run_secrets: list[str] = []
 
     @property
     def fixture_base(self) -> str:
@@ -362,7 +366,10 @@ class Harness:
         """Remove a partial attempt's agent (and, by cascade, its notes and rules)."""
         from the_one.db.connection import get_connection
         from the_one.db.repositories import SQLiteAgentStore
+        from the_one.naming import GLEEPGLORP_AGENT_NAME
 
+        if name == GLEEPGLORP_AGENT_NAME:
+            return  # no agents row; the next builder ``_seed`` resets its state
         store = SQLiteAgentStore(await get_connection())
         if await store.exists(name):
             await store.delete(name)
@@ -385,6 +392,8 @@ class Harness:
             raise RuntimeError("scenario attaches a knowledge base but no KB fixtures are set up")
         kb_ids = [await self.kb.ensure(ref) for ref in sc.kbs] if sc.kbs else []
         await time_zones.save_setting(conn, time_zones.TimeZoneSetting(mode="zone", zone=sc.zone))
+        if sc.builder == "gleepglorp":
+            return await self._seed_gleepglorp(spec, conn)
         cfg = AgentConfig(
             name=spec.agent_name,
             description=f"eval run {spec.stem}",
@@ -425,6 +434,141 @@ class Harness:
             seeded.add(note.id)
         return seeded
 
+    def agent_for(self, spec: RunSpec) -> str:
+        """The name of the agent a run builds: ``spec.agent_name`` for a stored agent, the
+        built-in assistant's own name for a ``builder = "gleepglorp"`` scenario (the session id
+        stem keeps ``spec.stem``)."""
+        if spec.scenario.builder == "gleepglorp":
+            from the_one.naming import GLEEPGLORP_AGENT_NAME
+
+            return GLEEPGLORP_AGENT_NAME
+        return spec.agent_name
+
+    async def _remove_app_rows(self) -> None:
+        """Delete the ``[app]`` rows the last builder run seeded (agents, MCP servers, secrets)."""
+        from the_one.config import settings
+        from the_one.db.connection import get_connection
+        from the_one.db.repositories import (
+            MCPSourceRepository,
+            SecretRepository,
+            SQLiteAgentStore,
+        )
+        from the_one.encryption import get_encryptor
+
+        rows, self._app_rows = self._app_rows, []
+        if not rows:
+            return
+        conn = await get_connection()
+        enc = get_encryptor(settings.data_dir)
+        for kind, key in rows:
+            if kind == "agent":
+                store = SQLiteAgentStore(conn)
+                if await store.exists(key):
+                    await store.delete(key)
+            elif kind == "mcp":
+                await MCPSourceRepository(conn, enc).delete(key)
+            elif kind == "secret":
+                await SecretRepository(conn, enc).delete(key)
+
+    async def _seed_gleepglorp(self, spec: RunSpec, conn: Any) -> set[str]:
+        """Seed a ``builder = "gleepglorp"`` run. GleepGlorp is one singleton per data directory,
+        so state is RESET first, on every attempt (a transient retry included): its notes are
+        cleared (the counter is left, so note numbers drift between runs and no check names one)
+        and the previous run's ``[app]`` rows are removed; then ready settings are written, the
+        seeded notes and the ``[app]`` rows go in. Returns the seeded note ids."""
+        from the_one.agent.config import AgentConfig
+        from the_one.config import settings
+        from the_one.db.models import MCPSource
+        from the_one.db.repositories import (
+            MCPSourceRepository,
+            SecretRepository,
+            SQLiteAgentStore,
+        )
+        from the_one.encryption import get_encryptor
+        from the_one.gleepglorp import GleepGlorpSettings, save_settings
+        from the_one.gleepglorp.notes import GleepGlorpNoteRepository
+        from the_one.naming import GLEEPGLORP_AGENT_NAME
+
+        sc = spec.scenario
+        preset = self.presets[spec.model]
+        await self._remove_app_rows()
+        notes = GleepGlorpNoteRepository(conn)
+        await notes.clear()
+        self._run_secrets = []
+        # Named fields (the model is ``extra="forbid"``). The provider row exists from setup(),
+        # so the state is ``ready`` and ``provider_patch`` (which swaps only get_provider) applies.
+        await save_settings(
+            conn,
+            GleepGlorpSettings(
+                enabled=True,
+                provider_config_id=preset.provider_id,
+                model=preset.model,
+                web_access=sc.web_access,
+                memory=sc.notes_enabled,
+            ),
+        )
+        mapping = {**spec.variant.mapping, "fixture_base": self.fixture_base}
+
+        def x(text: str) -> str:
+            return expand(text, mapping)
+
+        enc = get_encryptor(settings.data_dir)
+        # Row shapes are the ones the app's own repositories take: ``AgentConfig`` for the agent
+        # store, ``MCPSource`` (config: command/args/env or url/headers) for MCPSourceRepository,
+        # ``SecretRepository.create(name, description, allowed_tools, [{key, value}])``.
+        store = SQLiteAgentStore(conn)
+        for ag in sc.app.agents:
+            await store.save(
+                AgentConfig(
+                    name=x(ag.name),
+                    description=x(ag.description),
+                    system_prompt=x(ag.system_prompt),
+                    provider_config_id=preset.provider_id,
+                    llm_model=preset.model,
+                )
+            )
+            self._app_rows.append(("agent", x(ag.name)))
+        mcps = MCPSourceRepository(conn, enc)
+        for srv in sc.app.mcp_servers:
+            if srv.type == "stdio":
+                config: dict[str, Any] = {
+                    "command": x(srv.command),
+                    "args": [x(a) for a in srv.args],
+                    "env": {k: x(v) for k, v in srv.env},
+                }
+            else:
+                config = {"url": x(srv.url), "headers": {k: x(v) for k, v in srv.headers}}
+            row_id = f"ev-mcp-{len(self._app_rows)}"
+            await mcps.create(MCPSource(id=row_id, name=x(srv.name), type=srv.type, config=config))
+            self._app_rows.append(("mcp", row_id))
+            self._run_secrets += [x(v) for _k, v in (*srv.headers, *srv.env)]
+        secrets = SecretRepository(conn, enc)
+        for sec in sc.app.secrets:
+            made = await secrets.create(
+                x(sec.name),
+                x(sec.description),
+                list(sec.allowed_tools),
+                [{"key": x(k), "value": x(v)} for k, v in sec.values],
+            )
+            self._app_rows.append(("secret", made.id))
+            self._run_secrets += [x(v) for _k, v in sec.values]
+        seeded: set[str] = set()
+        for seed in sc.seeded_notes:
+            note, _created = await notes.create(
+                GLEEPGLORP_AGENT_NAME,
+                x(seed.text),
+                untrusted=seed.untrusted,
+                sources=["seeded"] if seed.untrusted else [],
+                origin_kind="other",
+                origin_session_id=None,
+                origin_label="seeded",
+                origin_platform=None,
+                origin_peer_id=None,
+                origin_peer_name=None,
+            )
+            seeded.add(note.id)
+        return seeded
+
     async def _collect_routines(self, agent_name: str) -> list[RoutineView]:
         """The routines the run's agent left in the database (the stored columns)."""
         from the_one.db.connection import get_connection
@@ -450,6 +594,8 @@ class Harness:
         from the_one.db.repositories import AgentNoteRepository, SQLiteAgentStore
 
         sc = spec.scenario
+        agent_name = self.agent_for(spec)
+        builder = sc.builder == "gleepglorp"
         inst = sc.instantiate(spec.variant, self.fixture_base)
         recorder = CallRecorder()
         trace = RunTrace(
@@ -466,6 +612,7 @@ class Harness:
         with clock_patch(sc.instant_for(spec.variant), sc.host_zone):
             try:
                 seeded = await self._seed(spec)
+                trace.seeded_secrets = list(self._run_secrets) if builder else []
                 conn = await get_connection()
                 factory = AgentFactory(store=SQLiteAgentStore(conn))
                 turn_index = 0
@@ -474,13 +621,13 @@ class Harness:
                     with provider_patch(
                         tools_off=sc.tools_off, scripted=scripted, recorder=recorder
                     ):
-                        agent = await factory.create(spec.agent_name)
+                        agent = await factory.create(agent_name)
                     trace.system_prompts.append(agent.system_prompt)
                     if attempt.registry_schemas is None:
                         from the_one.db.repositories import agent_names_in_use
 
                         attempt.registry_schemas = [dict(s) for s in agent.tools.all_schemas()]
-                        attempt.connector_bound = spec.agent_name in await agent_names_in_use(conn)
+                        attempt.connector_bound = agent_name in await agent_names_in_use(conn)
                         exp = getattr(agent, "tool_exposure", None)
                         attempt.exposure = exp.to_dict() if exp is not None else None
                     session_id = f"ev-{spec.stem}-c{ci}"
@@ -523,7 +670,12 @@ class Harness:
                         await agent.aclose()
                 try:
                     conn = await get_connection()
-                    stored = await AgentNoteRepository(conn).list_for_agent(spec.agent_name)
+                    if builder:
+                        from the_one.gleepglorp.notes import GleepGlorpNoteRepository
+
+                        stored = await GleepGlorpNoteRepository(conn).list_for_agent()
+                    else:
+                        stored = await AgentNoteRepository(conn).list_for_agent(agent_name)
                     for n in stored:
                         if n.id in seeded:
                             continue
@@ -539,7 +691,14 @@ class Harness:
                     attempt.exc = attempt.exc or exc
                 if sc.routines_enabled:
                     try:
-                        trace.routines = await self._collect_routines(spec.agent_name)
+                        trace.routines = await self._collect_routines(agent_name)
+                    except Exception as exc:  # noqa: BLE001 - must not mask the run
+                        attempt.exc = attempt.exc or exc
+                if builder:
+                    # The run's [app] rows go again (the next seed removes them too, so a run
+                    # that never got here leaves nothing the next one can see).
+                    try:
+                        await self._remove_app_rows()
                     except Exception as exc:  # noqa: BLE001 - must not mask the run
                         attempt.exc = attempt.exc or exc
         attempt.wall_s = round(time.monotonic() - t_run, 3)

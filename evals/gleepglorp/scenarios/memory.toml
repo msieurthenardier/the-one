@@ -1,0 +1,40 @@
+id = "memory"
+class = "improve"
+description = "The operator says how they set the app up. GleepGlorp saves it, and a later conversation uses it."
+
+[agent]
+builder = "gleepglorp"
+notes_enabled = true
+
+[variants]
+phrasings = [
+  "FYI, {statement}",
+  "For next time: {statement}",
+  "Remember that {statement}",
+  "Just so you know, {statement}",
+]
+facts = [
+  {statement = "I keep all my agents on the local Ollama provider.", recall = "Which provider do I use for my agents?", pat = '(?i)ollama'},
+  {statement = "my agents all use the Claude token provider.", recall = "Remind me which kind of provider my agents use.", pat = '(?i)claude'},
+  {statement = "I only ever want the Discord connector, never Telegram.", recall = "Which chat connector do I use?", pat = '(?i)discord'},
+  {statement = "my knowledge base is the folder called Recipes.", recall = "What was my knowledge base folder again?", pat = '(?i)recipes'},
+  {statement = "I run everything on a small home server called Atlas.", recall = "Where do I run the app?", pat = '(?i)atlas|home server'},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[conversations]]
+turns = ["{recall}"]
+
+[[checks]]
+name = "note_saved"
+pattern = '{pat}'
+cell = "memory-saved"
+class = "improve"
+
+[[checks]]
+name = "reply_matches"
+pattern = '{pat}'
+cell = "memory-recalled"
+class = "hold"

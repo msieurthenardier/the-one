@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print the planned runs and LLM call count; build no agent",
     )
+    run.add_argument(
+        "--measure-dir",
+        type=Path,
+        help="a directory of prompt configurations (evals/gleepglorp/measure): measure the "
+        "prompt offline before the runs and write measure.json into the run directory",
+    )
 
     mp = sub.add_parser(
         "measure-prompt",
@@ -75,6 +81,12 @@ def build_parser() -> argparse.ArgumentParser:
     mp.add_argument("--json", dest="json_out", type=Path, help="also write the measurement here")
     mp.add_argument(
         "--run-dir", type=Path, help="scratch directory (default: evals/runs/measure-<pid>)"
+    )
+    mp.add_argument(
+        "--measure-dir",
+        type=Path,
+        help="a directory of prompt configurations to measure instead of evals/measure "
+        "(evals/gleepglorp/measure measures the GleepGlorp prompt)",
     )
 
     cp = sub.add_parser(
@@ -153,6 +165,7 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         token_file=args.token_file,
         json_out=args.json_out,
         run_dir=args.run_dir,
+        measure_dir=args.measure_dir,
     )
     try:
         print("building the agents (no model call)...", file=sys.stderr, flush=True)
@@ -278,6 +291,7 @@ def _dispatch(args: argparse.Namespace) -> int:
         token_file=args.token_file,
         models_file=args.models_file,
         dry_run=args.dry_run,
+        measure_dir=args.measure_dir,
     )
     return asyncio.run(runner.run_invocation(opts))
 

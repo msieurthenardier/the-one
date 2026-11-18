@@ -2,7 +2,8 @@
 
 A scenario file declares: ``id``, ``class`` and ``description``; the agent setup
 (``[agent]``: persona, ``notes_enabled``, ``routines_enabled``, ``rich_visuals``, rules,
-seeded notes, knowledge-base fixtures, ``tools_off``); the clock (``[clock]``);
+seeded notes, knowledge-base fixtures, ``tools_off``, ``builder`` and ``web_access`` for the
+built-in GleepGlorp assistant, with its ``[app]`` rows); the clock (``[clock]``);
 ``[variants]`` (phrasings x facts, DD9); one or more ``[[conversations]]`` (each a list of
 user ``turns``; a new conversation means a freshly built agent); and ``[[checks]]``.
 
@@ -33,7 +34,17 @@ DEFAULT_INSTANT = datetime(2026, 3, 2, 15, 0, 0, tzinfo=timezone.utc)
 DEFAULT_ZONE = "Pacific/Kiritimati"  # UTC+14: separates the host date from the zone date
 DEFAULT_HOST_ZONE = "America/Los_Angeles"
 
-_TOP_KEYS = {"id", "class", "description", "agent", "clock", "variants", "conversations", "checks"}
+_TOP_KEYS = {
+    "id",
+    "class",
+    "description",
+    "agent",
+    "app",
+    "clock",
+    "variants",
+    "conversations",
+    "checks",
+}
 _AGENT_KEYS = {
     "persona",
     "notes_enabled",
@@ -44,7 +55,15 @@ _AGENT_KEYS = {
     "max_iterations",
     "routines_enabled",
     "rich_visuals",
+    "builder",
+    "web_access",
 }
+# The agent builders a scenario can name (``agent.builder``): the built-in GleepGlorp assistant.
+BUILDERS = ("gleepglorp",)
+# The ``[agent]`` keys a builder scenario may not set (the assistant has none of them).
+_BUILDER_REFUSES = ("kb", "routines_enabled", "persona", "rules", "rich_visuals", "max_iterations")
+_APP_KEYS = {"agents", "mcp_servers", "secrets"}
+_MCP_TYPES = ("stdio", "streamable-http")
 _CLOCK_KEYS = {"instant", "zone", "host_zone"}
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -63,6 +82,53 @@ class KBRef:
 class SeedNote:
     text: str
     untrusted: bool = False
+
+
+@dataclass(frozen=True)
+class AppAgent:
+    """An ``agents`` row a builder scenario seeds (what the stored agent has: name, description,
+    system prompt)."""
+
+    name: str
+    description: str = ""
+    system_prompt: str = ""
+
+
+@dataclass(frozen=True)
+class AppMcp:
+    """An ``mcp_sources`` row (``MCPSource``): a stdio server's command, args and ``env``, or a
+    streamable-http server's url and ``headers``. Header and env values are credentials."""
+
+    name: str
+    type: str
+    command: str = ""
+    args: tuple[str, ...] = ()
+    url: str = ""
+    headers: tuple[tuple[str, str], ...] = ()
+    env: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class AppSecret:
+    """A Library secret (``SecretRepository.create``): name, description, key/value pairs and the
+    tools it is allowed on."""
+
+    name: str
+    description: str = ""
+    values: tuple[tuple[str, str], ...] = ()
+    allowed_tools: tuple[str, ...] = ("http_request",)
+
+
+@dataclass
+class AppSeed:
+    """The ``[app]`` table: rows GleepGlorp can read, seeded per run (placeholders expand)."""
+
+    agents: list[AppAgent] = field(default_factory=list)
+    mcp_servers: list[AppMcp] = field(default_factory=list)
+    secrets: list[AppSecret] = field(default_factory=list)
+
+    def empty(self) -> bool:
+        return not (self.agents or self.mcp_servers or self.secrets)
 
 
 @dataclass(frozen=True)
@@ -99,6 +165,10 @@ class Scenario:
     seeded_notes: list[SeedNote] = field(default_factory=list)
     kbs: list[KBRef] = field(default_factory=list)
     max_iterations: int | None = None
+    # ``agent.builder``: the name of the agent builder ("gleepglorp"), or None for a stored agent.
+    builder: str | None = None
+    web_access: bool = False  # builder scenarios only: the GleepGlorp ``web_access`` setting
+    app: AppSeed = field(default_factory=AppSeed)
     instant: datetime = DEFAULT_INSTANT
     zone: str = DEFAULT_ZONE
     host_zone: str = DEFAULT_HOST_ZONE
@@ -245,6 +315,103 @@ def _parse_instant(path: Path, value: Any) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def _str_table(path: Path, value: Any, field_name: str) -> tuple[tuple[str, str], ...]:
+    if not isinstance(value, dict) or not all(
+        isinstance(k, str) and k and isinstance(v, str) for k, v in value.items()
+    ):
+        raise _fail(path, field_name, "must be a table of non-empty names to strings")
+    return tuple(value.items())
+
+
+def _app_rows(path: Path, app: dict, key: str, allowed: set[str]) -> list[dict]:
+    rows = app.get(key, [])
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise _fail(path, f"app.{key}", "must be an array of tables")
+    for i, row in enumerate(rows):
+        for k in row:
+            if k not in allowed:
+                raise _fail(path, f"app.{key}[{i}].{k}", "unknown field")
+        name = row.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise _fail(path, f"app.{key}[{i}].name", "needs a non-empty name")
+    return rows
+
+
+def _opt_str(path: Path, row: dict, key: str, field_name: str) -> str:
+    if key not in row:
+        return ""
+    if not isinstance(row[key], str):
+        raise _fail(path, field_name, "must be a string")
+    return row[key]
+
+
+def _parse_app(path: Path, app: Any) -> AppSeed:
+    """The ``[app]`` table: ``agents``, ``mcp_servers`` and ``secrets`` row arrays. String values
+    may hold ``{placeholders}`` (expanded from the variant's facts when seeded)."""
+    if not isinstance(app, dict):
+        raise _fail(path, "app", "must be a table")
+    for key in app:
+        if key not in _APP_KEYS:
+            raise _fail(path, f"app.{key}", "unknown field")
+    seed = AppSeed()
+    for i, row in enumerate(
+        _app_rows(path, app, "agents", {"name", "description", "system_prompt"})
+    ):
+        f = f"app.agents[{i}]"
+        seed.agents.append(
+            AppAgent(
+                row["name"],
+                _opt_str(path, row, "description", f"{f}.description"),
+                _opt_str(path, row, "system_prompt", f"{f}.system_prompt"),
+            )
+        )
+    mcp_keys = {"name", "type", "command", "args", "url", "headers", "env"}
+    for i, row in enumerate(_app_rows(path, app, "mcp_servers", mcp_keys)):
+        f = f"app.mcp_servers[{i}]"
+        kind = row.get("type")
+        if kind not in _MCP_TYPES:
+            raise _fail(path, f"{f}.type", f"must be one of {', '.join(_MCP_TYPES)}")
+        args = row.get("args", [])
+        if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
+            raise _fail(path, f"{f}.args", "must be a list of strings")
+        command = _opt_str(path, row, "command", f"{f}.command")
+        url = _opt_str(path, row, "url", f"{f}.url")
+        if kind == "stdio" and not command:
+            raise _fail(path, f"{f}.command", "a stdio server needs a command")
+        if kind == "streamable-http" and not url:
+            raise _fail(path, f"{f}.url", "a streamable-http server needs a url")
+        seed.mcp_servers.append(
+            AppMcp(
+                row["name"],
+                kind,
+                command,
+                tuple(args),
+                url,
+                _str_table(path, row.get("headers", {}), f"{f}.headers"),
+                _str_table(path, row.get("env", {}), f"{f}.env"),
+            )
+        )
+    for i, row in enumerate(
+        _app_rows(path, app, "secrets", {"name", "description", "values", "allowed_tools"})
+    ):
+        f = f"app.secrets[{i}]"
+        values = _str_table(path, row.get("values", {}), f"{f}.values")
+        if not values:
+            raise _fail(path, f"{f}.values", "needs at least one key and value")
+        tools = row.get("allowed_tools", ["http_request"])
+        if not isinstance(tools, list) or not tools or not all(isinstance(t, str) for t in tools):
+            raise _fail(path, f"{f}.allowed_tools", "must be a non-empty list of tool names")
+        seed.secrets.append(
+            AppSecret(
+                row["name"],
+                _opt_str(path, row, "description", f"{f}.description"),
+                values,
+                tuple(tools),
+            )
+        )
+    return seed
+
+
 def parse_scenario(
     path: Path, *, n: int | None = None, fixtures_root: Path | None = None
 ) -> Scenario:
@@ -317,6 +484,26 @@ def parse_scenario(
         if fixtures_root is not None and not (fixtures_root / "kb" / kb["fixture"]).is_dir():
             raise _fail(path, f"agent.kb[{i}].fixture", f"no fixture directory {kb['fixture']!r}")
         sc.kbs.append(KBRef(kb["name"], kb["fixture"]))
+    if "builder" in agent:
+        builder = _expect(path, agent, "builder", str, "agent.builder")
+        if builder not in BUILDERS:
+            raise _fail(path, "agent.builder", f"must be one of {', '.join(BUILDERS)}")
+        for key in _BUILDER_REFUSES:
+            if key in agent:
+                raise _fail(
+                    path,
+                    "agent.builder",
+                    f"{builder!r} cannot be combined with agent.{key} (the assistant has none)",
+                )
+        sc.builder = builder
+    if "web_access" in agent:
+        sc.web_access = _expect(path, agent, "web_access", bool, "agent.web_access")
+        if sc.builder is None:
+            raise _fail(path, "agent.web_access", "needs agent.builder")
+    if "app" in data:
+        if sc.builder is None:
+            raise _fail(path, "app", "needs agent.builder")
+        sc.app = _parse_app(path, data["app"])
 
     clock = data.get("clock", {})
     if not isinstance(clock, dict):

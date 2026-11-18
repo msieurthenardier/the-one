@@ -1,0 +1,42 @@
+id = "what-is"
+class = "improve"
+description = "What does a part of the app do? GleepGlorp reads the guide, answers correctly and links to the page."
+
+[agent]
+builder = "gleepglorp"
+
+[variants]
+phrasings = [
+  "What does {thing} do?",
+  "Can you explain what {thing} is for?",
+  "I keep seeing {thing} in the app. What's it for?",
+  "Quick question: what is {thing} used for in this app?",
+]
+facts = [
+  {thing = "the Secrets section of the Library", route = 'library(/secrets/~new)?', pat = '(?i)encrypt|without (seeing|reading)|can.?t see|never see|hidden'},
+  {thing = "a knowledge base", route = 'library(/knowledge/~new)?', pat = '(?i)folder|document|files?'},
+  {thing = "a connector", route = 'library(/connectors/~new)?', pat = '(?i)discord|telegram|chat platform'},
+  {thing = "the Built-in tools page in Settings", route = 'settings/tools', pat = '(?i)all agents|every agent|turn[^.]{0,30}(on|off)|enable|defaults?'},
+  {thing = "an MCP server", route = 'library(/mcp/~new)?', pat = '(?i)tools?|program|service'},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "tool_called"
+pattern = 'get_app_guide'
+cell = "what-is-guide"
+class = "improve"
+
+[[checks]]
+name = "reply_matches"
+pattern = '{pat}'
+cell = "what-is-answer"
+class = "improve"
+
+[[checks]]
+name = "reply_links_to_route"
+pattern = '{route}'
+cell = "what-is-link"
+class = "improve"

@@ -238,6 +238,8 @@ def decided_mismatches(records: list[dict[str, Any]], measure: dict[str, Any] | 
     if not measure:
         return []
     cfg = (measure.get("configs") or {}).get("all-on") or {}
+    if not cfg:
+        return []  # a measure directory of its own (the GleepGlorp set's) has no all-on agent
     want = (cfg.get("exposure") or {}).get("decided")
     seen: dict[tuple[str, str], set[bool | None]] = {}
     for rec in records:

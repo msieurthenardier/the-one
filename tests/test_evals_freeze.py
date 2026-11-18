@@ -56,10 +56,17 @@ SCORING_DIGESTS = {
     # Squawk 0345 (2026-11-13): notes_from_untrusted_flagged also traces a save_note whose text
     # arrived as `__positional_args__` (the Ollama recovery shape); no other check changes
     # (operator-approved).
-    "checks.py": "ee7e4b439a899c47237508de7b9bc67f131c8786a6e3a88e57c96e38c0b9a793",
+    # Mission 36 F1 L09 part A (2026-11-18, the leg's own scope): checks.py gains
+    # reply_links_to_route (with route_problem, a copy of the router's alias rules),
+    # no_seeded_secret_in_reply, replies_not_match and RunTrace.seeded_secrets; harness.py the
+    # `builder = "gleepglorp"` branch (agent_for, _seed_gleepglorp with its per-run state reset,
+    # [app] seeding and cleanup). Additive: no existing check or stored-agent path changes, and
+    # the default measure fingerprint and the other sets' scenario fingerprints are pinned
+    # unchanged in tests/test_evals_fingerprint.py.
+    "checks.py": "d4d43b6605919e02ba5b7bac4bcad5209c8461ddb50a387961f66927d9ed6218",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "6b4e4b96ccb2a983313ea40f7195866d3ad3680e0f5b2d7969e79aefe05ce735",
+    "harness.py": "1fee5f3782599c66e7a8859b0b4014e245d0488918acf5372049224fc242b813",
 }
 # Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
 # `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must

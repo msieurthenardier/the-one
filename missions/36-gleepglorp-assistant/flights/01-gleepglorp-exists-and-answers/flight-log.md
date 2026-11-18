@@ -285,7 +285,25 @@ In flight. Branch `flight/01-gleepglorp-exists-and-answers` from `main` at
   skips (the knowledge-base watcher tests skip on a loaded host; both 16-skip
   runs were at load above 1); re-checked with `-rs` at the flight-end quiet
   run. Legs 3-8 set `completed`; Batch B checkpoint commit by a Developer
-  (Sonnet).
+  (Sonnet): **`3fd0bb75`** (not pushed).
+- Leg 9 Part A Developer (Sonnet) spawned: offline harness support, checks,
+  scenario set, own measure dir; no quota.
+- Leg 9 Part A landed and reviewed (Reviewer, Sonnet): [HANDOFF:confirmed], no
+  blocking issues; 621 eval tests and the dry run pass (10 scenarios × 20
+  variants × 3 models = 600 runs, ~660+ calls). The Reviewer confirmed the
+  changes to the frozen scoring modules (`evals/checks.py`,
+  `evals/harness.py`) are purely additive, so the `test_evals_freeze.py`
+  re-pin stands (**operator decision, 2026-11-18: accept if the Reviewer
+  confirms additive**). The `off-topic` no-tools pattern forbids only
+  `get_app_guide|fetch_url|web_search` (a `read_app_config` call to name the
+  operator's agents is the instructed behaviour): accepted. Non-blocking:
+  `compare --same-prompt` is generic and does not itself refuse a changed
+  prompt; GleepGlorp prompt edits are caught by the measure fingerprint and
+  the resume refusal, and the leg's wording is checked in Part B. Part A
+  committed by the Flight Director before any quota.
+- **Round 1 plan (operator decision, 2026-11-18): full n=20 on `haiku`,
+  `qwen3-4b`, `lfm3`** with prompt v1 (committed in `3fd0bb75`), measured
+  through `--measure-dir evals/gleepglorp/measure`; estimated 100-120 min.
 
 ---
 
@@ -594,6 +612,115 @@ failed=-`. No failures. Over budget: `settings` 369/360, `mcp` 358/330, `agent-r
 311/300 (all within 1.09x, on a loaded host); not re-budgeted, since the quiet-host rule
 forbids re-budgeting from a loaded run. `chats` 402/420. All other lanes under budget.
 Ruff check and format clean.
+
+### prompt-and-evals — Part A
+
+Part A landed (offline harness support, checks, the scenario set, the prompt measurement of
+its own directory). No model call, no quota spent, no commit. Part B (the measured rounds) is
+untouched.
+
+**Built.**
+- `evals/scenario.py`: `[agent] builder = "gleepglorp"` and `web_access` (default false), the
+  `[app]` table (`agents`, `mcp_servers`, `secrets` rows, placeholders from variant facts). The
+  loader refuses `kb`, `routines_enabled`, `persona`, `rules`, `rich_visuals` and
+  `max_iterations` beside the builder, an unknown builder, `web_access` or `[app]` without the
+  builder, and a malformed row, each as one line.
+- `evals/harness.py`: `Harness.agent_for(spec)` (the name from `GLEEPGLORP_AGENT_NAME`; the
+  session-id stem keeps `spec.stem`), `_seed_gleepglorp` (state RESET first on every attempt: notes
+  cleared, the previous run's `[app]` rows deleted; then ready settings from named fields, seeded
+  notes through `GleepGlorpNoteRepository`, `[app]` rows through `SQLiteAgentStore`,
+  `MCPSourceRepository` and `SecretRepository`; row shapes cited in the code), `run_once` builds
+  `factory.create("GleepGlorp")` under `provider_patch` and reads notes from
+  `GleepGlorpNoteRepository`; `[app]` rows are deleted again after each run; `discard_agent` is a
+  no-op for the assistant (`runner.py` passes `harness.agent_for(spec)`).
+  `RunTrace.seeded_secrets` carries the MCP header and env values and the secret values.
+- `evals/checks.py`: `reply_links_to_route` (with `route_problem`, a copy of the router's alias
+  rules), `no_seeded_secret_in_reply` (db_state, so a safety cell counts it in a broken run),
+  `replies_not_match`.
+- `evals/tokens.py`, `runner.py`, `__main__.py`: `--measure-dir` on `measure-prompt` and `run`.
+  A directory without the bare/all-on/tool-free trio loads every `*.toml` as a configuration;
+  `gleepglorp_prompt_sections` splits by the prompt's section constants (`splitter_for` picks it
+  when every configuration is a builder scenario). `run --measure-dir` measures the prompt offline
+  before the runs (a missing tiktoken refuses before quota is spent), writes `measure.json` into the
+  run directory (so `report`/`baseline`/`compare` need no separate step and `compare --same-prompt`
+  fingerprints the GleepGlorp prompt), and refuses a `--resume` on a changed prompt.
+- `evals/baseline.py` (size targets for any measured configuration, in addition to the known
+  ones; unchanged output for the existing documents) and `evals/report.py` (`decided_mismatches`
+  skips a measurement with no all-on configuration).
+- `evals/gleepglorp/scenarios` (10 scenarios, 5 facts x 4 phrasings = 20 variants each),
+  `evals/gleepglorp/fixtures/web/gg-page-{1..5}.html`, `evals/gleepglorp/measure/{tools-web-on,
+  tools-web-off,tool-free,notes-on}.toml`. README vocabulary and set sections, CLAUDE.md eval
+  convention updated.
+- `tests/test_evals_freeze.py`: the frozen `checks.py` and `harness.py` digests re-pinned with a
+  dated comment (additive change inside this leg's own scope; flagged for the operator: the
+  yardstick modules did change, and the default measure and the other sets' fingerprints are
+  pinned unchanged by the new tests).
+
+**Deviation from the leg text, one.** `off-topic`'s "no tool calls" check forbids
+`get_app_guide|fetch_url|web_search` only: v1's scope text tells the assistant to suggest one of
+the operator's own agents, which it can only name after a `read_app_config`, so forbidding every
+tool would score the instructed behaviour as a failure. (A one-line change to `.+` if the operator
+wants the literal reading.)
+
+**Sizing.** `n` applies per scenario and model: `RunSpec`s are `models x scenarios x variants[:n]`,
+and the loader refuses a scenario with fewer than `n` distinct variants (every scenario here has
+exactly 20). Dry run (`make eval ARGS="run --scenarios-dir evals/gleepglorp/scenarios --dry-run"`):
+**600 planned runs** (10 scenarios x 20 variants x 3 models), "at least 660 model calls (one per user
+turn) + 0 judge calls" (`memory` has two turns). Expected calls per run, from the shipped
+scripted-reply table: 1 (`mcp-howto`, `key-needed`, `pasted-key`, `secret-ask`), 2 (`what-is`,
+`whats-configured`, `no-change-claim`, `off-topic`, `injected-page`), 3 (`memory`): 17 per
+variant across the set, so about **340 calls per model, about 1020 across the three** (more when a
+small model retries or loops). No judge calls. Wall time cannot be measured offline; the only
+recorded timing is Mission 35's about two hours for 720 runs on the same three models (about 10 s
+a run), which puts one n=20 round at **roughly 100 to 120 minutes** (600 runs), with the local
+models dominating (the GleepGlorp prompt is about a third the size of the platform prompt, but a
+`get_app_guide` result adds a few thousand tokens). Nothing was cut to reach it: the set is ten
+single-conversation scenarios (one has two), no judge, `gpt-oss` is not default, `web_search` is
+off. If a round must be shorter, `--n 12` runs the first 12 variants of every scenario (about 70
+minutes), or `--scenarios` selects a subset.
+
+**`measure-prompt`, before and after.** The default measure directory: `measure.json` and the table
+text are byte-identical before and after (`cmp`), prompt fingerprint
+`1d02c15609fc99f0a4361aaff7cf46930852a5339e2e0c518f5661b42fe91a15`; pinned in
+`tests/test_evals_fingerprint.py`, with the four other sets' scenario fingerprints. GleepGlorp's
+own directory (tiktoken `o200k_base`; the starting set is `search_tools`, `continue`,
+`current_time`, `read_app_config`, `get_app_guide`, plus `fetch_url` with web access, plus the
+three note tools with memory; `web_search` is disabled by the harness, so with a search engine set
+up the real tool-capable prompt is one schema larger):
+
+| configuration | prompt sections | tool schemas | platform text total |
+|---|---|---|---|
+| `tools-web-on` (tool-capable, web access on) | 343 | 789 | 1132 |
+| `tools-web-off` (tool-capable, web access off) | 343 | 672 | 1015 |
+| `notes-on` (web on, memory on, two notes) | 480 (notes layer 137) | 960 | 1440 |
+| `tool-free` | 304 | 0 | 304 |
+
+By section (tool-capable): identity 24, scope 27, limits 32, secrets 45, answering 42, links 126,
+style 6, date line 41; tool-free answering is 17, date line 27. Tool schemas: `get_app_guide` 254,
+`read_app_config` 166, `fetch_url` 117, `search_tools` 106, `continue` 74, `current_time` 72; with
+memory `save_note` 74, `update_note` 59, `forget_note` 38. GleepGlorp prompt fingerprint
+`b89d17886b4ba10155881fb8929ae3633ac21e9bba84f7a48c7b44c6dc547e8f`.
+
+**Dry run.** `make eval ARGS="run --scenarios-dir evals/gleepglorp/scenarios --dry-run"` passes
+(output above). The offline scripted run of every scenario passes each check's can-pass case
+(`tests/test_evals_gleepglorp_harness.py::test_every_scenario_of_the_set_can_pass_offline`), and
+nine scripted bad replies fail the safety cell they target.
+
+**Tests.** New: `tests/test_evals_gleepglorp_checks.py` (48: the three checks pass and fail,
+the route rules and the parity test against `tests/browser/_nav.py`, the schema refusals, the
+shipped set), `tests/test_evals_gleepglorp_harness.py` (21), two tests added to
+`tests/test_evals_fingerprint.py`. Falsified (fix removed by editing, test run, fix restored):
+per-run notes reset (yes, `test_two_runs_never_see_each_others_gleepglorp_notes` fails), per-run
+`[app]` row reset (yes, `test_app_rows_are_seeded_per_run_and_never_seen_by_the_next` fails), the
+default-fingerprint test (yes, with a one-word change to `evals/measure/all-on.toml`, restored),
+`reply_links_to_route`'s alias refusal (yes, 2 tests fail), `no_seeded_secret_in_reply` (yes, 8
+tests fail), the schema refusals (yes, 6 tests fail).
+
+**Unit tier.** `THE_ONE_TEST_NETNS=1 make test-unit` (start load 1.30; 1.5-2.0 throughout, other
+sessions' processes present, so not a quiet-host reading): 10611 passed, 16 skipped in 305.77 s
+(under the 350 s cap; 16 skipped is the same as the Batch B gate's). `tests/test_evals_*.py`: 621
+passed. Ruff check and format clean. No flake needed triage. Next: Reviewer pass of Part A, then a
+commit, then Part B with the operator.
 
 ## Decisions
 

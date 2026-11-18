@@ -1,6 +1,6 @@
 # Leg: prompt-and-evals
 
-**Status**: ready
+**Status**: in-flight (Part A landed; Part B pending)
 **Flight**: [GleepGlorp exists and can answer](../flight.md)
 
 ## Objective

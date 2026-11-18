@@ -190,6 +190,58 @@ def strict_platform_prompt_sections(text: str) -> list[tuple[str, str]]:
     return platform_prompt_sections(text, strict=True)
 
 
+def gleepglorp_prompt_sections(text: str) -> list[tuple[str, str]]:
+    """Split a first-call GleepGlorp prompt into its sections (M36 F1 L09).
+
+    GleepGlorp does not go through the platform prompt: ``the_one.gleepglorp.prompt`` joins its
+    section constants, then the notes layer (when memory is on) and the date line, with a blank
+    line. The text is matched against the tool-capable and the tool-free base; a text that
+    matches neither raises :class:`PlatformAttributionError` (measurement never reports an
+    unattributed size as a section). Each part carries its trailing separator, so the parts tile
+    the text and :func:`extract_parts` counts them cumulatively.
+    """
+    from the_one.gleepglorp import prompt as gp
+
+    for tools in (True, False):
+        answering = gp.ANSWERING_TOOLS if tools else gp.ANSWERING_TOOL_FREE
+        named = [
+            ("identity", gp.IDENTITY),
+            ("scope", gp.SCOPE),
+            ("limits", gp.LIMITS),
+            ("secrets", gp.SECRETS),
+            ("answering", answering),
+            ("links", gp.LINKS),
+            ("style", gp.STYLE),
+        ]
+        base = "\n\n".join(t for _n, t in named)
+        if text != base and not text.startswith(base + "\n\n"):
+            continue
+        out = [(n, t + "\n\n") for n, t in named[:-1]] + [(named[-1][0], named[-1][1])]
+        rest = text[len(base) :]
+        if rest:
+            paragraphs = rest[2:].split("\n\n")  # after the separator that follows the base
+            out[-1] = (out[-1][0], out[-1][1] + "\n\n")
+            # the date line is the last paragraph; anything before it is the notes layer
+            date = paragraphs[-1]
+            notes = "\n\n".join(paragraphs[:-1])
+            if notes:
+                out.append(("notes_layer", notes + "\n\n"))
+            out.append(("date_line", date))
+        return out
+    raise PlatformAttributionError(
+        "GleepGlorp prompt text matches neither the tool-capable nor the tool-free base; a new "
+        "section needs adding to evals/tokens.py::gleepglorp_prompt_sections"
+    )
+
+
+def splitter_for(scenarios: dict[str, Any]) -> SectionSplitter:
+    """The section splitter for a set of configuration scenarios: GleepGlorp's when every one
+    is a ``builder = "gleepglorp"`` scenario, else the platform prompt's (strict)."""
+    if scenarios and all(getattr(sc, "builder", None) == "gleepglorp" for sc in scenarios.values()):
+        return gleepglorp_prompt_sections
+    return strict_platform_prompt_sections
+
+
 def _layers(
     system: str,
     persona: str,
@@ -344,6 +396,15 @@ def load_config_scenarios(measure_dir: Path | None = None) -> dict[str, Any]:
     from evals.scenario import parse_scenario
 
     d = measure_dir or MEASURE_DIR
+    if not all((d / f"{c}.toml").is_file() for c in CONFIGS):
+        # A directory of its own (``evals/gleepglorp/measure``): every ``*.toml`` is one
+        # configuration, named by its file stem, in name order.
+        names = sorted(p.stem for p in d.glob("*.toml")) if d.is_dir() else []
+        if not names:
+            from evals.scenario import ScenarioError
+
+            raise ScenarioError(f"{d}: no configuration files (*.toml) in the measure directory")
+        return {c: parse_scenario(d / f"{c}.toml", fixtures_root=d / "fixtures") for c in names}
     names = [*CONFIGS, *(c for c in EXTRA_CONFIGS if (d / f"{c}.toml").is_file())]
     return {c: parse_scenario(d / f"{c}.toml", fixtures_root=d / "fixtures") for c in names}
 
@@ -626,7 +687,7 @@ async def measure_prompt(opts: MeasureOptions) -> dict[str, Any]:
             "schema": 2,
             "counter": counter.name,
             "pinned": {"instant": DEFAULT_INSTANT.isoformat(), "zone": DEFAULT_ZONE},
-            "configs": measure_configs(raw, counter),
+            "configs": measure_configs(raw, counter, splitter_for(scenarios)),
             "kb_tool": kb_tool_entry(raw, counter),
             "fingerprints": {
                 "prompt": prompt_fingerprint(
@@ -668,7 +729,9 @@ async def _default_server_info(preset: Any) -> dict[str, Any]:
 def render_tables(doc: dict[str, Any]) -> str:
     """Per-part tables for the three configurations, then the model counts."""
     lines = [f"counter: {doc['counter']}", ""]
-    for name in ALL_CONFIGS:
+    # The known configurations in their fixed order, then any a measure directory of its own adds.
+    order = [*ALL_CONFIGS, *(c for c in doc["configs"] if c not in ALL_CONFIGS)]
+    for name in order:
         cfg = doc["configs"].get(name)
         if not cfg:
             continue
@@ -693,7 +756,11 @@ def render_tables(doc: dict[str, Any]) -> str:
         for model, entry in doc["model_counts"].items():
             counts = ", ".join(
                 f"{c}={entry['input_tokens'].get(c)}"
-                for c in (*CONFIGS, *EXTRA_CONFIGS)
+                for c in (
+                    *CONFIGS,
+                    *EXTRA_CONFIGS,
+                    *(k for k in entry["input_tokens"] if k not in (*CONFIGS, *EXTRA_CONFIGS)),
+                )
                 if c in entry["input_tokens"]
             )
             lines.append(f"  {model}: {counts}  {entry.get('server') or ''}".rstrip())
