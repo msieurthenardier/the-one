@@ -322,6 +322,14 @@ def test_the_memory_scenario_declares_the_claim_check_as_safety():
 # ── the six candidate prompts ─────────────────────────────────────────────
 
 CANDIDATES = ["v1", "a", "b", "c", "d", "e", "d0", "d1", "d2", "d3", "d4", "d5", "dmin"]
+LIVE_CANDIDATES = {"v1", "dmin"}  # the rest are spent candidates under prompts/history/
+
+
+def candidate_path(name: str) -> Path:
+    base = GG / "prompts"
+    return base / f"{name}.toml" if name in LIVE_CANDIDATES else base / "history" / f"{name}.toml"
+
+
 ABLATION = {
     "d0",
     "d1",
@@ -345,7 +353,7 @@ def test_every_route_in_a_candidate_lands_on_a_page(name):
     sys.path.insert(0, str(ROOT / "tests"))
     from _app_routes import check_route
 
-    sections = pf.load_sections(GG / "prompts" / f"{name}.toml")
+    sections = pf.load_sections(candidate_path(name))
     seen = 0
     for key, text in sections.items():
         for route in routes_in(text):
@@ -366,7 +374,7 @@ def test_the_link_check_would_catch_an_alias(tmp_path):
 
 @pytest.mark.parametrize("name", CANDIDATES[1:])
 def test_a_candidate_carries_the_core(name):
-    s = pf.load_sections(GG / "prompts" / f"{name}.toml")
+    s = pf.load_sections(candidate_path(name))
     whole = " ".join(s.values()).lower()
     assert "WEB_OFF_ANSWERING" in s
     assert "web" not in s["WEB_OFF_ANSWERING"].lower()
@@ -389,7 +397,7 @@ def test_a_candidate_carries_the_core(name):
 
 
 def test_a_candidate_web_off_variant_has_no_web_sentence_but_the_shipped_prompt_stays():
-    with gp.override_sections(pf.load_sections(GG / "prompts" / "e.toml")):
+    with gp.override_sections(pf.load_sections(candidate_path("e"))):
         assert "the web" not in gp.base_prompt(tools=True, web=False)
         assert "the web" in gp.base_prompt(tools=True, web=True)
 
@@ -405,6 +413,6 @@ def test_a_candidates_tool_capable_prompt_is_at_most_450_tokens(name):
         enc = tiktoken.get_encoding("o200k_base")
     except Exception:  # noqa: BLE001 - no cached encoding on this host: not a failure
         pytest.skip("o200k_base is not cached")
-    with gp.override_sections(pf.load_sections(GG / "prompts" / f"{name}.toml")):
+    with gp.override_sections(pf.load_sections(candidate_path(name))):
         n = len(enc.encode(gp.base_prompt(tools=True, web=True)))
     assert n <= 450, n

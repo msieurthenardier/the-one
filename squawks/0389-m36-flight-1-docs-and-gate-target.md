@@ -1,10 +1,10 @@
 # Squawk 0389: Mission 36 Flight 1 documents and the full-gate target
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-19
-**Completed**: —
+**Completed**: 2026-11-19
 
 ## Report
 After Mission 36 Flight 1, three documents lag the code:
@@ -26,10 +26,14 @@ After Mission 36 Flight 1, three documents lag the code:
 - `docs/ui-control-inventory.md`, the `button` and `confirm` rows.
 
 ## Corrective Action
-*(written at completion)*
+- `the_one/agents.md`: provider delete box now states the `aria-describedby` tie, `App.ui.confirm.disarm` on untick and the focus return after a failed forced delete; the notes Delete states `tone: 'danger'`; the notes list states board option A (no `size`/`showNumber`, title-line usage and Clear all); the setup line states the `aria-hidden` line plus status region. Other text already matched the shipped code.
+- `CLAUDE.md` "Control library": names `App.ui.button` `tone: 'danger'` and `App.ui.confirm.disarm(el)`.
+- Host was not quiet (start load 1.39), so no totals restated and no lane re-budgeted; the "Full-gate target" paragraph already stated the 350 s unit target and now records that the quiet re-measure is still owed.
 
 ## Verification
-*(written at completion)*
+`make gate` (THE_ONE_TEST_NETNS=1, THE_ONE_REQUIRE_WEBKIT=1), start load 1.39, no other test processes: unit 10696 passed, 15 skipped in 307.14 s; browser `PARALLEL_RESULT rc=0 total=2211s lanes=20 failed=-`. No lane failed; no lane over budget (closest: mcp 316/330, agent-routines 281/300). `ruff check` and `ruff format --check` clean; `tests/test_run_tests_lanes.py` 19 passed.
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Reviewer agent (Sonnet), batch review of squawks 0386-0390
+**Verdict**: confirmed (docs match the shipped code). The quiet-host re-measure of the full-gate total and lane budgets did not happen: the host was loaded (1.39). CLAUDE.md records it as owed, for the next quiet full gate.
+**Commit**: `squawk: turnaround 2026-11-19` on flight/01-gleepglorp-exists-and-answers (PR #380)

@@ -235,7 +235,9 @@ holds a whole GleepGlorp prompt as lower-case keys (`identity`, `scope`, `limits
 `web_off_answering` (the tool-capable answering text used when `web_access` is off; the shipped
 prompt has one too, so a candidate without it uses its `answering_tools` text either way).
 `dmin.toml` is the shipped prompt (D-min, Part B), pinned equal to it byte for byte, web on and
-off, by `tests/test_evals_gleepglorp_prompt_file.py`; `v1.toml` is the historical first version. `run --prompt-file PATH` and `measure-prompt
+off, by `tests/test_evals_gleepglorp_prompt_file.py`; `v1.toml` is the historical first version. The spent screening and ablation candidates
+(`a`-`e`, `d`, `d0`-`d5`) are history, kept as data under `evals/gleepglorp/prompts/history/`
+(pass that path to `--prompt-file`); only `v1.toml` and `dmin.toml` stay at the top level. `run --prompt-file PATH` and `measure-prompt
 --prompt-file PATH` use the candidate's sections for that invocation, through the eval-only seam
 `the_one.gleepglorp.prompt.override_sections` (set for the run, restored afterwards; no product
 setting reaches it); they are refused unless every scenario is a `builder = "gleepglorp"` one

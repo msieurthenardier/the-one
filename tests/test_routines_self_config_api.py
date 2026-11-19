@@ -147,6 +147,22 @@ async def test_item_get_put(client) -> None:
     assert (await client.get(ITEM)).json()["requires_approval"] is True
 
 
+async def test_reserved_names_have_no_routines_switches_even_with_a_stored_row(client) -> None:
+    """Squawk 0388: the reserved-name guard (not the lookup's 404) refuses these routes."""
+    for name in ("Default", "GleepGlorp", "gleepglorp"):
+        await client.conn.execute("INSERT INTO agents (name) VALUES (?)", (name,))
+    await client.conn.commit()
+    for name in ("Default", "GleepGlorp", "gleepglorp"):
+        item = f"/api/agents/{name}/self-configuration/routines"
+        for resp in (
+            await client.get(item),
+            await client.put(item, json={"enabled": True}),
+            await client.get(f"{item}/proposals"),
+        ):
+            assert resp.status_code == 422, (name, resp.text)
+            assert resp.json()["detail"] == svc.MSG_NAMED_AGENT
+
+
 async def test_item_errors(client) -> None:
     assert (await client.put(ITEM, json={})).status_code == 422
     assert (await client.put(ITEM, json={"enabled": "yes"})).status_code == 422

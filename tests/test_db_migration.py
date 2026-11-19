@@ -7026,6 +7026,10 @@ class TestSchemaV53:
         await conn.commit()
         async with conn.execute("SELECT id, config FROM connectors ORDER BY id") as cur:
             before = [tuple(r) for r in await cur.fetchall()]
+        # Rewind the version row so the v53 step body really runs again over the migrated
+        # data (a plain second ensure_schema skips the step: squawk 0388).
+        await conn.execute("DELETE FROM schema_version WHERE version >= 53")
+        await conn.commit()
         await ensure_schema(conn)
         async with conn.execute("SELECT id, config FROM connectors ORDER BY id") as cur:
             assert [tuple(r) for r in await cur.fetchall()] == before
