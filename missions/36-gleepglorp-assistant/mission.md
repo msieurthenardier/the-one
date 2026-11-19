@@ -347,6 +347,30 @@ Taken with the operator on 2026-11-18, after the Architect review:
 - **The shipped prompt is shown read-only in Settings › Prompts.**
 - **GleepGlorp's settings live in app metadata**, not an agents row.
 
+Taken with the operator on 2026-11-19, at Flight 2 planning:
+
+- **Proposals are split by kind of item.**
+  - Flight 2 covers agents, their rules and their routines.
+  - The other kinds (MCP servers, providers, knowledge bases, connectors,
+    Library secrets' metadata and app settings) become proposable with their
+    form filling in Flight 3 or a later flight.
+- **Approve starts GleepGlorp's next turn**, so a request with several steps
+  continues one approved step at a time. Dismiss does not.
+- **qwen3-4b is measured only.** Its results, safety checks included, are
+  reported every round and never block a prompt change. The Settings hint that
+  small models may struggle stays. This settles the Flight 1 debrief's
+  question.
+- **The eval method is adopted** from the Flight 1 lessons and written into
+  `evals/README.md` in Flight 2. It covers:
+  - offline tests for every check;
+  - a fairness review before quota;
+  - safety checks versus ranking checks;
+  - an n=5 parallel screen with a control;
+  - shortening at the ceiling;
+  - one n=20 confirmation;
+  - operator sign-off before quota or a re-pin;
+  - a re-baseline when the scenario set changes.
+
 ## Open Questions
 
 - **The overlay's chat instance.** How does the chat area become something
@@ -385,13 +409,15 @@ Taken with the operator on 2026-11-18, after the Architect review:
   card in chat with field-level apply. Push changes to open editors, with no
   silent overwrite. Extend the evals. Outcome: "create me an agent that does X"
   and "attach my MCP server to ABC" work by approval. This flight carries the
-  write-boundary risk.
+  write-boundary risk. *(Scoped 2026-11-19 to agents, their rules and their
+  routines; the other kinds move to Flight 3.)*
 - [ ] **Flight 3: The corner overlay and form filling.** Make the chat able to
   run twice and put the second one in a floating overlay on every page, with
   page and item awareness. Add form filling across every editor in scope
   through the change shape, with secret handoff links and the desktop-webview
   checks. Extend the evals. Outcome: the help button works everywhere and fills
-  the open form. This flight carries the most unknowns and may split at
+  the open form. *(2026-11-19: proposals for the kinds Flight 2 left out arrive
+  with their form filling, through Flight 2's change shape and services.)* This flight carries the most unknowns and may split at
   planning (the overlay, then filling across the editors).
 - [ ] **Flight 4 *(optional)*: Alignment.** A hands-on session to tune
   GleepGlorp's prompt, tone and overlay feel with the operator, against the
