@@ -12,7 +12,7 @@ GleepGlorp isn't one of your agents, so it doesn't appear in the Agents list and
 - **Read this guide**, so its answers about the app match what the app does.
 - **Tell the time**, in the time zone you chose.
 - **Search the web and read pages**, when Web access is on. If web search isn't set up, it can only read pages you give it, and the page shows a link to [set up web search](#settings/tools/web_search).
-- **Keep notes about you**, when Memory is on, such as how you like answers written, so it remembers between chats.
+- **Keep notes about you**, when notes are on, such as how you like answers written, so it remembers between chats.
 
 ## What it can't do
 
@@ -31,9 +31,10 @@ Open [Settings › GleepGlorp](#settings/gleepglorp):
 - **Provider** and **Model**: which of your model providers and which model it uses. Small local models may struggle with it.
 - **Keep chats for**: how many days its chats are kept, from 1 to 365. The default is 30.
 - **Web access**: lets it search the web and read pages.
-- **Memory**: lets it keep notes about you. The **Memory** section lists what it has kept. You can delete one note or choose **Clear all**. Turning Memory off stops new notes, but the existing ones stay until you delete them.
 
 Choose **Save** to apply changes. They reach open chats too.
+
+The **Notes** section has the **Let GleepGlorp keep notes** switch, which saves as soon as you flip it. The section lists what GleepGlorp has kept. You can delete one note or choose **Clear all**. Turning notes off stops new notes, but the existing ones stay until you delete them.
 
 ## If it isn't ready
 

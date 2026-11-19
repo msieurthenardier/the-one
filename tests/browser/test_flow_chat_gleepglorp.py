@@ -236,15 +236,18 @@ def test_a_pending_gleepglorp_chat_needing_a_model_shows_the_setup_block(
     expect(badge).to_have_class("badge badge--builtin")
     expect(state.locator("h2")).to_have_text("GleepGlorp")
     expect(state.locator(".chat-new-state-description")).to_have_text("Help setting up the app")
-    expect(page.locator(SETUP)).to_contain_text("GleepGlorp needs a model first.")
-    expect(page.locator(SETUP)).to_have_class(re.compile(r"banner-warning"))
+    expect(page.locator(SETUP)).to_contain_text("Choose a model to start chatting with GleepGlorp.")
+    # Quiet next step: no banner, no warning tone.
+    expect(page.locator(SETUP)).not_to_have_class(re.compile(r"banner"))
+    expect(page.locator(".ui-banner-warning")).to_have_count(0)
     # A persistent live region (not a second banner) carries the sentence for screen readers.
     live = page.locator('[data-testid="chat-new-gleepglorp-setup-live"]')
     expect(live).to_have_attribute("role", "status")
-    expect(live).to_have_text("GleepGlorp needs a model first.")
+    expect(live).to_have_text("Choose a model to start chatting with GleepGlorp.")
     action = page.locator(SETUP_ACTION)
-    expect(action).to_have_text("Choose a model for GleepGlorp")
+    expect(action).to_have_text("Choose a model")
     expect(page.locator(INPUT)).to_be_disabled()
+    expect(page.locator(INPUT)).to_have_attribute("placeholder", "Choose a model first…")
     expect(_chats.pick_different_button(page)).to_be_visible()
     # No other element is built for a GleepGlorp that needs a model.
     expect(page.locator(MODEL_LINE)).to_be_hidden()
@@ -259,10 +262,13 @@ def test_a_pending_gleepglorp_chat_with_no_providers_asks_for_one(
     _settled(page, app_clean)
     _chats.pick(page, "GleepGlorp")
     page.wait_for_function(_chats._PENDING_JS, arg="GleepGlorp", timeout=8000)
-    expect(page.locator(SETUP)).to_contain_text("Add a model provider first.")
+    expect(page.locator(SETUP)).to_contain_text(
+        "Add a model provider to start chatting with GleepGlorp."
+    )
     action = page.locator(SETUP_ACTION)
     expect(action).to_have_text("Add a model provider")
     expect(page.locator(INPUT)).to_be_disabled()
+    expect(page.locator(INPUT)).to_have_attribute("placeholder", "Add a model provider first…")
     action.click()
     _nav.expect_route(page, "library/providers/~new")
 
@@ -276,9 +282,12 @@ def test_a_direct_pending_route_with_gleepglorp_off_shows_the_off_block(
     page.wait_for_function(_chats._PENDING_JS, arg="GleepGlorp", timeout=8000)
     # Not healed away to #chats: the pending chat stays, with the off block.
     _nav.expect_route(page, "chats/~new/GleepGlorp")
-    expect(page.locator(SETUP)).to_contain_text("GleepGlorp is turned off.")
+    expect(page.locator(SETUP)).to_contain_text(
+        "GleepGlorp is turned off. Turn it on to chat with it."
+    )
     expect(page.locator(SETUP_ACTION)).to_have_text("Open GleepGlorp settings")
     expect(page.locator(INPUT)).to_be_disabled()
+    expect(page.locator(INPUT)).to_have_attribute("placeholder", "GleepGlorp is turned off…")
     # Turned on (and given a model) in another place: the block goes, the composer opens.
     _put(base, provider_config_id=app_with_agent.provider_id, model="mock-default")
     expect(page.locator(SETUP)).to_be_hidden(timeout=8000)
@@ -330,7 +339,7 @@ def test_a_gleepglorp_chat_starts_replies_and_shows_its_row_header_and_drawer(
     )
     assert facts == [
         "Model", "mock-default", "Provider", "mock",
-        "Web access", "On", "Memory", "On", "Keeps chats", "30 days",
+        "Web access", "On", "Notes", "On", "Keeps chats", "30 days",
     ]  # fmt: skip
     uses = page.locator('[data-testid="chat-drawer-uses"] li').all_text_contents()
     assert uses == [

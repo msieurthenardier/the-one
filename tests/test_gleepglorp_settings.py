@@ -202,6 +202,118 @@ class TestProviderUsage:
         assert (await client.delete(f"/api/providers/{pid}")).status_code == 200
 
 
+class TestForcedProviderDelete:
+    """DELETE /api/providers/{id}?force=true: the operator override (HAT, M36 F1)."""
+
+    @staticmethod
+    async def _agent(conn, name, pid, model="m1") -> None:
+        from the_one.agent.config import AgentConfig
+        from the_one.db.repositories import SQLiteAgentStore
+
+        await SQLiteAgentStore(conn).save(
+            AgentConfig(name=name, provider_config_id=pid, llm_model=model)
+        )
+
+    @staticmethod
+    async def _agent_row(conn, name):
+        async with conn.execute(
+            "SELECT provider_config_id, llm_model FROM agents WHERE name = ?", (name,)
+        ) as cur:
+            return tuple(await cur.fetchone())
+
+    async def test_without_force_is_still_a_409_and_changes_nothing(self, client, conn) -> None:
+        pid = await _provider(client)
+        await self._agent(conn, "a1", pid)
+        resp = await client.delete(f"/api/providers/{pid}")
+        assert resp.status_code == 409
+        assert await self._agent_row(conn, "a1") == (pid, "m1")
+        assert (await client.delete(f"/api/providers/{pid}?force=false")).status_code == 409
+
+    async def test_force_clears_agents_and_gleepglorp_and_deletes(self, client, conn) -> None:
+        pid = await _provider(client)
+        other = await _provider(client)
+        await self._agent(conn, "a1", pid)
+        await self._agent(conn, "keep", other, "m2")
+        await client.put("/api/gleepglorp", json=_body(provider_config_id=pid, model="m"))
+        resp = await client.delete(f"/api/providers/{pid}?force=true")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"status": "ok", "cleared": ["GleepGlorp", "a1"]}
+        assert await self._agent_row(conn, "a1") == (None, "")
+        assert await self._agent_row(conn, "keep") == (other, "m2")
+        s = await load_settings(conn)
+        assert (s.provider_config_id, s.model) == (None, None)
+        assert (await client.get(f"/api/providers/{other}/agents")).json() == {"agents": ["keep"]}
+        assert (await client.get("/api/gleepglorp")).json()["state"] == "needs_model"
+        assert not await provider_gone_check(conn, pid)
+
+    async def test_force_on_an_unused_provider_just_deletes(self, client, conn) -> None:
+        pid = await _provider(client)
+        resp = await client.delete(f"/api/providers/{pid}?force=true")
+        assert resp.json() == {"status": "ok", "cleared": []}
+
+    async def test_a_failed_delete_rolls_everything_back(self, client, conn) -> None:
+        pid = await _provider(client)
+        await self._agent(conn, "a1", pid)
+        await client.put("/api/gleepglorp", json=_body(provider_config_id=pid, model="m"))
+        await conn.execute(
+            "CREATE TRIGGER block_delete BEFORE DELETE ON llm_providers "
+            "BEGIN SELECT RAISE(ABORT, 'no'); END"
+        )
+        await conn.commit()
+        with pytest.raises(Exception):  # noqa: B017 - the ASGI app re-raises the DB error
+            await client.delete(f"/api/providers/{pid}?force=true")
+        assert await self._agent_row(conn, "a1") == (pid, "m1")
+        s = await load_settings(conn)
+        assert (s.provider_config_id, s.model) == (pid, "m")
+
+    async def test_gleepglorp_changed_only_when_gleepglorp_was_affected(self, client, conn) -> None:
+        sent: list[dict] = []
+
+        async def fake(msg):
+            sent.append(msg)
+
+        with patch("the_one.sessions.broadcast_to_all", fake):
+            pid = await _provider(client)
+            await self._agent(conn, "a1", pid)
+            assert (await client.delete(f"/api/providers/{pid}?force=true")).status_code == 200
+            assert sent == []
+            pid2 = await _provider(client)
+            await client.put("/api/gleepglorp", json=_body(provider_config_id=pid2, model="m"))
+            sent.clear()
+            assert (await client.delete(f"/api/providers/{pid2}?force=true")).status_code == 200
+            assert [m["type"] for m in sent] == ["gleepglorp_changed"]
+            assert sent[0]["state"] == "needs_model"
+
+    async def test_the_setting_is_read_inside_the_transaction(self, client, conn) -> None:
+        """Review fix: a GleepGlorp setting that no longer names the provider (changed after
+        the route's pre-check) is not rewritten; one that does keeps its other fields."""
+        from the_one.db.repositories import LLMProviderRepository
+
+        pid = await _provider(client)
+        other = await _provider(client)
+        await client.put("/api/gleepglorp", json=_body(provider_config_id=other, model="m"))
+        before = await load_settings(conn)
+        repo = LLMProviderRepository(conn, None)  # type: ignore[arg-type]  # no secrets touched
+        assert await repo.delete_forcing(pid) is False
+        assert await load_settings(conn) == before  # untouched: it names `other`
+        await client.put(
+            "/api/gleepglorp", json=_body(provider_config_id=other, model="m", retention_days=7)
+        )
+        assert await repo.delete_forcing(other) is True
+        s = await load_settings(conn)
+        assert (s.provider_config_id, s.model, s.retention_days) == (None, None, 7)
+
+    async def test_malformed_force_is_422(self, client) -> None:
+        pid = await _provider(client)
+        assert (await client.delete(f"/api/providers/{pid}?force=maybe")).status_code == 422
+        assert (await client.get(f"/api/providers/{pid}/agents")).status_code == 200
+
+
+async def provider_gone_check(conn, pid) -> bool:
+    async with conn.execute("SELECT 1 FROM llm_providers WHERE id = ?", (pid,)) as cur:
+        return await cur.fetchone() is not None
+
+
 class TestRetention:
     @staticmethod
     def _aged(days: int) -> str:

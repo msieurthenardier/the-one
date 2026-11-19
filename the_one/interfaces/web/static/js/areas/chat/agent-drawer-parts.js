@@ -182,7 +182,7 @@
       ['Model', gg.model ? String(gg.model) : '—', 'chat-drawer-mono'],
       ['Provider', provider ? String(provider.name || provider.id) : '—'],
       ['Web access', gg.web_access === false ? 'Off' : 'On'],
-      ['Memory', gg.memory === false ? 'Off' : 'On'],
+      ['Notes', gg.memory === false ? 'Off' : 'On'],
       ['Keeps chats', (gg.retention_days || 30) + ' days']
     ].forEach(function (pair) {
       dl.appendChild(el('dt', { text: pair[0] }));

@@ -143,8 +143,19 @@ def test_dirty_cancel_save_and_reload(app_clean: str, page: Page) -> None:
     page.locator(PROVIDER).select_option(label="Mock one")
     expect(page.locator(MODEL)).to_be_enabled(timeout=8000)
     page.locator(MODEL).select_option("m-two")
-    _flip(page, "gleepglorp-memory")
     page.locator(RETENTION).fill("45")
+    # The notes switch (Notes section) saves at once from the last SAVED settings: the
+    # unsaved Model and Retention edits above neither ride along nor are lost.
+    _flip(page, "gleepglorp-memory")
+    expect(page.locator('[data-testid="gleepglorp-memory"]')).not_to_be_checked()
+    for _ in range(40):
+        if _stored(app_clean)["memory"] is False:
+            break
+        page.wait_for_timeout(200)
+    stored_now = _stored(app_clean)
+    assert stored_now["provider_config_id"] is None and stored_now["retention_days"] == 30
+    expect(page.locator(UNSAVED)).to_be_visible()
+    expect(page.locator(SAVE)).to_be_enabled()
     page.locator(SAVE).click()
     expect(page.locator('[data-testid="gleepglorp-flash"]')).to_contain_text("Saved.")
     expect(page.locator(UNSAVED)).to_be_hidden()

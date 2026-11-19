@@ -370,7 +370,7 @@ Taken with the operator on 2026-11-18, after the Architect review:
 > planned and created one at a time as work progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] **Flight 1: GleepGlorp exists and can answer.** Remove the Default agent
+- [x] **Flight 1: GleepGlorp exists and can answer.** Remove the Default agent
   (the schema step that deletes it and its chats, the reserved names, the
   labels). Add GleepGlorp's identity, its settings (model, on/off, web, memory,
   retention) with the setup gate and purge coverage, its own build path and

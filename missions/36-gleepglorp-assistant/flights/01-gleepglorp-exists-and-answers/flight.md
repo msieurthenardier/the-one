@@ -1,6 +1,6 @@
 # Flight: GleepGlorp exists and can answer
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp, the In-App Assistant](../../mission.md)
 
 ## Contributing to Criteria
@@ -677,11 +677,11 @@ match the changed lists runs, not only the owning one.
 > and created one at a time as the flight progresses. This list will evolve
 > based on discoveries during implementation.
 
-- [ ] `unit-tier-room` - Squawk 0383: trim the real-time MCP stdio tests (keep
+- [x] `unit-tier-room` - Squawk 0383: trim the real-time MCP stdio tests (keep
       one real slow-start test, slack of 4 s or more per real-fixture test),
       re-measure the unit tier on a quiet host, and only if trimming falls
       short move the target with a recorded reason. Completes the squawk.
-- [ ] `retire-default-agent` - DD10: schema v53, the reserved-name check on
+- [x] `retire-default-agent` - DD10: schema v53, the reserved-name check on
       agent, connector, import and routines paths (and `start_session`
       refusing both names), the inbound drop, the agent-only startup rename,
       and the agent editor's routines checks for an agent named `default`,
@@ -689,7 +689,7 @@ match the changed lists runs, not only the owning one.
       moved to Leg 4; see the flight log.) Every app.py and CLI NULL→`default` path and the factory
       fallback stay working until Leg 3 removes them together, so the tree is
       never broken between legs.
-- [ ] `gleepglorp-settings-and-build` - DD1, DD2, DD3, DD7 (the Model and
+- [x] `gleepglorp-settings-and-build` - DD1, DD2, DD3, DD7 (the Model and
       Behavior sections), DD9: the settings model and routes (classified in
       `tests/test_api_name_rule.py`), the client source, provider usage (the
       409, the agents route, `providerAgents` and its wording), the factory
@@ -699,7 +699,7 @@ match the changed lists runs, not only the owning one.
       auto-create paths, the CLI and selftest (tool check on `current_time`),
       the Settings page with its nav group and router `DESTINATIONS` row, and
       the retention pass.
-- [ ] `gleepglorp-in-chats` - DD8, DD11: GleepGlorp chats end to end.
+- [x] `gleepglorp-in-chats` - DD8, DD11: GleepGlorp chats end to end.
       `start_session` admits the exact `GleepGlorp`, the session paths and
       model pre-load, the GleepGlorp degraded statuses and the server's
       per-turn refusal, the client "which agent" helper with its settings
@@ -710,27 +710,27 @@ match the changed lists runs, not only the owning one.
       (`chats-list.js`, `chat-pane.js`, `agent-drawer.js`, `jump-to.js`,
       `agent-picker.js`, `session-flow.js`, `transcript.js`) with the browser
       tests that pin them.
-- [ ] `gleepglorp-reads-the-app` - DD5 (split from the original
+- [x] `gleepglorp-reads-the-app` - DD5 (split from the original
       `gleepglorp-knows-the-app` during execution; see the flight log): the
       shared view module moved out of `api.py`, strict masking,
       `read_app_config`, the read-only proof, the allowlist and secret-parity
       tests, `SECURITY-MODEL.md`.
 - [x] ~~`gleepglorp-guide-memory-web`~~ - aborted before starting; split at its
       design review into the three legs below (flight log).
-- [ ] `gleepglorp-memory-and-web` - DD4, the web part of DD5, DD7 (the Memory
+- [x] `gleepglorp-memory-and-web` - DD4, the web part of DD5, DD7 (the Memory
       section): the GleepGlorp notes repository and tools, its notes heading,
       the Memory section, the notes routes, the web tools under the switch,
       `web_search_available` and its hint.
-- [ ] `gleepglorp-guide` - DD6 (the guide): the topic files, `get_app_guide`,
+- [x] `gleepglorp-guide` - DD6 (the guide): the topic files, `get_app_guide`,
       the drift and format test, package data in every installer.
-- [ ] `gleepglorp-prompt` - DD6 (the prompt): the shipped prompt (version 1),
+- [x] `gleepglorp-prompt` - DD6 (the prompt): the shipped prompt (version 1),
       its token measurement, `/api/info` `gleepglorp_prompt` and the Prompts
       block.
-- [ ] `prompt-and-evals` - DD12: the builder switch in the harness, the new
+- [x] `prompt-and-evals` - DD12: the builder switch in the harness, the new
       checks, the scenario set, measured rounds under the budget and stop
       rule, the baseline, the operator's Haiku pass bar, small-model readings
       and the tool-count reading. Operator-gated.
-- [ ] `hat` - Guided HAT with fixes (DD13 apparatus check first). Steps as
+- [x] `hat` - Guided HAT with fixes (DD13 apparatus check first). Steps as
       state transitions: fresh install with no providers → provider added, no
       GleepGlorp model → model chosen → real answers about a page, a
       configured item and a key request → off → on again; a second window on

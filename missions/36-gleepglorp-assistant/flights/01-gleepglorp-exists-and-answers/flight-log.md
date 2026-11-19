@@ -425,6 +425,97 @@ In flight. Branch `flight/01-gleepglorp-exists-and-answers` from `main` at
   stopped. Leg 9 `completed`, committed by the Flight Director.
 - Leg 10 `hat` designed (seven state-transition steps); apparatus check by a
   Developer before the operator walks it (DD13).
+- HAT in progress on the scratch instance (port 8496). Step 1 pass, except the
+  setup block (fix-vs-feature: a look-and-feel fix, one surface; inline
+  Developer fix to the board's centered layout). Step 2 pass.
+- **HAT feature (fix-vs-feature gate: adds behaviour → scoped design review
+  first): provider delete override (operator, 2026-11-18).** The provider
+  editor's "Used by: GleepGlorp" notice is unclear, and there is no way to
+  delete a provider in use. Operator decision: the override covers **GleepGlorp
+  and agents**. Design:
+  - On arming Delete for a provider in use (the existing
+    `GET /api/providers/{id}/agents`, which already lists `GleepGlorp`), the
+    editor shows a plain notice naming who uses it, each name a link (an agent
+    to `#agents/{name}`, GleepGlorp to `#settings/gleepglorp`), and saying what
+    deleting does: "They will need a new model before they can answer." A
+    checkbox "Delete anyway and clear their model" must be ticked before Delete
+    is enabled; unticked, Delete stays disabled (no timed lockout).
+  - `DELETE /api/providers/{id}?force=true` (the existing 409 stays without
+    `force`): in one write transaction it clears GleepGlorp's
+    `provider_config_id` and `model` if it uses the provider, sets every using
+    agent's `provider_config_id` and `llm_model` to null, then deletes the
+    provider; it pushes `gleepglorp_changed` when GleepGlorp was affected and
+    the client invalidates the agents and providers stores. Open chats with
+    those agents fall into their existing degraded states at their next join
+    or turn (GleepGlorp: `gleepglorp_needs_model`; an agent: the existing
+    provider-missing state).
+  - Tests: the route (409 without force; force clears and deletes atomically;
+    a provider used by nobody unaffected), the editor (notice, links, checkbox
+    gating, delete), and the degraded states after a forced delete.
+  - Design review (Developer, Sonnet): approve with changes, applied in the
+    build brief: one repository method in a single `write_transaction` (the
+    repositories cannot be composed); `llm_model` cleared to `''` (not
+    nullable); GleepGlorp's provider and model cleared together; the editor
+    builds its own notice with links (`App.ui.dangerZone` shows text only);
+    first click shows the notice and checkbox, ticking enables Delete, the next
+    click arms the normal confirm; stores `providers`, `agents`, `sessions`
+    invalidated. Build by a Developer (Sonnet).
+- HAT: the centered amber setup box (first inline fix) still read as an
+  alarm. Four options were added to the design board ("Setup block options"
+  row: A quiet next step, B checklist, C in the composer, D status line);
+  **operator chose A** (a muted line with an info icon, the primary button
+  below, no box, and a composer placeholder naming what is missing). A
+  Developer implements A for all three setup states (needs a model, no
+  providers, off).
+- HAT step 3 passed (apart from the provider delete, now a feature in
+  build); step 4 (real answers) passed. The operator asked whether
+  GleepGlorp will configure things itself later: answered (Flight 2 proposals
+  with Approve; Flight 3 form fill with Save; every change still needs the
+  operator's click, and secrets stay the operator's to enter).
+- **Step 5 skipped (operator, 2026-11-18): "there really is no 2-tab scenario;
+  we can stop testing that."** Two-tab and second-window steps are dropped
+  from HATs (the push and re-join stay covered by the automated tests);
+  carried to the debrief as an operator preference for future HAT design.
+- HAT: Settings › GleepGlorp › Memory looked off (operator): a stray divider
+  with Clear all on its own row, "[1]" note numbers, a too-small Delete; the
+  Flight Director also saw uneven switch spacing in Behavior. Look-and-feel
+  fix. It touches the shared note row builder too (a second surface, the agent
+  Notes tab), so the multi-surface trigger applies; the Flight Director scoped
+  it as a default-preserving `showNumber` option with the agent tab's existing
+  `agent-tabs` tests as the guard, in place of a separate design-review spawn
+  (recorded as a deviation from the HAT protocol for the debrief). Inline
+  Developer fix.
+- HAT: the Memory polish was stopped mid-way when the operator saw that
+  GleepGlorp's notes and the agent Notes tab looked inconsistent (and the agent
+  tab's own look was poor). Three notes-list options were added to the design
+  board; **operator chose A (quiet rows, icon actions) for both places**, and
+  decided GleepGlorp's section is called **Notes** (not Memory) with its switch
+  ("Let GleepGlorp keep notes") moved into the Notes section above the list,
+  as on the agent tab; it saves at once like the agent's switch. Also: the
+  setup block option A landed (`chats-transcript` green). The provider delete
+  override landed (forced delete atomic, falsified); its look was rejected
+  (the warning banner again, wrong reading order), and the **operator decided
+  the in-use box shows whenever the provider is in use (no click first)**:
+  explanation, checkbox, then Delete last, in one neutral box. The operator
+  confirmed the startup rename of their existing agent named "GleepGlorp" to
+  "GleepGlorp 2" on upgrade is expected.
+- HAT decisions on the notes lists (operator): GleepGlorp's notes header shows
+  the same character usage as the agent tab ("{used} of 4,000 characters"; the
+  limits are the same code, verified: `validate_note_text`,
+  `NOTES_TOTAL_MAX_CHARS`, and the route returns the agent route's `limits`
+  and `usage`); and **note Edit is dropped on both sides** (rows have Delete
+  only; the agent `PUT …/notes/{id}` route stays, with no UI). This removes
+  behaviour from the agent Notes tab (Mission 27's inline edit), an
+  operator-decided scope change recorded here for the debrief.
+- The provider delete box landed (`providers` 142, `library` 122; the box
+  shows on open for a provider in use).
+- **HAT result (operator, 2026-11-18):** steps 1-4 and 6 pass (after the
+  fixes above, which the operator rechecked on reload: "all UI changes are in
+  and look good"); step 5 skipped by the operator. Remaining before landing:
+  the notes-list fix's lanes, the flight-end Reviewer and Accessibility
+  Reviewer over the HAT fixes, the full local gate, the final commit and the
+  draft PR. The operator asked for the flight debrief, which runs after
+  landing.
 
 ---
 
@@ -996,6 +1087,33 @@ line's 41 tokens excluded; web off and tool-free as in the other tables):
 Tests: candidate tests now cover v1, a-e, d0-d5 (routes via `check_route`, core present with the
 agent-lookup clause required only of the non-ablation files, 450 cap).
 
+### hat — apparatus check
+
+Instance: scratch, port 8496, data dir `/home/cprch/m36-hat/data`, cwd `/home/cprch/m36-hat/cwd`, PID file
+`/home/cprch/m36-hat/cwd/serve.pid`, dev mode on. Evidence (headless Chromium 1280x800, light and dark):
+`/home/cprch/m36-hat/evidence/`. A mock provider ("Mock HAT", models mock-default/mock-two) stood in for a
+real one. After the check the data dir was deleted and the instance restarted fresh (no providers,
+GleepGlorp `needs_model`).
+
+| Step | Reachable | Exact strings seen / notes |
+|---|---|---|
+| 1 fresh install | yes | Picker: "Built in" > "GleepGlorp", "Help setting up the app", "Needs a model"; no Recently used. Card: "Built in", "GleepGlorp", "Add a model provider first." + "Add a model provider" button; input disabled. "Default agent" absent from the body, picker and Jump to. No console errors. Jump to lists "GleepGlorp / Built in". |
+| 2 provider, no model | yes | Card: "GleepGlorp needs a model first." + "Choose a model for GleepGlorp". Provider row: "Mock HAT / 0 agents / mock". |
+| 3 Settings | yes | Nav: ASSISTANT > GleepGlorp first. Page: Model (Provider, Model, "Small local models may struggle."), Behavior ("Offer GleepGlorp in Chats.", web, memory, Keep chats for 30 days), Memory "No saved notes yet." After picking provider and model: "Unsaved changes"; Save: caption clears, flash "Saved." A second browser context on the pending chat updated by itself: card shows model "mock-default", input enabled. Provider row now "Mock HAT / GleepGlorp / mock"; DELETE provider: 409 "Provider is used by agents: GleepGlorp". |
+| 4 answers | yes (mock) | Mock reply renders; scripted `save_note` saved "User prefers local models" (Memory shows "[1] User prefers local models", time, origin, Delete). The always-tool-calling mock hit the 20-step limit notice (expected). Drawer: "GleepGlorp / Built in / Help setting up the app / Model / Provider / Web access / Memory / Keeps chats 30 days / What it can use: Your app's settings and status, read only, secrets hidden; The app guide; Web search and web pages; Its own notes / GleepGlorp can't change anything by itself. / Open GleepGlorp settings". Chat row says "GleepGlorp". Real-model quality (links, token refusal, poem decline, recall) is not checkable with a mock. |
+| 5 off/on | yes | Open chat in another window shows "GleepGlorp is turned off. Turn it on to continue this chat." + "Open GleepGlorp settings"; textarea and Send disabled. Picker lists only other agents; Jump to has no GleepGlorp entry (chat rows still read "Chat · GleepGlorp"). On again: input enabled, a message sends and gets a reply without reload. |
+| 6 surfaces | yes | Prompts: "GleepGlorp" block first, "Applies when: a chat with GleepGlorp. It replaces the platform prompt; ..." then the platform sections. Jump to offers "GleepGlorp / Built in". Screenshots of Prompts, Settings and a chat in both themes captured (not visually judged). |
+| 7 `the-one chat` | yes | Against the scratch data dir with the mock it replied ("An MCP server exposes tools."); with piped (non-tty) stdin it did not exit on `/exit` and ran to my timeout. |
+
+Observations (not fixed, for the Flight Director):
+1. With GleepGlorp off and no other agent, New chat is disabled (setup counts as incomplete), so the picker is unreachable; "picker hides GleepGlorp" needs another agent to be checkable. Decide if intended.
+2. `PUT /api/gleepglorp` is a full replace: sending only `{"enabled": false}` cleared the stored provider and model. The UI sends the full body, so only API callers are affected.
+3. The new-chat card's status sentence ("Add a model provider first." / "GleepGlorp needs a model first.") appears twice in the pane text (card plus a likely aria-live copy).
+4. The Chats empty state still reads "Add a model provider in Library, then create an agent in Agents to start chatting." on a fresh install although GleepGlorp is offered and New chat is enabled; the copy predates GleepGlorp.
+5. `POST /api/providers` for a mock type requires `base_url` (422 otherwise); harness detail only.
+
+No blocking defect found.
+
 ## Decisions
 
 ---
@@ -1088,3 +1206,165 @@ agent-lookup clause required only of the non-ablation files, 450 cap).
   10688 passed, 15 skipped, 329.76 s (the loaded start explains the reading). Browser lanes with
   `THE_ONE_TEST_NETNS=1` and `THE_ONE_REQUIRE_WEBKIT=1`: `settings` 125 passed (283 s), `shared` 365 passed
   (292 s; start load 1.06).
+
+### hat — fixes
+
+- **Setup block layout (HAT step 1).** The pending new-chat GleepGlorp setup block read as an error
+  overlay (banner stripe, gradient, button jammed against the sentence). `chat-pane.js`
+  `renderSetupBlock` now passes `[setupLine, setupAction]` as the banner's children, where
+  `setupLine` is a centered row of the library `alert-triangle` icon and the sentence span, and
+  `chat.css` restyles only the area class `.chat-new-gleepglorp-setup` (column, centered, 12px gap,
+  soft warning background, full hairline border, `--radius-md`). No library control changed; testids
+  and the hidden live region are unchanged, and the visible sentence appears once. Screenshots
+  (1024 px, dark and light) in the session scratchpad: `setup-dark.png`, `setup-light.png`.
+
+- **Setup block, option A "quiet next step" (HAT step 1, operator choice; supersedes the entry above).**
+  The operator rejected the boxed amber look. The setup block is now a plain `div` (no `App.ui.banner`,
+  no warning tone, no stripe): one muted `--fg-secondary` body-size line led by a 14px `alert-circle`
+  icon, the primary button centered below it, then "Pick a different agent". Sentences: needs a model
+  "Choose a model to start chatting with GleepGlorp." + "Choose a model"; no providers "Add a model
+  provider to start chatting with GleepGlorp." + "Add a model provider"; off "GleepGlorp is turned off.
+  Turn it on to chat with it." + "Open GleepGlorp settings". While such a pending chat is blocked the
+  composer placeholder reads "Choose a model first…" / "Add a model provider first…" / "GleepGlorp is
+  turned off…" (`chat.js` render; back to "Message GleepGlorp…" when ready). Testids unchanged; the
+  amber box CSS is removed.
+
+- **Provider delete override (HAT feature, per the design review).** Server:
+  `LLMProviderRepository.delete_forcing(provider_id, gleepglorp_json_or_None)` runs the agents
+  UPDATE (`provider_config_id` NULL, `llm_model` ''), the GleepGlorp settings upsert (only when
+  GleepGlorp used the provider; provider and model both cleared) and the provider DELETE in one
+  `write_transaction` (no composed repository methods). `DELETE /api/providers/{id}` keeps the 409
+  without `force`; `?force=true` (plain bool query param, malformed is a 422) calls it, broadcasts
+  `gleepglorp_changed` only when GleepGlorp was affected (try/except) and returns
+  `{"status": "ok", "cleared": [names]}`. Client: the flow moved to the new
+  `areas/studio/provider-delete.js` (`App.studio.providerDelete`) because `provider-editor.js` has
+  an 895-line ceiling and the feature inline made it 939 (now 862; allowance not raised). The 3 s
+  lockout is gone: the first click on a provider in use shows an `App.ui.banner`
+  (`delete-blocked-message`, warning) naming each user as a link (`delete-user-link`; agents to
+  their page, GleepGlorp to `#settings/gleepglorp`) plus "They will need a new model before they
+  can answer.", and an `App.ui.checkbox` `delete-force-checkbox` gating Delete; the next click
+  arms, the commit sends `?force=true`; success invalidates providers, agents and sessions and
+  flashes what was cleared; failure reverts, unticks and shows the error. The banner is built
+  without `action-blocked-message` (an owned class). Tests: `TestForcedProviderDelete` (6: 409 and
+  no change, force clears and deletes, unused provider, rollback via a BEFORE DELETE trigger,
+  broadcast only when GleepGlorp affected, malformed 422), the rewritten
+  `test_delete_blocked_when_provider_in_use`, new `test_forced_delete_clears_agent_and_gleepglorp`,
+  and `test_store_static` follows the moved invalidations. Falsified: a mid-transaction `commit()`
+  made the rollback test fail; removing the initial `setDisabled(true)` made the gating test fail
+  (both reverted). The unit test caught a missing local `gleepglorp` import in the broadcast path.
+  Docs: CLAUDE.md, `the_one/agents.md`, `docs/ui-testid-registry.md`.
+
+- **Memory section layout (HAT).** `App.ui.section` gained an `action` option (a node placed at
+  the end of the title row after the eyebrow rule, in the owned `ui-section-action`; catalogue row
+  and a Chromium+WebKit contract test in `test_ui_editor_contract.py`), so Clear all
+  (`gleepglorp-memory-clear`) sits on the Memory header line, right-aligned. The notes are one
+  bordered, rounded list (`gleepglorp-memory-notes`) with hairlines only between rows;
+  `App.studio.noteRow` takes `showNumber` (default true; Memory passes false, the agent Notes tab
+  is unchanged), and `buildDeleteButton` takes `size: 'md'` (Memory's Delete is full size, still
+  armed two-step, testid unchanged). Note text is at the body size. The Behavior switches are even:
+  the empty web-hint live region's stack gap is cancelled with `:empty` (it stays in the DOM). The
+  row overrides live in `studio.css` beside the unlayered row recipe (an unlayered rule beats an
+  `@layer areas` rule in `admin.css`; the first attempt there lost on padding).
+
+- **Provider delete, in use, restyled (HAT).** The operator rejected the warning-banner look, the
+  order and the click-first reveal. `provider-delete.js` now reads `/api/providers/{id}/agents`
+  when the editor opens (and again after a failed delete, `refresh()`) and, for a provider in use,
+  builds ONE neutral box (`.provider-delete-box`, area-owned in `studio.css`: `--surface`, 1px
+  `--border`, `--radius-md`, fitted width) inside the Danger zone: the explanation
+  `delete-blocked-message` ("This provider is used by GleepGlorp and 2 agents: a, b." with
+  `delete-user-link` links, then "If you delete it, they will need a new model before they can
+  answer.", singular for one user), the `delete-force-checkbox`, then the Delete button itself
+  (moved into the box, disabled until ticked; the danger colour is the button's only). Ticked, it
+  keeps the two-step confirm and commits `?force=true`. A provider used by nobody is unchanged.
+  No library change; `App.ui.banner` is no longer used here. Tests: the in-use test expects the
+  box on open with the button inside it; the forced-delete test no longer clicks first.
+
+**Notes list design (operator, board option A "Quiet rows, icon actions")**: one list for
+GleepGlorp's notes (Settings › GleepGlorp, section renamed Memory → **Notes**) and every agent's
+Notes tab. Header line: eyebrow, rule, then the usage text ("{used} of 4,000 characters", same
+words from `usage`/`limits` on both) and Clear all, through the existing `App.ui.section`
+`action` option (catalogue row and contract test already in the tree from the earlier partial
+edit). Rows: no box, hairlines between and below, 13px `--fg` text, no "[n]" numbers, a meta line
+(flag, time, origin link, "Edited by you" for a past operator edit), and a single 32px icon-only
+ghost Delete (trash, danger tint, armed two-step confirm kept; armed look is the library fill).
+**Edit removed on both sides** (operator): the agent tab's Edit button and inline editor are gone
+(`PUT /api/agents/{name}/notes/{id}` stays, no UI); `notes-row-edit` (RETIRED_EXACT, it prefixes
+the live `notes-row-edited`), `-edit-count`, `-edit-input`, `-save`, `-cancel` moved to the
+registry's retired table and `RETIRED_SELECTORS`. The "Let GleepGlorp keep notes" switch moved
+from Behavior into the Notes section above the list and saves at once (PUT with the last saved
+baseline, `memory` toggled; only the baseline's `memory` moves, so unsaved Model/Behavior edits
+stay unsaved; an error reverts it and shows the message); the setting key stays `memory`. The
+chat drawer's fact reads "Notes"; the off hint reads "Notes are off. ..."; guide topic
+`gleepglorp.md` says Notes (533 words); CLAUDE.md, `the_one/agents.md` and the registry updated.
+Tests updated: `test_flow_agent_notes.py` (no Edit asserted, "Edited by you" via an API edit, no
+numbers, failed-switch test split out, delete focus), `test_flow_settings_gleepglorp_memory.py`,
+`test_flow_settings_gleepglorp.py` (switch saves at once, form stays dirty),
+`test_flow_chat_gleepglorp.py`. Not done: the drawer fact has no note count ("Notes: On" only).
+The unused `updateNote` callback chain in `agent-data.js`/`agent-editor.js` is left in place.
+(Removed in "Flight-end review fixes and gate" below.)
+
+**Superseded HAT entries (added at the flight-end review; the old text above stays).** The
+"Setup block layout (HAT step 1)" entry is superseded twice: first by "Setup block, option A", and
+that block's visible line is `aria-hidden` since the review fixes (the live region announces it).
+"Provider delete override" described a click-first banner and "Provider delete, in use, restyled"
+the shipped box; the "Memory section layout (HAT)" entry (`size: 'md'` Delete, `showNumber`, the
+`gleepglorp-memory-notes` bordered list) is superseded by "Notes list design (operator, board option
+A, Quiet rows, icon actions)": no `size`/`showNumber` options shipped, rows are quiet hairline rows
+with a 32px icon-only Delete (now `App.ui.button` `tone: 'danger'`).
+
+### Flight-end review fixes and gate
+
+Review fixes (code and accessibility review, all non-blocking, all done):
+
+1. **Danger tone is a library option.** `App.ui.button` gained `tone: 'danger'` (ghost only; throws
+   on another variant or tone), class `btn-tone-danger`, resting colour `--status-danger` through
+   `.btn-ghost.btn-tone-danger:not(.confirm-delete):not(:disabled)` in `components.css`; the armed
+   fill of `App.ui.confirm` wins and a lapsed arm (`confirm-lapsed` adds only an outline) keeps the
+   danger colour. The `[class*="confirm-"]` area rule in `studio.css` is gone; the notes Delete in
+   `rules-notes-shared.js` uses the option. Catalogue row and owned class updated; contract test
+   `test_button_danger_tone_rests_danger_and_armed_and_lapsed_keep_their_look` (Chromium + WebKit,
+   `test_ui_library_contract.py`). **Falsified: yes** (swapping the selector back to
+   `:not([class*="confirm-"])` made the lapsed-state assertion fail; reverted).
+2. **GleepGlorp setting read inside the transaction.** `LLMProviderRepository.delete_forcing(id)`
+   now takes no JSON: inside its `write_transaction` it reads the setting on the same connection
+   (`load_settings(self.conn)`), clears provider and model only when the stored setting names the
+   provider (other fields kept), and returns whether it did; `delete_provider` uses the return for
+   the broadcast. New `test_the_setting_is_read_inside_the_transaction`; rollback and broadcast
+   tests green.
+3. **Dead `updateNote` chain removed** (`agent-data.js`, `agent-editor.js`,
+   `agent-editor-controller.js`, the `rules-notes-tab.js` header); the PUT route stays.
+4. **Flight log**: the superseded entries are marked above (append-only).
+5. **Notes switch keeps focus while saving**: `saveMemorySwitch` no longer sets `disabled`; a busy
+   guard plus `aria-busy`/`aria-disabled`; a change made while saving is put back; on error the
+   switch returns to the stored value and the `role=alert` stays. Test
+   `test_the_notes_switch_keeps_focus_while_saving_and_on_error` (checks the DOM `disabled`
+   property is false during the request and focus stays).
+6. **Failed forced delete returns focus** to the rebuilt checkbox when it was inside the old box
+   (`provider-delete.js`). Test `test_a_failed_forced_delete_returns_focus_to_the_rebuilt_checkbox`.
+7. **Disabled Delete tied to its reason**: the explanation paragraph gets a generated id; the
+   checkbox (`describedBy`) and the Delete button carry `aria-describedby` to it (removed when the
+   box is cleared). Asserted in `test_unticking_while_armed_takes_the_arm_back_and_the_reason_is_tied`.
+8. **Unticking while armed reverts the arm**: new `App.ui.confirm.disarm(el)` (rest state, no lapse
+   cue, quiet announcement; catalogue note) called from the checkbox's change. **Falsified: yes**
+   (without the call the test fails; the assertion uses a 1 s timeout so the 3 s timed lapse cannot
+   mask it; first version of the test passed vacuously and was fixed).
+9. **Setup sentence read once**: `setupLine` is `aria-hidden="true"`; the visually hidden
+   `role=status` region carries the announcement (already kept in sync).
+
+Gate findings: the first gate run's unit tier failed one test, `tests/test_provider_api.py::
+TestProviderDeletionProtection::test_delete_allowed_without_agents`, which still expected
+`{"status": "ok"}` after the HAT delete override added `cleared` to the response; the test now
+expects `{"status": "ok", "cleared": []}` (a stale expectation from the HAT change, not from these
+fixes; the HAT leg's targeted runs had not included that file).
+
+Gate (second run, after the fix): `THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 make gate`. Unit
+tier **10695 passed, 15 skipped, 308.75 s** (15 = the netns count). `PARALLEL_RESULT rc=0
+total=2270s lanes=20 failed=-`. **Start load 1.91 (1-minute) with no test process of this session
+running; the load came from other sessions on the WSL host, so this is a loaded-host reading: no
+lane was re-budgeted.** Lane wall / budget (s): routing 599/720, agents 577/630, agent-tabs 530/600,
+chats-transcript 465/540, contracts-controls 440/540, library 417/480, chats 384/420, shared
+360/420, providers 348/420, settings 326/360, mcp-connection 322/390, mcp 318/330, knowledge 315/420,
+agent-routines 284/300, settings-tools 267/330, contracts-widget 228/300, chats-widgets 168/240,
+contracts-overlay 159/240, contracts-widget-lifecycle 102/300, contracts-chat 97/150. None over
+budget. HAT instance on 8496 (PID 3470235, verified `the-one serve`, `THE_ONE_PORT=8496`) stopped
+before the gate; its data directory is untouched.

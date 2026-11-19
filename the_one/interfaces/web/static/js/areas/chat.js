@@ -314,8 +314,16 @@ App.registerArea({
         pane.renderNewState(null);
       }
       chromeEl.classList.toggle('chat-chrome--new', pending);
-      composer.setPlaceholder(composerAgent ? 'Message ' + String(composerAgent) + '…' : 'Message…');
-      composer.setModel(composerAgent ? App.chat.chatPane.agentInfo(composerAgent, agents, providers).model : '');
+      var composerInfo = composerAgent ? App.chat.chatPane.agentInfo(composerAgent, agents, providers) : null;
+      var placeholder = composerAgent ? 'Message ' + String(composerAgent) + '…' : 'Message…';
+      if (pending && !state.validating && composerInfo && composerInfo.gleepglorp
+          && composerInfo.state && composerInfo.state !== 'ready') {
+        // M36 F1 HAT: a blocked pending GleepGlorp chat names its next step.
+        placeholder = composerInfo.state === 'off' ? 'GleepGlorp is turned off…'
+          : (!composerInfo.hasProviders ? 'Add a model provider first…' : 'Choose a model first…');
+      }
+      composer.setPlaceholder(placeholder);
+      composer.setModel(composerInfo ? composerInfo.model : '');
       composer.slots.telemetry.hidden = name !== 'joined';
     }
 

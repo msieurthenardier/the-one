@@ -1,6 +1,6 @@
 # Leg: hat
 
-**Status**: planning
+**Status**: completed
 **Flight**: [GleepGlorp exists and can answer](../flight.md)
 
 ## Objective

@@ -25,7 +25,6 @@
 //   reorderRules(name, ids)      -> Promise<{rules, limits}>
 //   fetchNotes(name)             -> Promise<{enabled, notes, limits, usage}>
 //   setNotesEnabled(name, bool)  -> Promise
-//   updateNote(name, id, text)   -> Promise<note>
 //   deleteNote(name, id)         -> Promise
 //   clearNotes(name)             -> Promise<{deleted}>
 // }

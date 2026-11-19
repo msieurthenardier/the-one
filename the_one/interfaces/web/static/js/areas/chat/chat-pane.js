@@ -224,6 +224,12 @@
     // Built on first need and taken out of the DOM when not shown, so no other chat has a
     // (hidden) second banner beside the health banner.
     var setupBlock = null;
+    var setupText = el('span', { className: 'chat-new-gleepglorp-setup-text' });
+    var setupLine = el('p', { className: 'chat-new-gleepglorp-setup-line' },
+      [App.ui.util.icon('alert-circle'), setupText]);
+    // The visible sentence is hidden from assistive tech: the live region below announces it
+    // (kept in sync by renderSetupBlock), so browse mode reads it once.
+    setupLine.setAttribute('aria-hidden', 'true');
     var modelLine = el('p', { className: 'chat-new-state-model', hidden: true });
     modelLine.setAttribute('data-testid', 'chat-new-state-model');
     // A persistent live region (WCAG 4.1.3; not a second `.ui-banner`): built once, its text
@@ -243,29 +249,26 @@
         return;
       }
       if (!setupBlock) {
-        setupBlock = App.ui.banner({
-          tone: 'warning',
-          className: 'chat-new-gleepglorp-setup',
-          testid: 'chat-new-gleepglorp-setup',
-          children: [setupAction]
-        });
+        // Option A, "quiet next step": no box, no warning tone, one muted line and the button.
+        setupBlock = { el: el('div', { className: 'chat-new-gleepglorp-setup' }, [setupLine, setupAction]) };
+        setupBlock.el.setAttribute('data-testid', 'chat-new-gleepglorp-setup');
       }
       if (setupBlock.el.parentNode !== newInner) newInner.insertBefore(setupBlock.el, pickDifferentButton);
       var text, label, href;
       if (view.state === 'off') {
-        text = 'GleepGlorp is turned off.';
+        text = 'GleepGlorp is turned off. Turn it on to chat with it.';
         label = 'Open GleepGlorp settings';
         href = App.chat.agentKind(App.chat.GLEEPGLORP).settingsHref;
       } else if (!view.hasProviders) {
-        text = 'Add a model provider first.';
+        text = 'Add a model provider to start chatting with GleepGlorp.';
         label = 'Add a model provider';
         href = App.router.href({ destination: 'library', section: 'providers', create: true });
       } else {
-        text = 'GleepGlorp needs a model first.';
-        label = 'Choose a model for GleepGlorp';
+        text = 'Choose a model to start chatting with GleepGlorp.';
+        label = 'Choose a model';
         href = App.chat.agentKind(App.chat.GLEEPGLORP).settingsHref;
       }
-      setupBlock.set(text);
+      setupText.textContent = text;
       if (setupLive.textContent !== text) setupLive.textContent = text;
       setupAction.setAttribute('data-href', href);
       setupAction.textContent = label;

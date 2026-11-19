@@ -63,12 +63,21 @@ def _put(base: str, **over) -> None:
     assert r.status_code == 200, r.text
 
 
+def _stored_memory(base: str) -> bool:
+    r = httpx.get(f"{base}/api/gleepglorp", headers=auth_headers_for(base), timeout=5)
+    assert r.status_code == 200, r.text
+    return r.json()["memory"]
+
+
 def test_an_empty_memory_says_so_and_has_no_clear_all(
     app_with_data_dir: tuple[str, Path], page: Page
 ) -> None:
     base, _data = app_with_data_dir
     _goto(page, base)
-    expect(page.locator('[data-testid="gleepglorp-memory-section"] h2')).to_have_text("Memory")
+    expect(page.locator('[data-testid="gleepglorp-memory-section"] h2')).to_have_text("Notes")
+    expect(page.locator('[data-testid="gleepglorp-memory-usage"]')).to_have_text(
+        "0 of 4,000 characters"
+    )
     expect(page.locator(EMPTY)).to_have_text("No saved notes yet.", timeout=8000)
     expect(page.locator(CLEAR)).to_be_hidden()
     expect(page.locator(OFF)).to_be_hidden()
@@ -92,9 +101,23 @@ def test_notes_list_with_flag_origin_and_literal_text(
     expect(rows.nth(0).locator('[data-testid="notes-row-flag"]')).to_have_count(0)
     expect(rows.nth(1).locator('[data-testid="notes-row-flag"]')).to_have_count(1)
     expect(rows.nth(0).locator('[data-testid="notes-row-origin"]')).to_have_text("Outside a chat")
-    # No edit action: Memory rows can be deleted, not edited.
-    expect(page.locator(f"{LIST} [data-testid='notes-row-edit']")).to_have_count(0)
+    # No edit action: notes can be deleted, not edited.
+    expect(
+        page.locator(f"{LIST} button:has-text('Edit'), {LIST} [aria-label^='Edit']")
+    ).to_have_count(0)
     expect(page.locator(CLEAR)).to_be_visible()
+    # HAT: no "[n]" numbers; usage and Clear all sit on the Notes title row; Delete is a
+    # 32px icon button.
+    expect(page.locator(f"{LIST} .notes-row-number")).to_have_count(0)
+    expect(page.locator(f"{LIST} [data-testid='notes-row-text']").first).not_to_contain_text("[1]")
+    title_row = '[data-testid="gleepglorp-memory-section"] .ui-section-title-row '
+    expect(page.locator(title_row + CLEAR)).to_have_count(1)
+    used = len("Runs Ollama on this machine.") + len("<b>bold</b> & <script>1</script>")
+    expect(page.locator(title_row + '[data-testid="gleepglorp-memory-usage"]')).to_have_text(
+        f"{used} of 4,000 characters"
+    )
+    box = rows.nth(0).locator(DELETE).bounding_box()
+    assert box["height"] >= 32 and box["width"] >= 32
 
 
 def test_delete_is_armed_then_confirmed_and_does_not_touch_the_form(
@@ -149,17 +172,58 @@ def test_memory_off_shows_the_hint_and_keeps_the_notes(
     _put(base, memory=False)
     _goto(page, base)
     expect(page.locator(OFF)).to_have_text(
-        "Memory is off. GleepGlorp keeps no new notes; these stay until you delete them.",
+        "Notes are off. GleepGlorp keeps no new notes; these stay until you delete them.",
         timeout=8000,
     )
     expect(page.locator(ROWS)).to_have_count(1)
-    # Saving the switch back on takes the hint away (the Save primes the settings store).
+    # The Notes switch lives in the Notes section and saves at once (no Save button):
+    # flipping it back on takes the hint away and the form stays clean.
     page.locator(".ui-toggle-label").filter(
         has=page.locator('[data-testid="gleepglorp-memory"]')
     ).click()
-    page.locator('[data-testid="gleepglorp-save-btn"]').click()
     expect(page.locator(OFF)).to_be_hidden(timeout=8000)
     expect(page.locator(ROWS)).to_have_count(1)
+    assert _stored_memory(base) is True
+    expect(page.locator('[data-testid="gleepglorp-save-btn"]')).to_be_disabled()
+    expect(
+        page.locator('[data-testid="gleepglorp-memory-section"] [data-testid="gleepglorp-memory"]')
+    ).to_have_count(1)
+    expect(
+        page.locator(
+            '[data-testid="gleepglorp-behavior-section"] [data-testid="gleepglorp-memory"]'
+        )
+    ).to_have_count(0)
+
+
+def test_the_notes_switch_keeps_focus_while_saving_and_on_error(
+    app_with_data_dir: tuple[str, Path], page: Page
+) -> None:
+    """Review fix: the switch is never `disabled` while its save is in flight (that drops
+    focus); it carries aria-busy, keeps focus, and on a failed save goes back with the
+    alert shown and focus still on it."""
+    base, _data = app_with_data_dir
+    _put(base, memory=True)
+    _goto(page, base)
+    switch = page.locator('[data-testid="gleepglorp-memory"]')
+    seen: dict = {}
+
+    def slow_fail(route):
+        if route.request.method != "PUT":
+            route.continue_()
+            return
+        # The DOM property, not Playwright's is_disabled (which also counts aria-disabled).
+        seen["disabled_during"] = switch.evaluate("e => e.disabled")
+        route.fulfill(status=500, content_type="application/json", body='{"detail": "no"}')
+
+    page.route("**/api/gleepglorp", slow_fail)
+    switch.focus()
+    page.keyboard.press("Space")
+    expect(page.locator('[data-testid="gleepglorp-memory-error"]')).to_be_visible(timeout=8000)
+    assert seen.get("disabled_during") is False
+    expect(switch).to_be_focused()
+    expect(switch).to_be_checked()  # put back to the stored value
+    expect(switch).not_to_have_attribute("aria-busy", "true")
+    assert _stored_memory(base) is True
 
 
 def test_the_web_hint_follows_the_switch_and_the_engine(

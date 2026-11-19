@@ -490,6 +490,11 @@
     color: var(--fg);
   }
   .btn-ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Danger tone (App.ui.button tone: 'danger'): a ghost button's resting colour only. The
+     :not() keeps the armed fill and text of App.ui.confirm, including a lapsed arm (the
+     lapse adds an outline, not a fill), and a disabled button keeps its disabled colour. */
+  .btn-ghost.btn-tone-danger:not(.confirm-delete):not(:disabled),
+  .btn-ghost.btn-tone-danger:not(.confirm-delete):not(:disabled):hover { color: var(--status-danger); }
   /* A busy button kept focusable with aria-disabled="true" (Rotate, M31 F4) looks disabled too. */
   .btn-outlined-primary[aria-disabled="true"] { color: var(--btn-disabled-fg); border-color: var(--btn-disabled-border); cursor: not-allowed; }
   .btn-filled-primary[aria-disabled="true"] { background-color: var(--btn-disabled-bg); border-color: var(--btn-disabled-border); color: var(--btn-disabled-fg); cursor: not-allowed; }
@@ -1668,6 +1673,10 @@
   .ui-section-title-row > .section-title::after { content: none; }
   .ui-section-title-row::after { content: ""; flex: 1; min-width: 0; height: 1px; background: var(--border); }
   .editor-section--stack > .ui-section-title-row { margin: 0 0 -2px; }
+  /* App.ui.section action: after the rule (order), right-aligned; a hidden action node
+     leaves the row as it was. */
+  .ui-section-title-row > .ui-section-action { order: 1; flex: none; }
+  .ui-section-title-row > .ui-section-action:has(> [hidden]) { display: none; }
 
   /* === Markdown code-block copy affordance === */
   .markdown-code-wrap {

@@ -187,9 +187,11 @@
         webHint.textContent = '';
       }
     }
+    // The notes switch lives in the Notes section and saves at once (like the agent's);
+    // the setting key stays `memory`. saveMemorySwitch is defined with the notes code below.
     var memoryToggle = App.ui.toggle({
-      label: 'Memory', hint: 'Keep notes about you between chats.',
-      testid: 'gleepglorp-memory', onChange: onToggle
+      label: 'Let GleepGlorp keep notes',
+      testid: 'gleepglorp-memory', onChange: function (checked) { saveMemorySwitch(checked); }
     });
 
     // ── Provider and model options ─────────────────────────────────────
@@ -308,7 +310,6 @@
         provider_config_id: providerSelect.value || null,
         model: modelSelect.value || null,
         web_access: webToggle.control.checked,
-        memory: memoryToggle.control.checked,
         retention_days: retentionInput.value
       };
     }
@@ -320,7 +321,6 @@
         cur.provider_config_id !== baseline.provider_config_id ||
         cur.model !== baseline.model ||
         cur.web_access !== baseline.web_access ||
-        cur.memory !== baseline.memory ||
         cur.retention_days !== String(baseline.retention_days);
     }
 
@@ -404,7 +404,7 @@
         provider_config_id: cur.provider_config_id,
         model: cur.model,
         web_access: cur.web_access,
-        memory: cur.memory,
+        memory: baseline.memory,
         retention_days: retentionValue()
       };
       revalidate();
@@ -458,7 +458,7 @@
       });
     }
 
-    // ── Memory (M36 F1 L06) ────────────────────────────────────────────
+    // ── Notes (M36 F1 L06; first called Memory) ────────────────────────────────────────────
     //
     // GleepGlorp's saved notes, listed with the agent Notes tab's row (App.studio.noteRow).
     // Delete and Clear all act at once (they are not part of Save). The list reloads after
@@ -470,7 +470,10 @@
     var memoryNotes = [];
     var memoryEnabled = true;
     var memoryBusy = false;
-    var MEMORY_OFF = 'Memory is off. GleepGlorp keeps no new notes; these stay until you ' +
+    var memoryLimits = null;
+    var memoryUsed = 0;
+    var memorySwitchGen = App.ui.util.latest();
+    var MEMORY_OFF = 'Notes are off. GleepGlorp keeps no new notes; these stay until you ' +
       'delete them.';
 
     var memoryError = el('p', { className: 'gleepglorp-memory-error', role: 'alert' });
@@ -483,12 +486,13 @@
     memoryList.setAttribute('data-testid', 'gleepglorp-memory-list');
     var memorySectionEl = null;
 
-    var clearBtn = App.ui.button({
-      variant: 'secondary', size: 'sm', label: 'Clear all', testid: 'gleepglorp-memory-clear',
-      onClick: function () { clearMemory(); }
-    });
-    clearBtn.hidden = true;
-    var memoryBar = el('div', { className: 'gleepglorp-memory-bar' }, [clearBtn]);
+    var header = App.studio.buildNotesHeaderAction(function () { clearMemory(); });
+    var usageEl = header.usageEl;
+    var clearBtn = header.clearBtn;
+    usageEl.setAttribute('data-testid', 'gleepglorp-memory-usage');
+    clearBtn.setAttribute('data-testid', 'gleepglorp-memory-clear');
+    header.el.appendChild(usageEl);
+    header.el.appendChild(clearBtn);
 
     function showMemoryError(text) {
       memoryError.textContent = text || '';
@@ -509,6 +513,7 @@
       memoryOff.hidden = memoryEnabled;
       clearBtn.hidden = !memoryNotes.length;
       clearBtn.disabled = memoryBusy;
+      usageEl.textContent = App.studio.notesUsageText(memoryUsed, memoryLimits);
       memoryList.textContent = '';
       if (!memoryNotes.length) {
         var empty = el('p', { className: 'gleepglorp-memory-empty', text: 'No saved notes yet.' });
@@ -521,11 +526,12 @@
       memoryNotes.forEach(function (note) {
         var del = App.studio.rulesNotesShared.buildDeleteButton({
           ariaLabel: 'Delete note ' + note.number,
+          iconOnly: true,
           onConfirm: function (revert) { deleteNote(note, revert); }
         });
         del.setAttribute('data-testid', 'gleepglorp-memory-delete');
         del.disabled = memoryBusy;
-        var actions = el('div', { className: 'rules-row-actions' }, [del]);
+        var actions = el('div', { className: 'rules-row-actions notes-row-actions' }, [del]);
         ul.appendChild(App.studio.noteRow(note, { actions: actions }));
       });
       memoryList.appendChild(ul);
@@ -538,10 +544,70 @@
         body = body || {};
         memoryEnabled = body.enabled !== false;
         memoryNotes = body.notes || [];
+        memoryLimits = body.limits || null;
+        memoryUsed = body.usage && typeof body.usage.total_chars === 'number'
+          ? body.usage.total_chars
+          : memoryNotes.reduce(function (n, x) { return n + x.text.length; }, 0);
+        memoryToggle.setChecked(memoryEnabled);
         renderMemory();
       }).catch(function () {
         if (destroyed || !memoryGen.isCurrent(token)) return;
         showMemoryError("Couldn't load GleepGlorp's notes.");
+      });
+    }
+
+    // The switch saves at once: the last SAVED settings with `memory` toggled, never the
+    // form's unsaved values; only the baseline's `memory` moves, so an unsaved Model or
+    // Behavior edit stays unsaved. An error puts the switch back.
+    var memorySwitchBusy = false;
+    var memorySwitchPending = false;
+    function setMemorySwitchBusy(on) {
+      if (on) {
+        memoryToggle.control.setAttribute('aria-busy', 'true');
+        memoryToggle.control.setAttribute('aria-disabled', 'true');
+      } else {
+        memoryToggle.control.removeAttribute('aria-busy');
+        memoryToggle.control.removeAttribute('aria-disabled');
+      }
+    }
+    function saveMemorySwitch(checked) {
+      if (!baseline) { memoryToggle.setChecked(!checked); return; }
+      // Focus stays on the switch while saving: a busy guard and aria-busy/aria-disabled,
+      // never `disabled` (which drops focus). A change made meanwhile is put back.
+      if (memorySwitchBusy) { memoryToggle.setChecked(memorySwitchPending); return; }
+      memorySwitchBusy = true;
+      memorySwitchPending = checked;
+      setMemorySwitchBusy(true);
+      var token = memorySwitchGen.next();
+      showMemoryError(null);
+      App.api.fetchJson('/api/gleepglorp', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: baseline.enabled,
+          provider_config_id: baseline.provider_config_id,
+          model: baseline.model,
+          web_access: baseline.web_access,
+          memory: checked,
+          retention_days: baseline.retention_days
+        })
+      }).then(function (data) {
+        if (destroyed || !memorySwitchGen.isCurrent(token)) return;
+        baseline.memory = !!data.memory;
+        memoryEnabled = baseline.memory;
+        memorySwitchBusy = false;
+        setMemorySwitchBusy(false);
+        memoryToggle.setChecked(baseline.memory);
+        renderMemory();
+        App.gleepglorp.prime(data);
+        revalidate();
+      }).catch(function (err) {
+        if (destroyed || !memorySwitchGen.isCurrent(token)) return;
+        memorySwitchBusy = false;
+        setMemorySwitchBusy(false);
+        memoryToggle.setChecked(baseline.memory);
+        var mapped = App.api.fieldErrors(err, FIELD_NAMES);
+        showMemoryError(mapped.text || "Couldn't change the notes setting. Try again.");
       });
     }
 
@@ -604,12 +670,13 @@
     var behavior = App.ui.section({
       title: 'Behavior', titleTag: 'h2', layout: 'stack', inset: 'none',
       testid: 'gleepglorp-behavior-section',
-      children: [enabledToggle.el, webToggle.el, webHint, memoryToggle.el, retentionField.el]
+      children: [enabledToggle.el, webToggle.el, webHint, retentionField.el]
     });
     var memorySection = App.ui.section({
-      title: 'Memory', titleTag: 'h2', layout: 'stack', inset: 'none',
+      title: 'Notes', titleTag: 'h2', layout: 'stack', inset: 'none',
       testid: 'gleepglorp-memory-section',
-      children: [memoryOff, memoryBar, memoryError, memoryList]
+      action: header.el,
+      children: [memoryToggle.el, memoryOff, memoryError, memoryList]
     });
     memorySectionEl = memorySection.el;
 
@@ -632,6 +699,7 @@
         gen.invalidate();
         modelGen.invalidate();
         memoryGen.invalidate();
+        memorySwitchGen.invalidate();
         unsubscribe();
         window.removeEventListener('gleepglorp-notes-changed', onNotesPush);
         clearSaved();

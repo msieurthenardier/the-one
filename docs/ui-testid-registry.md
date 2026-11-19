@@ -182,9 +182,9 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-model` | chat | The composer toolbar's model id: the open or pending chat's agent's `llm_model` from the `agents` store, 11px `--font-family-mono` in `--fg-muted`; empty when unknown (M25 F4 L5) |
 | `chat-new-state` | chat | The new-chat state (reference spec 5.4), shown only while a chat is pending: a `badge badge--{providerType}` whose text is the model (A20), the agent name (`h2`), the description, and `chat-pick-different-btn` (M25 F4 L4b) |
 | `chat-new-state-model` | chat | The new-chat state's model line for GleepGlorp (M36 F1 L04): the badge reads "Built in" (`badge--builtin`), this line carries the model; hidden for any other agent and with no model |
-| `chat-new-gleepglorp-setup` | chat | The new-chat state's GleepGlorp setup block (M36 F1 L04, board screen 3): an `App.ui.banner` warning, shown only while GleepGlorp is off ("GleepGlorp is turned off."), needs a model ("GleepGlorp needs a model first.") or has no model provider at all ("Add a model provider first."); holds the action below |
+| `chat-new-gleepglorp-setup` | chat | The new-chat state's GleepGlorp setup block (M36 F1 L04, board screen 3): the "quiet next step" (option A: a plain wrapper, no banner or warning tone; a muted line with an info icon, then the action), shown only while GleepGlorp is off ("GleepGlorp is turned off. Turn it on to chat with it."), needs a model ("Choose a model to start chatting with GleepGlorp.") or has no model provider at all ("Add a model provider to start chatting with GleepGlorp."); holds the action below |
 | `chat-new-gleepglorp-setup-live` | chat | A persistent visually hidden `role="status"` region in the new-chat state (built once, not a second banner): holds the setup sentence while the block above shows and is empty otherwise, so a screen reader announces it (WCAG 4.1.3) |
-| `chat-new-gleepglorp-setup-action` | chat | The setup block's one primary button (M36 F1 L04): "Open GleepGlorp settings" (off), "Choose a model for GleepGlorp" (needs a model; both go to `#settings/gleepglorp`) or "Add a model provider" (no providers; `#library/providers/~new`) |
+| `chat-new-gleepglorp-setup-action` | chat | The setup block's one primary button (M36 F1 L04): "Open GleepGlorp settings" (off), "Choose a model" (needs a model; both go to `#settings/gleepglorp`) or "Add a model provider" (no providers; `#library/providers/~new`) |
 | `chat-health-banner-action` | chat | The chat health banner's button (M36 F1 L04), present only for a stored GleepGlorp chat in a `gleepglorp_off`, `gleepglorp_needs_model` or `gleepglorp_provider_missing` status: "Open GleepGlorp settings" (`#settings/gleepglorp`); the banner text is the state's sentence (off adds "Turn it on to continue this chat.") |
 | `chat-pick-different-btn` | chat | The new-chat state's "Pick a different agent" (`btn-ghost btn-sm`); opens the agent picker, and a pick replaces the pending chat (M25 F4 L4b) |
 | `chat-row` | chat | A Chats list row: an `App.ui.listPane` `<a href="#chats/{id}">` with `data-id` (rowStyle `chats`: title, time, agent, a connector's platform badge), or the pending chat's row (`data-pending="true"`, no `data-id`, href `#chats/~new/{agent}`) (M25 F4 L4a) |
@@ -218,7 +218,9 @@ caught — but it cannot see where the attribute is emitted.
 | `connector-status-label` | studio | Connector-editor header connection-status line: the root `p.ui-status` of an `App.ui.status` (its `data-state` carries the outcome; "Connection check failed" when the automatic probe gets a non-OK response), edit mode only (Squawk 0045; M31 F3 L07a) |
 | `connector-status-led` | studio | The `status`-owned LED span inside the header status line (decorative, `aria-hidden`; its class carries the state), edit mode only (Squawk 0045; M31 F3 L07a) |
 | `delete-agent-btn` | studio | |
-| `delete-blocked-message` | admin | |
+| `delete-blocked-message` | studio | Provider-editor explanation in the neutral Danger-zone box shown on open whenever the provider is in use (no Delete click first): "This provider is used by ..." with each user a `delete-user-link` (agents to their page, GleepGlorp to its Settings page), then what deleting does (HAT, M36 F1) |
+| `delete-user-link` | studio | A link to a user (agent or GleepGlorp) inside `delete-blocked-message` |
+| `delete-force-checkbox` | studio | Provider-editor "Delete anyway and clear their model" checkbox; Delete stays disabled until it is ticked, and the commit sends `?force=true` |
 | `delete-connector-btn` | studio | Connector-editor Danger Zone (M23 F02 L02) |
 | `cancel-secret-btn` | studio | Secret-editor header Cancel (`App.ui.editorShell`); enabled from the first render on the create form, else once the form is dirty (sortie 10) |
 | `save-secret-btn` | studio | Secret-editor header Save / Create (sortie 10) |
@@ -338,14 +340,15 @@ caught — but it cannot see where the attribute is emitted.
 | `gleepglorp-flash` | admin | GleepGlorp page — region holding the "Saved." `App.ui.status` (cleared by the next attempt or after 3 s; M36 F1 L03) |
 | `gleepglorp-intro` | admin | GleepGlorp page — the header subtitle (M36 F1 L03) |
 | `gleepglorp-load-error` | admin | GleepGlorp page — the shell's error span when the settings did not load (M36 F1 L03) |
-| `gleepglorp-memory` | admin | GleepGlorp page — the "Memory" switch (turns GleepGlorp's own notes on or off; M36 F1 L03, live in L06) |
-| `gleepglorp-memory-clear` | admin | GleepGlorp page — Memory section's Clear all (through `App.confirmDialog`; acts at once, hidden with no notes; M36 F1 L06) |
-| `gleepglorp-memory-delete` | admin | GleepGlorp page — one Memory row's armed Delete (the two-step `App.ui.confirm`; acts at once; M36 F1 L06) |
-| `gleepglorp-memory-empty` | admin | GleepGlorp page — "No saved notes yet." inside the Memory list (M36 F1 L06) |
-| `gleepglorp-memory-error` | admin | GleepGlorp page — the Memory section's `role=alert` error line (load or change failure; M36 F1 L06) |
-| `gleepglorp-memory-list` | admin | GleepGlorp page — wrapper of the Memory rows (the shared `notes-row*` rows of `App.studio.noteRow`, or the empty line; M36 F1 L06) |
-| `gleepglorp-memory-off` | admin | GleepGlorp page — "Memory is off. GleepGlorp keeps no new notes; these stay until you delete them." (shown while the saved Memory setting is off; M36 F1 L06) |
-| `gleepglorp-memory-section` | admin | GleepGlorp page — the Memory `App.ui.section` (M36 F1 L06) |
+| `gleepglorp-memory` | admin | GleepGlorp page — the "Let GleepGlorp keep notes" switch in the Notes section (turns GleepGlorp's own notes on or off; saves at once from the last saved settings; the setting key stays `memory`; M36 F1 L03, live in L06, moved at HAT) |
+| `gleepglorp-memory-clear` | admin | GleepGlorp page — Notes section's Clear all, on the title line (through `App.confirmDialog`; acts at once, hidden with no notes; M36 F1 L06) |
+| `gleepglorp-memory-delete` | admin | GleepGlorp page — one note row's icon-only armed Delete (the two-step `App.ui.confirm`; acts at once; M36 F1 L06) |
+| `gleepglorp-memory-empty` | admin | GleepGlorp page — "No saved notes yet." inside the Notes list (M36 F1 L06) |
+| `gleepglorp-memory-error` | admin | GleepGlorp page — the Notes section's `role=alert` error line (load or change failure; M36 F1 L06) |
+| `gleepglorp-memory-list` | admin | GleepGlorp page — wrapper of the Notes rows (the shared `notes-row*` rows of `App.studio.noteRow`, or the empty line; M36 F1 L06) |
+| `gleepglorp-memory-off` | admin | GleepGlorp page — "Notes are off. GleepGlorp keeps no new notes; these stay until you delete them." (shown while the saved setting is off; M36 F1 L06) |
+| `gleepglorp-memory-section` | admin | GleepGlorp page — the Notes `App.ui.section` (M36 F1 L06) |
+| `gleepglorp-memory-usage` | admin | GleepGlorp page — the "{used} of 4,000 characters" line on the Notes title line (same words as the agent tab's `notes-usage`; M36 F1 HAT) |
 | `gleepglorp-model` | admin | GleepGlorp page — the model `<select>` (placeholder first, refilled from the chosen provider's model list; M36 F1 L03) |
 | `gleepglorp-model-error` | admin | GleepGlorp page — the model field's error element (M36 F1 L03) |
 | `gleepglorp-model-hint` | admin | GleepGlorp page — the model field's hint ("Small local models may struggle."; M36 F1 L03) |
@@ -453,18 +456,13 @@ caught — but it cannot see where the attribute is emitted.
 | `notes-list` | studio | the notes list (`<ul>`) (M27 F2 L3) |
 | `notes-off-message` | studio | "Notes are off. This agent can't see or write notes. Saved notes are kept." (hidden while on) (M27 F2 L3) |
 | `notes-row` | studio | one note row (`<li>`, `data-id`, `data-number`) (M27 F2 L3) |
-| `notes-row-cancel` | studio | note inline edit Cancel (M27 F2 L3) |
-| `notes-row-delete` | studio | note Delete, two-step through `App.ui.confirm` (M27 F2 L3) |
-| `notes-row-edit` | studio | note Edit; `data-note-id` (M27 F2 L3) |
-| `notes-row-edit-count` | studio | the inline edit's live "{n} / 400" count (M27 F2 L3) |
-| `notes-row-edit-input` | studio | the note inline edit textarea (M27 F2 L3) |
+| `notes-row-delete` | studio | note Delete, a 32px icon-only ghost button (aria-label "Delete note {n}"), two-step through `App.ui.confirm` (M27 F2 L3; icon only since M36 F1 HAT, where Edit went) |
 | `notes-row-edited` | studio | "Edited by you" on an operator-edited note (M27 F2 L3) |
 | `notes-row-flag` | studio | the warning-triangle (`App.ui.noteFlag`, `role=img`) on an untrusted note in the Rules and notes tab; `title` and accessible name are "Check this note: it was written after content that didn't come from you ({sources}). It may have been planted." (M27 F3 L2; replaces `notes-row-check`) |
 | `notes-row-meta` | studio | a note's meta line (time, origin, badges) (M27 F2 L3) |
 | `notes-row-origin` | studio | the note's origin: chat link, "(chat deleted)", platform and peer, or "Outside a chat" (M27 F2 L3) |
 | `notes-row-origin-link` | studio | the origin `<a>` to `#chats/{id}` when the chat still exists (M27 F2 L3) |
 | `notes-row-platform` | studio | a connector origin's platform badge (M27 F2 L3) |
-| `notes-row-save` | studio | note inline edit Save (M27 F2 L3) |
 | `notes-row-text` | studio | the note's text paragraph (M27 F2 L3) |
 | `notes-row-time` | studio | the note's time ("Updated …" when edited) (M27 F2 L3) |
 | `notes-section` | studio | the Notes section of the Rules and notes tab (M27 F2 L3) |
@@ -818,3 +816,8 @@ again. A retired id cannot come back.
 | `chat-chart-placeholder-source` | chat | Sortie 16 L04 — the placeholder's "Show source" disclosure; went with `chat-chart-placeholder` |
 | `chat-widget-placeholder` | chat | Sortie 16 L04 (DD3, DD10) — the "Rendering widget" card held while a widget block streamed; a widget is mounted when the reply lands |
 | `chat-widget-placeholder-source` | chat | Sortie 16 L04 — the placeholder's "Show source" disclosure; went with `chat-widget-placeholder` |
+| `notes-row-edit` | studio | M36 F1 HAT (operator) — notes are deleted, never edited, in the UI: the row's Edit button went (the `PUT /api/agents/{name}/notes/{id}` route stays) |
+| `notes-row-edit-count` | studio | M36 F1 HAT — the inline note editor's count; went with `notes-row-edit` |
+| `notes-row-edit-input` | studio | M36 F1 HAT — the inline note editor's textarea; went with `notes-row-edit` |
+| `notes-row-save` | studio | M36 F1 HAT — the inline note editor's Save; went with `notes-row-edit` |
+| `notes-row-cancel` | studio | M36 F1 HAT — the inline note editor's Cancel; went with `notes-row-edit` |

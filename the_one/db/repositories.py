@@ -3564,6 +3564,40 @@ class LLMProviderRepository:
         async with write_transaction(self.conn):
             await self.conn.execute("DELETE FROM llm_providers WHERE id = ?", (provider_id,))
 
+    async def delete_forcing(self, provider_id: str) -> bool:
+        """Delete a provider that is in use, in one transaction.
+
+        Clears the provider and model of every agent that uses it, clears GleepGlorp's
+        provider and model when its stored setting (read INSIDE the transaction, on this
+        connection, so a concurrent change cannot be overwritten) names the provider,
+        and deletes the provider. All or nothing. Returns True when GleepGlorp's setting
+        was cleared. Does not compose other repository methods: ``write_transaction`` is
+        not re-entrant.
+        """
+        if not await self._exists(provider_id):
+            raise KeyError(f"Provider not found: {provider_id}")
+        async with write_transaction(self.conn):
+            await self.conn.execute(
+                "UPDATE agents SET provider_config_id = NULL, llm_model = '' "
+                "WHERE provider_config_id = ?",
+                (provider_id,),
+            )
+            from the_one.gleepglorp.settings import SETTING_KEY, load_settings
+
+            current = await load_settings(self.conn)
+            cleared_gg = current.provider_config_id == provider_id
+            if cleared_gg:
+                new_json = current.model_copy(
+                    update={"provider_config_id": None, "model": None}
+                ).model_dump_json()
+                await self.conn.execute(
+                    "INSERT INTO app_metadata (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (SETTING_KEY, new_json),
+                )
+            await self.conn.execute("DELETE FROM llm_providers WHERE id = ?", (provider_id,))
+        return cleared_gg
+
     async def _exists(self, provider_id: str) -> bool:
         async with self.conn.execute(
             "SELECT 1 FROM llm_providers WHERE id = ?", (provider_id,)

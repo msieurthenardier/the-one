@@ -306,6 +306,8 @@
   //   a div.ui-section-title-row; the title keeps its tag and class, its own rule
   //   is suppressed inside the row, and the row draws the rule after the button.
   //   Without a title, info throws.
+  //   action (a node, M36 F1 HAT): sits at the end of the title row, after the rule,
+  //   right-aligned (div.ui-section-title-row > .ui-section-action); needs a title.
   //   div.editor-section holds the .section-title, an optional
   //   p.section-description, then the children; body is the element children
   //   append to (the section itself).
@@ -329,16 +331,23 @@
     });
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
     if (opts.info && !opts.title) throw new Error('App.ui.section: info needs a title');
+    if (opts.action && !opts.title) throw new Error('App.ui.section: action needs a title');
     var titleEl = null;
     if (opts.title) {
       titleEl = util.el(tag, { className: 'section-title', text: opts.title });
-      if (opts.info) {
-        var infoBtn = App.ui.infoButton({
-          description: opts.info.text,
-          label: opts.info.label || opts.title,
-          testid: opts.info.testid
-        });
-        root.appendChild(util.el('div', { className: 'ui-section-title-row' }, [titleEl, infoBtn.el]));
+      if (opts.info || opts.action) {
+        var rowKids = [titleEl];
+        if (opts.info) {
+          rowKids.push(App.ui.infoButton({
+            description: opts.info.text,
+            label: opts.info.label || opts.title,
+            testid: opts.info.testid
+          }).el);
+        }
+        if (opts.action) {
+          rowKids.push(util.el('div', { className: 'ui-section-action' }, [opts.action]));
+        }
+        root.appendChild(util.el('div', { className: 'ui-section-title-row' }, rowKids));
       } else {
         root.appendChild(titleEl);
       }

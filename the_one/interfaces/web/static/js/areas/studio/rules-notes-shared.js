@@ -18,8 +18,10 @@
   }
 
   // One titled section of the panel. Flight 2 appends Notes with the same call.
-  function makeSection(panel, id, title) {
-    var section = App.ui.section({ title: title, titleTag: 'h3', className: 'rules-notes-section' });
+  function makeSection(panel, id, title, action) {
+    var section = App.ui.section({
+      title: title, titleTag: 'h3', className: 'rules-notes-section', action: action || null
+    });
     panel.appendChild(section.el);
     return section.el;
   }
@@ -196,13 +198,21 @@
 
   // A delete button that arms, then confirms, through App.ui.confirm (the
   // library announces the arm from the button's aria-label).
+  // `cfg.iconOnly` (the notes rows, M36 F1 HAT): a 32px ghost trash button; the armed
+  // title text sits in a visually hidden span and the armed look is the library's fill.
   function buildDeleteButton(cfg) {
-    var del = App.ui.button({
-      variant: 'danger',
-      size: 'sm',
-      ariaLabel: cfg.ariaLabel
-    });
-    del.appendChild(el('span', null, 'Delete')).setAttribute('data-confirm-title', '');
+    var del = cfg.iconOnly
+      ? App.ui.button({
+          variant: 'ghost',
+          tone: 'danger',
+          iconOnly: true,
+          icon: 'trash',
+          ariaLabel: cfg.ariaLabel
+        })
+      : App.ui.button({ variant: 'danger', size: 'sm', ariaLabel: cfg.ariaLabel });
+    var title = del.appendChild(el('span', cfg.iconOnly ? 'visually-hidden' : null, 'Delete'));
+    title.setAttribute('data-confirm-title', '');
+    if (cfg.iconOnly) del.classList.add('notes-row-icon-delete');
     del.addEventListener('click', function () {
       App.ui.confirm(del, function (btn, revert) { cfg.onConfirm(revert); });
     });

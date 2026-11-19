@@ -81,9 +81,6 @@ App.studio.agentData = {
     function setNotesEnabled(name, enabled) {
       return rulesJson('PUT', notesUrl(name, '/settings'), { enabled: !!enabled });
     }
-    function updateNote(name, id, text) {
-      return rulesJson('PUT', notesUrl(name, '/' + encodeURIComponent(id)), { text: text });
-    }
     function deleteNote(name, id) {
       return rulesJson('DELETE', notesUrl(name, '/' + encodeURIComponent(id)));
     }
@@ -550,7 +547,6 @@ App.studio.agentData = {
       reorderRules: reorderRules,
       fetchNotes: fetchNotes,
       setNotesEnabled: setNotesEnabled,
-      updateNote: updateNote,
       deleteNote: deleteNote,
       clearNotes: clearNotes,
       fetchSelfConfigurationStatus: fetchSelfConfigurationStatus,

@@ -6560,7 +6560,7 @@ async def _gleepglorp_uses_provider(provider_id: str) -> bool:
 
 
 @router.delete("/providers/{provider_id}")
-async def delete_provider(provider_id: str) -> dict[str, str]:
+async def delete_provider(provider_id: str, force: bool = False) -> dict[str, Any]:
     repo = await _provider_repo()
     try:
         await repo.get(provider_id)
@@ -6572,20 +6572,43 @@ async def delete_provider(provider_id: str) -> dict[str, str]:
     agent_names = await store.list_by_provider(provider_id)
     if await _gleepglorp_uses_provider(provider_id):
         agent_names = [GLEEPGLORP_AGENT_NAME, *agent_names]
-    if agent_names:
+    if agent_names and not force:
         raise HTTPException(
             status_code=409,
             detail=f"Provider is used by agents: {', '.join(agent_names)}",
         )
 
-    await repo.delete(provider_id)
+    cleared: list[str] = []
+    if agent_names:
+        # Operator override (M36 F1 HAT): clear what uses the provider and delete it in
+        # one transaction. GleepGlorp loses both provider and model (a model with no
+        # provider is refused by its PUT).
+        # The GleepGlorp setting is read and rewritten inside the repository's transaction.
+        try:
+            gg_cleared = await repo.delete_forcing(provider_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+        cleared = agent_names
+        if gg_cleared:
+            from the_one import gleepglorp
+            from the_one.sessions import broadcast_to_all
+
+            try:
+                body = await gleepglorp.response(await get_connection())
+                await broadcast_to_all(
+                    {"type": "gleepglorp_changed", "state": body["state"], "settings": body}
+                )
+            except Exception:  # noqa: BLE001
+                logger.warning("gleepglorp_changed broadcast failed", exc_info=True)
+    else:
+        await repo.delete(provider_id)
     # Drop any pending OAuth sign-in state for the deleted provider so a
     # later /oauth/code can't resurrect it (it would 404 anyway on the
     # row-existence re-check, but don't leak the verifier slot). Also
     # evict the cached credential source (DD-3 invalidation contract).
     _plan_oauth_pending.pop(provider_id, None)
     plan_credentials.evict_credential_source(provider_id)
-    return {"status": "ok"}
+    return {"status": "ok", "cleared": cleared}
 
 
 async def _get_plan_provider_or_raise(provider_id: str) -> LLMProviderConfig:

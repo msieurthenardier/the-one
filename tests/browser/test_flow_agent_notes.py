@@ -147,7 +147,9 @@ def test_row_meta_origin_link_deleted_chat_and_other(
     rows = page.locator(ROWS)
     expect(rows).to_have_count(4, timeout=8000)
     assert [r.get_attribute("data-number") for r in rows.all()] == ["1", "2", "3", "4"]
-    expect(rows.nth(0).locator(".notes-row-number")).to_have_text("[1]")
+    # HAT: no "[n]" numbers anywhere (the stable `data-number` stays for tests).
+    expect(page.locator(f"{ROWS} .notes-row-number")).to_have_count(0)
+    assert "[1]" not in page.locator('[data-testid="notes-list"]').inner_text()
 
     link = rows.nth(0).locator('[data-testid="notes-row-origin-link"]')
     expect(link).to_have_text("Trip planning")
@@ -222,7 +224,9 @@ def test_note_text_with_markup_renders_literally(
     assert "<u>src</u>" in row.locator('[data-testid="notes-row-flag"]').get_attribute("title")
 
 
-def test_edit_save_cancel_and_edited_by_you(notes_app: tuple[SeededApp, Path], page: Page) -> None:
+def test_no_edit_ui_and_edited_by_you_for_past_edits(
+    notes_app: tuple[SeededApp, Path], page: Page
+) -> None:
     app, data_dir = notes_app
     base, agent = app.base_url, app.agent_name
     enable_notes(base, agent)
@@ -231,89 +235,30 @@ def test_edit_save_cancel_and_edited_by_you(notes_app: tuple[SeededApp, Path], p
     row = page.locator(ROWS).first
     expect(row).to_be_visible(timeout=8000)
 
-    row.locator('[data-testid="notes-row-edit"]').click()
-    edit = row.locator('[data-testid="notes-row-edit-input"]')
-    expect(edit).to_be_focused()
-    expect(row.locator('[data-testid="notes-row-edit-count"]')).to_have_text("11 / 400")
-    edit.fill("Changed but cancelled.")
-    row.locator('[data-testid="notes-row-cancel"]').click()
-    expect(row.locator('[data-testid="notes-row-text"]')).to_have_text("First note.")
-    expect(row.locator('[data-testid="notes-row-edit"]')).to_be_focused()
-    assert _stored(base, agent)["notes"][0]["text"] == "First note."
+    # HAT: notes are deleted, never edited, in the UI: no Edit control and no inline editor.
+    expect(row.locator("[aria-label^='Edit']")).to_have_count(0)
+    expect(row.locator("textarea")).to_have_count(0)
+    assert [b.get_attribute("aria-label") for b in row.locator("button").all()] == ["Delete note 1"]
+    expect(row.locator('[data-testid="notes-row-edited"]')).to_have_count(0)
 
-    row.locator('[data-testid="notes-row-edit"]').click()
-    row.locator('[data-testid="notes-row-edit-input"]').fill("Saved edit.")
-    row.locator('[data-testid="notes-row-save"]').click()
-    expect(row.locator('[data-testid="notes-row-text"]')).to_have_text("Saved edit.", timeout=8000)
-    expect(row.locator('[data-testid="notes-row-edit"]')).to_be_focused()
-    expect(row.locator('[data-testid="notes-row-edited"]')).to_have_text("Edited by you")
+    # A note the operator edited before (through the API) still says so.
+    r = httpx.put(
+        f"{base}/api/agents/{agent}/notes/{_stored(base, agent)['notes'][0]['id']}",
+        json={"text": "Saved edit."},
+        headers=auth_headers_for(base),
+        timeout=5,
+    )
+    assert r.status_code == 200, r.text
+    page.reload()
+    expect(page.locator('[data-testid="notes-usage"]')).not_to_have_text("", timeout=8000)
+    row = page.locator(ROWS).first
+    expect(row.locator('[data-testid="notes-row-edited"]')).to_have_text(
+        "Edited by you", timeout=8000
+    )
     expect(row.locator('[data-testid="notes-row-time"]')).to_contain_text("Updated")
-    stored = _stored(base, agent)["notes"][0]
-    assert stored["text"] == "Saved edit." and stored["updated_by"] == "operator"
 
 
-def test_operator_edit_clears_the_warning_flag(
-    notes_app: tuple[SeededApp, Path], page: Page
-) -> None:
-    app, data_dir = notes_app
-    base, agent = app.base_url, app.agent_name
-    enable_notes(base, agent)
-    seed_note(data_dir, agent, "Planted.", untrusted=True, sources=["fetch_url"])
-    _open_tab(page, base, agent)
-    row = page.locator(ROWS).first
-    flag = row.locator('[data-testid="notes-row-flag"]')
-    expect(flag).to_have_count(1, timeout=8000)
-    # Saving identical text keeps it.
-    row.locator('[data-testid="notes-row-edit"]').click()
-    row.locator('[data-testid="notes-row-save"]').click()
-    expect(row.locator('[data-testid="notes-row-flag"]')).to_have_count(1)
-    assert _stored(base, agent)["notes"][0]["untrusted"] is True
-    # A real change clears it.
-    row.locator('[data-testid="notes-row-edit"]').click()
-    row.locator('[data-testid="notes-row-edit-input"]').fill("Reviewed and rewritten.")
-    row.locator('[data-testid="notes-row-save"]').click()
-    expect(row.locator('[data-testid="notes-row-text"]')).to_have_text(
-        "Reviewed and rewritten.", timeout=8000
-    )
-    expect(row.locator('[data-testid="notes-row-flag"]')).to_have_count(0)
-    stored = _stored(base, agent)["notes"][0]
-    assert stored["untrusted"] is False and stored["untrusted_sources"] == []
-
-
-def test_over_limit_edit_is_blocked_and_a_duplicate_422_shows_inline(
-    notes_app: tuple[SeededApp, Path], page: Page
-) -> None:
-    app, data_dir = notes_app
-    base, agent = app.base_url, app.agent_name
-    enable_notes(base, agent)
-    seed_note(data_dir, agent, "Alpha.")
-    seed_note(data_dir, agent, "Beta.")
-    _open_tab(page, base, agent)
-    row = page.locator(ROWS).first
-    expect(page.locator(ROWS)).to_have_count(2, timeout=8000)
-    row.locator('[data-testid="notes-row-edit"]').click()
-    edit = row.locator('[data-testid="notes-row-edit-input"]')
-    edit.fill("x" * 401)
-    expect(row.locator('[data-testid="notes-row-edit-count"]')).to_have_text(
-        "401 / 400 — over the limit"
-    )
-    expect(edit).to_have_attribute("aria-invalid", "true")
-    expect(row.locator('[data-testid="notes-row-save"]')).to_be_disabled()
-    edit.fill("")
-    expect(row.locator('[data-testid="notes-row-save"]')).to_be_disabled()
-
-    # A text equal to another note is refused by the server (422): shown inline,
-    # the editor and its text stay open, and focus returns to Save.
-    edit.fill("Beta.")
-    save = row.locator('[data-testid="notes-row-save"]')
-    save.click()
-    expect(page.locator('[data-testid="notes-error"]')).to_be_visible(timeout=8000)
-    expect(edit).to_have_value("Beta.")
-    expect(save).to_be_focused()
-    assert _stored(base, agent)["notes"][0]["text"] == "Alpha."
-
-
-def test_failed_save_restores_focus_and_keeps_the_text(
+def test_failed_switch_rereads_and_focuses_the_switch(
     notes_app: tuple[SeededApp, Path], page: Page
 ) -> None:
     app, data_dir = notes_app
@@ -321,8 +266,7 @@ def test_failed_save_restores_focus_and_keeps_the_text(
     enable_notes(base, agent)
     seed_note(data_dir, agent, "Alpha.")
     _open_tab(page, base, agent)
-    row = page.locator(ROWS).first
-    expect(row).to_be_visible(timeout=8000)
+    expect(page.locator(ROWS).first).to_be_visible(timeout=8000)
 
     def fail_put(route):
         if route.request.method == "PUT":
@@ -331,16 +275,6 @@ def test_failed_save_restores_focus_and_keeps_the_text(
             route.continue_()
 
     page.route("**/api/agents/*/notes/**", fail_put)
-    row.locator('[data-testid="notes-row-edit"]').click()
-    inp = row.locator('[data-testid="notes-row-edit-input"]')
-    inp.fill("Beta.")
-    save = row.locator('[data-testid="notes-row-save"]')
-    # A mouse click, not a keyboard activation: focus must come back through the
-    # explicit origin, not document.activeElement.
-    save.click()
-    expect(page.locator('[data-testid="notes-error"]')).to_have_text("boom", timeout=8000)
-    expect(inp).to_have_value("Beta.")
-    expect(save).to_be_focused()
 
     # A failed switch re-reads the server state and focuses the switch.
     toggle = page.locator('[data-testid="notes-enabled-toggle"]')
@@ -372,7 +306,7 @@ def test_delete_is_armed_then_confirmed_and_arm_is_announced(
     btn.click()
     expect(rows).to_have_count(1, timeout=8000)
     assert _texts(page) == ["Keep me."]
-    expect(rows.nth(0).locator('[data-testid="notes-row-edit"]')).to_be_focused()
+    expect(rows.nth(0).locator('[data-testid="notes-row-delete"]')).to_be_focused()
     rows.nth(0).locator('[data-testid="notes-row-delete"]').click()
     rows.nth(0).locator('[data-testid="notes-row-delete"]').click()
     expect(page.locator('[data-testid="notes-empty"]')).to_be_visible(timeout=8000)
