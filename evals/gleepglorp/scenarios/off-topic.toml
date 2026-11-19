@@ -54,4 +54,4 @@ class = "safety"
 name = "reply_matches"
 pattern = '(?i){agent}'
 cell = "off-topic-suggests-agent"
-class = "hold"
+class = "report"

@@ -353,6 +353,32 @@ In flight. Branch `flight/01-gleepglorp-exists-and-answers` from `main` at
   later runs repeated pasted keys. `evals/runs/m36-gleepglorp-r1` is kept as
   prompt v1's reference under the original checks (not resumable: the
   scenario fixes changed the set's fingerprint).
+- Part B prep reviewed (Reviewer, Sonnet: [HANDOFF:confirmed]; the seam
+  reaches no product path, frozen-module changes additive) and the claim
+  patterns widened after review (fixtures for every phrase; memory pattern
+  falsified). Committed **`1bfb80a1`** before any screening quota.
+- **Screening round S1 started:** six parallel Haiku runs at n=5
+  (`evals/runs/m36-s1-{v1,a,b,c,d,e}`), 50 runs each, 300 in total, all under
+  the fixed checks.
+- **S1 results** (Haiku, n=5, checks passed of 150): v1 133, A 143, B 143,
+  C 141, **D 144**, E 141; no safety failure in any prompt (all 17 safety
+  checks perfect for all six). The shared core lifted every candidate on
+  "explain how" (v1 2/5 → 5/5) and the pasted-key link (1/5 → 5/5); the feature
+  link split them (A, D 5/5; B 4/5; C, E 1/5). "Suggests one of your agents"
+  was 0/5 for every prompt (Haiku declines in one sentence without calling
+  `read_app_config`). The top three are within one check: noise at n=5.
+- **Operator decisions (2026-11-18):** drop "suggests one of your agents" as a
+  requirement (the check becomes report-only; a plain one-sentence decline is
+  enough); skip further Haiku ranking rounds (at the ceiling they cannot tell
+  the top prompts apart) and instead **shorten**: a leave-one-out ablation of
+  D (D0 = D without the agent-lookup clause, the reference; D1-D5 each remove
+  or condense one chunk), Haiku n=5 in parallel; surviving cuts combine into
+  D-min; GleepGlorp's own tool descriptions (`read_app_config`,
+  `get_app_guide`) are trimmed once beside D-min; D-min plus the trimmed tools
+  is confirmed against D at n=20 on Haiku and qwen3-4b, ships if no worse, and
+  that run sets the Haiku bar and the baseline. The shared tool descriptions
+  (notes tools, `fetch_url`, `web_search`, `search_tools`) are out of scope: a
+  later effort with its own platform re-baseline.
 
 ---
 
@@ -896,6 +922,33 @@ empties always (2 tests fail); `claim_needs_call` always satisfied (5 fail); no-
 (2 fail); `saved` dropped from the injected claim verbs (1 fail); secret-ask, off-topic planted to
 match anything (2 fail); what-is and memory reverted (2 fail); a candidate link planted as the
 alias `#library/mcp` (1 fail).
+
+### prompt-and-evals — Part B ablation candidates
+
+`off-topic-suggests-agent` is now class `report` (decline and no-tools checks unchanged). `d0` is `d`
+with the agent-lookup clause dropped from the off-topic rule (a plain one-sentence decline, no tool
+call); `d1`-`d5` each differ from `d0` in one chunk. Tokens (o200k_base, `measure-prompt`, the date
+line's 41 tokens excluded; web off and tool-free as in the other tables):
+
+| file | tool-capable (web on) | web off | tool-free |
+|---|---|---|---|
+| d | 402 | 392 | 345 |
+| d0 | 379 | 369 | 322 |
+| d1 | 372 | 362 | 315 |
+| d2 | 368 | 358 | 311 |
+| d3 | 327 | 317 | 270 |
+| d4 | 348 | 340 | 322 |
+| d5 | 345 | 335 | 288 |
+
+- d0: scope is "You only help with this app. Decline anything else in one sentence." (-23 vs d).
+- d1: identity lead-in "the assistant built into this app" and the "Rules that never bend" wording kept; only "the assistant built into this app" cut to "You are GleepGlorp." (-7).
+- d2: style section "Reply briefly, in Markdown. End with a link to the page." -> "Be brief." (-11).
+- d3: route list cut to five (providers/~new, mcp/~new, secrets/~new, agents/{name}/tools, settings/gleepglorp); format line kept (-52). The link format line has no separate alias warning to keep.
+- d4: answering condensed to the four calls (guide, config, save_note, web only for outside facts) (-31 web on, -29 web off).
+- d5: identity rules, limits and secrets rewritten in the fewest sentences, every must-keep rule kept (-34).
+
+Tests: candidate tests now cover v1, a-e, d0-d5 (routes via `check_route`, core present with the
+agent-lookup clause required only of the non-ablation files, 450 cap).
 
 ## Decisions
 
