@@ -259,6 +259,17 @@ def _display(values: dict[str, Any] | None, names: dict[str, dict[str, str]]) ->
     return out
 
 
+async def _name_map(conn: aiosqlite.Connection) -> dict[str, dict[str, str]]:
+    from the_one.gleepglorp.view_core import _names
+
+    return {t: dict(await _names(conn, t)) for t in set(_ID_FIELDS.values())}
+
+
+async def display_values(conn: aiosqlite.Connection, values: dict[str, Any]) -> dict[str, Any]:
+    """``values`` (stored field names) with each id shown as the name it has now."""
+    return _display(values, await _name_map(conn)) or {}
+
+
 async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]:
     """The ``proposal_changed`` payload and the card's data.
 
@@ -269,9 +280,8 @@ async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, An
     field, keyed by stored field name). ``base`` is ``None`` for a create.
     """
     from the_one.gleepglorp.proposals import shape
-    from the_one.gleepglorp.view_core import _names
 
-    names = {t: dict(await _names(conn, t)) for t in set(_ID_FIELDS.values())}
+    names = await _name_map(conn)
     return {
         "id": p.id,
         "kind": p.kind,

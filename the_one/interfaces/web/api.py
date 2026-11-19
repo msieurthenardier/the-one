@@ -7120,3 +7120,10 @@ router.include_router(_routines_router)
 from the_one.interfaces.web.secrets_api import router as _secrets_router  # noqa: E402
 
 router.include_router(_secrets_router)
+
+# ── GleepGlorp proposal routes (M36 F2 L4) live in ``gleepglorp_proposals_api.py``. ──
+from the_one.interfaces.web.gleepglorp_proposals_api import (  # noqa: E402
+    router as _gleepglorp_proposals_router,
+)
+
+router.include_router(_gleepglorp_proposals_router)

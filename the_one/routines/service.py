@@ -35,6 +35,7 @@ from the_one.routines.proposals import (
 from the_one.routines.repository import (
     AgentRoutineRepository,
     Flag,
+    ProposalRunner,
     RoutineRunRepository,
 )
 from the_one.routines.scheduler import get_scheduler
@@ -229,7 +230,7 @@ async def create_routine(
     created_by: Literal["operator", "agent"] = "operator",
     agent_caps: bool = False,
     flag: Flag = None,
-    proposal: ProposalOp | None = None,
+    proposal: ProposalRunner | None = None,
     schedule_pair: tuple[Any, datetime | None] | None = None,
 ) -> Any:
     """Validate ``data`` and store a new routine. Check order is name, prompt, schedule,
@@ -285,7 +286,7 @@ async def update_routine(
     zone: ZoneLoader,
     agent_caps: bool = False,
     flag: Flag = None,
-    proposal: ProposalOp | None = None,
+    proposal: ProposalRunner | None = None,
     precheck: Callable[[Routine | None], None] | None = None,
     schedule_pair: tuple[Any, datetime | None] | None = None,
 ) -> Any:
@@ -371,7 +372,7 @@ async def delete_routine(
     routine_id: str,
     *,
     precheck: Callable[[Routine | None], None] | None = None,
-    proposal: ProposalOp | None = None,
+    proposal: ProposalRunner | None = None,
 ) -> None:
     """Delete a routine. ``KeyError`` when it does not exist."""
     await repo.delete(agent_name, routine_id, precheck=precheck, proposal=proposal)
@@ -505,7 +506,7 @@ def _payload_pair(payload: dict[str, Any]) -> tuple[Any, datetime | None]:
     return payload["schedule"], parse_anchor(payload.get("anchor_at"))
 
 
-async def _approval_pair(
+async def approval_pair(
     payload: dict[str, Any], zone: ZoneLoader
 ) -> tuple[dict[str, Any], datetime | None]:
     """A proposal's stored pair for approval: applied verbatim (the anchor is never
@@ -663,21 +664,35 @@ def proposal_view(
     return out
 
 
-def _stale_precheck(proposal: RoutineProposal, override: bool) -> Callable[[Routine | None], None]:
+def stale_precheck_for(
+    base: dict[str, Any], touched: list[str], override: bool, proposed: dict[str, Any]
+) -> Callable[[Routine | None], None]:
+    """The stale check for a routine write: a touched ``_BASE_KEYS`` key whose stored value
+    differs from ``base`` raises :class:`ProposalStaleError` (nothing is written). Public so
+    the GleepGlorp approval path (Mission 36 F2 L4), which has no ``RoutineProposal``, builds
+    the same check from its own ``base``."""
+
     def check(row: Routine | None) -> None:
         if row is None or override:
             return
-        base = proposal.base or {}
         current = _base_of(row)
-        touched = _touched_base_keys(proposal.action, proposal.payload)
         if any(current.get(k) != base.get(k) for k in touched):
             raise ProposalStaleError(
                 {k: current.get(k) for k in touched},
-                proposal.payload,
+                proposed,
                 {k: base.get(k) for k in touched},
             )
 
     return check
+
+
+def _stale_precheck(proposal: RoutineProposal, override: bool) -> Callable[[Routine | None], None]:
+    return stale_precheck_for(
+        proposal.base or {},
+        _touched_base_keys(proposal.action, proposal.payload),
+        override,
+        proposal.payload,
+    )
 
 
 async def approve_proposal(
@@ -714,7 +729,7 @@ async def approve_proposal(
             agent_caps=True,
             flag=flag,
             proposal=op,
-            schedule_pair=await _approval_pair(proposal.payload, zone),
+            schedule_pair=await approval_pair(proposal.payload, zone),
         )
     else:
         current = await repo.get(agent_name, proposal.routine_id) if proposal.routine_id else None
@@ -736,7 +751,7 @@ async def approve_proposal(
                         proposal=op,
                         precheck=precheck,
                         schedule_pair=(
-                            await _approval_pair(proposal.payload, zone)
+                            await approval_pair(proposal.payload, zone)
                             if "schedule" in proposal.payload
                             else None
                         ),

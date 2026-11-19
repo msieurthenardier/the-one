@@ -421,3 +421,122 @@ mark before `json.loads` in four places, and the never-raises test patches
   interpolates an already-validated name of at most 64 characters, unquoted.
 - **Legs 1-3 completed;** checkpoint commit follows. No Accessibility Reviewer:
   no UI change in Batch A.
+
+## Leg 4 `proposal-apply`: landed
+
+**Built.**
+- `the_one/gleepglorp/proposals/apply.py`: `apply_proposal`, `dismiss_proposal`,
+  `ProposalApplyResult` (outcomes `applied`, `already_applied`, `failed`, `stale`,
+  `gone`, `busy`, `closed`, `dismissed`), `ProposalNotFound`, `failure_errors`.
+  Order (a) pre-checks, (b) service call with the mark in its transaction,
+  (c) re-read on any exception, (d) map to stale, gone or failed. Frames are sent
+  from inside `apply_proposal` (so the eval harness gets them too).
+- `the_one/interfaces/web/gleepglorp_proposals_api.py` (GET list, POST approve,
+  POST dismiss), included from `api.py`.
+- `create_agent(..., on_commit=)`; `routines/service.py`: `approval_pair` public,
+  new `stale_precheck_for(base, touched, override, proposed)` (`_stale_precheck`
+  delegates to it), `proposal` annotations widened to `ProposalRunner`.
+- `store.py::display_values` (ids to names, shared with `proposal_view`).
+- `tests/test_api_name_rule.py` EXEMPT gained the approve and dismiss routes.
+- Docs: `agents.md` (routes, apply order, `config_changed` in the WebSocket table,
+  `approval_pair` rename), `CLAUDE.md`, `SECURITY-MODEL.md`.
+- `# Leg 5: continuation` markers left after the apply frames and after the
+  dismiss frame in `apply.py`.
+
+**Tests.** New: `test_gleepglorp_proposals_apply.py` (34) and
+`test_gleepglorp_proposals_api.py` (7). `THE_ONE_TEST_NETNS=1 make test-unit`:
+10872 passed, 15 skipped, 342.3 s (start load 1.80, loaded host). ruff check and
+format clean. No static file changed.
+
+**Falsified (yes).** Base skipped (3 fail); re-read in step (c) dropped (agent-change
+concurrent test fails); row-count check dropped (rule-create concurrent test fails);
+busy check removed (2 fail); routine flag dropped (2 fail). Others are plain
+behaviour assertions (not falsified).
+
+**Existing tests edited.** Only `test_api_name_rule.py` EXEMPT (required).
+
+**Decisions.**
+- Spec's `position=position-1 or None` would turn position 1 into "append";
+  used `None if pos is None else pos - 1` and pinned it by a test.
+- Routine `base` already uses the `_base_of` keys (name, prompt, schedule,
+  anchor_at, enabled), so no conversion was needed; touched keys absent from
+  `base` (`finished_at`) are not compared.
+- `config_changed.fields` are stored field names (the routine's `anchor_at` hidden);
+  `result.fields` are labels.
+- `RoutineLimitError` (and `RoutineScheduleError`, loc `["schedule"]`) map to
+  `failed`; `RoutineLimitError` has `loc []`.
+- Tests reset the module write lock (`_write_lock.reset_for_test`) because it binds
+  to the first loop that contends for it.
+- Fixed a pre-existing E501 in `shape.py` (a split string; format only).
+
+## Leg 5 `approval-continuation`: landed
+
+**Built.**
+- `the_one/sessions/turn_host.py` (new): `TurnHost` Protocol (gains
+  `append_marked_message`), `set_turn_host`, `get_turn_host`; `routines/runner.py`
+  re-exports the old names, and `runner._host` still reads through a module
+  `__getattr__` (a routine test reads it).
+- `Message.proposal_id` / `proposal_event`; codec stores, decodes (unknown event value
+  dropped) and projects them on the `user` history event, only when set.
+- `app.py`: `_RoutineTurnHost.append_marked_message` and `spawn_turn` routing a
+  `turn_info["proposal"]` to `_spawn_proposal_turn` (source `proposal`); the lock-free
+  `_append_marked_user_message`; `_process_and_broadcast` marks the live `user` frame;
+  `_bind_turn_user_marks(..., proposal)` at both save sites; the race branch in
+  `_locked_message_processing`.
+- `the_one/gleepglorp/proposals/continuation.py` (new): texts, `proposal_title`,
+  `is_ready`, `on_approved(conn, p, summary)`, `on_dismissed(p)`. No host: quiet
+  no-op. `apply_proposal` / `dismiss_proposal` take `continue_chat: bool = True`.
+- Client: `turn-frames.js` treats `proposal_event === 'approved'` as in flight;
+  `transcript.js` adds no source prefix when `proposal_id` is set.
+- Docs: `agents.md` (continuation block, WebSocket `user` row), `CLAUDE.md`.
+
+**Tests.** New: `test_gleepglorp_proposals_continuation.py` (27) and
+`test_turn_host.py` (5). `THE_ONE_TEST_NETNS=1 make test-unit` (start load about 1.3):
+10903 passed, 15 skipped, 1 failed, 323 s; the one failure was
+`test_track_turn_guard.py` (below), fixed, and the guard plus the new, routine runner
+and static-guard files re-run green (448 passed). Lanes, one at a time, netns and
+WebKit required: `chats` 176 passed (327.6 s), `chats-transcript` 163 passed (363 s).
+Static guards (`test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`)
+green. ruff check and format clean.
+
+**Falsified (yes, for the marked ones).** Dropping `turn_info` in the spawn fails 4
+tests (approve spawn, end-to-end, stop, reaped approval); restoring the early return
+in the race branch (`if False and ...`) fails the race test and the same four.
+Dismissal, no-op, texts, codec, providers and host tests are plain behaviour
+assertions (not falsified).
+
+**Existing tests edited.** None.
+
+**Decisions.**
+- `tests/test_track_turn_guard.py` bans `session_locks[...]` outside `_locks.py`, and
+  the leg needs the lock without `track_turn`; added `hold_session_lock` to
+  `sessions/_locks.py` (the allowed module: same lock, no push, no turn count) rather
+  than editing the guard.
+- `_save_session_to_db` already calls `notify_sessions_changed` through the
+  repository update, so the append makes no extra call (one push, asserted).
+- `on_approved` takes `(conn, p, summary)` and `on_dismissed` `(p)` (the proposal row,
+  not a view, which has no `session_id`); the `approved_no_turn` fallback covers both
+  not-ready and a raising spawn.
+- No provider merge code: every builder converts per message (tests per provider
+  type pin two user entries and no mark leakage).
+- Unrelated: the spawned turn's source label is `proposal`.
+
+## Batch B checkpoint (Flight Director)
+- **Review:** the Reviewer (Sonnet, security-sensitive tier) confirmed Legs
+  4-5 with no blocking issues.
+- **Full unit tier** (`THE_ONE_TEST_NETNS=1 make test-unit`, run by the
+  Reviewer): 10904 passed, 15 skipped, 317 s. The static JS guards ran green.
+- **Accepted nits:**
+  - **The two client tweaks** (`turn-frames.js`, `transcript.js`) have no JS
+    test yet. Leg 6's browser tests exercise the approval turn's busy state
+    and the quiet line, which covers them.
+  - **The busy check is advisory and not atomic** with the write. The
+    row-count mark guarantees one apply either way.
+  - **`_is_gone` treats any `KeyError` as gone.**
+- **Crew rule slip (recurring, Flight 1 methodology observation 4).** The Leg 5
+  Developer left five backgrounded `sleep 1500`-`1790` timers after handing
+  back. The Flight Director stopped the agent's task (TaskStop), which ended
+  them; no test run was affected.
+- **No Accessibility Reviewer.** The Batch B client change is a two-line
+  behaviour tweak with no new UI. Batch C carries the accessibility review.
+- **Legs 4-5 completed**; the checkpoint commit follows.

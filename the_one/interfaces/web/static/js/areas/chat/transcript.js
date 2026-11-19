@@ -178,7 +178,8 @@
         return;
       }
       var cls = ev.source === 'api' ? 'user api' : 'user';
-      var prefixed = ev.source && ev.source !== 'web' && !(extra.history && ev.source === 'restored');
+      var prefixed = ev.source && ev.source !== 'web' && !(extra.history && ev.source === 'restored') &&
+        ev.proposal_id == null;
       addMsg(cls, (prefixed ? '[' + ev.source + '] ' : '') + ev.content, ev.peer_name || 'You', opts);
     }
 

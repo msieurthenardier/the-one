@@ -78,7 +78,9 @@
         // M33 F1 L7: a routine run in the bound chat is a turn in flight that this window did
         // not start: Stop works and sends are held (never ownTurn), the work group starts
         // after the bubble. Gated on the frame's own session id, like the chat's other frames.
-        if (data.source === 'routine' && data.session_id &&
+        // M36 F2 L5: so is the turn after an approved proposal (`approved` only; the
+        // `approved_no_turn` and `dismissed` marks start no turn).
+        if ((data.source === 'routine' || data.proposal_event === 'approved') && data.session_id &&
             data.session_id === chatState.boundId()) {
           state.inFlightSessions[data.session_id] = true;
           ctx.send.updateStopControl();

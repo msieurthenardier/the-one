@@ -151,8 +151,12 @@ async def _post_validation_checks(
     return rows
 
 
-async def create_agent(deps: AgentWriteDeps, data: dict[str, Any]) -> tuple[AgentConfig, dict]:
+async def create_agent(
+    deps: AgentWriteDeps, data: dict[str, Any], *, on_commit: OnCommit | None = None
+) -> tuple[AgentConfig, dict]:
     """Create an agent from a request body. Returns ``(config, tool-config rows)``.
+
+    ``on_commit`` runs inside the save's transaction (the proposal status update rides there).
 
     No stored row exists, so there is nothing to preserve, but a masked ``mcp_overrides``
     credential in the body is dropped rather than persisted as the secret.
@@ -187,7 +191,7 @@ async def create_agent(deps: AgentWriteDeps, data: dict[str, Any]) -> tuple[Agen
         if current is not None:
             raise write_checks.agent_name_conflict()
 
-    await deps.store.save(cfg, precheck=_must_not_exist)
+    await deps.store.save(cfg, precheck=_must_not_exist, on_commit=on_commit)
     # Sortie 09 DD7: a re-created name may have a stale pool entry; evict what carries
     # credentials (harmless when there is none).
     await write_checks.evict_changed_mcp_credentials(

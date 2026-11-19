@@ -302,9 +302,7 @@ def _resolve_one(entries: list[tuple[str, str]], ref: str, name: str) -> str:
     if not hits:
         raise ShapeError(f"No {_kind_label(ref)} named {_q(name)}.")
     if len(hits) > 1:
-        raise ShapeError(
-            f"More than one {_kind_label(ref)} is named {_q(name)}; rename one first."
-        )
+        raise ShapeError(f"More than one {_kind_label(ref)} is named {_q(name)}; rename one first.")
     return hits[0]
 
 
@@ -441,7 +439,8 @@ async def _agent(
                 unknown = [n for n in listed if n not in tools]
                 if unknown:
                     raise ShapeError(
-                        f"No built-in tool named {_q(unknown[0])}. See read_app_config built_in_tools."
+                        f"No built-in tool named {_q(unknown[0])}. "
+                        "See read_app_config built_in_tools."
                     )
                 stored[f.stored] = listed
             else:

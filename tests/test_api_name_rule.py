@@ -52,6 +52,15 @@ _PROVIDER_ACTION = "acts on the provider in the path; its name is untouched"
 
 EXEMPT = {
     ("PUT", "/api/gleepglorp"): "GleepGlorp's settings (a provider id, a model id); no name is set",
+    (
+        "POST",
+        "/api/gleepglorp/proposals/{proposal_id}/approve",
+    ): "applies an operator-approved proposal by id; a proposed agent name goes through "
+    "`check_agent_name` in `create_agent`",
+    (
+        "POST",
+        "/api/gleepglorp/proposals/{proposal_id}/dismiss",
+    ): "dismisses a proposal by id; writes no configuration",
     ("PUT", "/api/agents/{name}"): "the name is forced from the path of an existing row",
     (
         "PUT",

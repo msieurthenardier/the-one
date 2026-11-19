@@ -847,7 +847,7 @@ merges in between, but no eval round or behavior test is run on that tree.
   - The view changes (operator-typed agent summary, `fields_only` detail).
   - Taint on proposals.
   - High-risk (shared `taint.py`, security surface).
-- [ ] `04-proposal-apply`
+- [x] `04-proposal-apply`
   - The proposals routes module: list, approve with stale and override,
     dismiss, withdrawn.
   - `apply_proposal` through the services, marking the row in the same
@@ -855,7 +855,7 @@ merges in between, but no eval round or behavior test is run on that tree.
   - A 409 while a turn is running, and the `proposal_changed` and
     `config_changed` frames.
   - High-risk (write boundary).
-- [ ] `05-approval-continuation`
+- [x] `05-approval-continuation`
   - `sessions/turn_host.py`, `append_marked_message`, the proposal mark
     through `turn_info`, the codec and the live `user_event`.
   - The continuation turn, Dismiss and unready GleepGlorp, and consecutive user

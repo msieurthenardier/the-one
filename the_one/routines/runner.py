@@ -13,7 +13,7 @@ import contextlib
 import logging
 import os
 from collections.abc import Callable, Coroutine
-from typing import Any, Protocol
+from typing import Any
 
 from the_one.db.connection import get_connection
 from the_one.db.models import now_iso
@@ -24,6 +24,7 @@ from the_one.routines.repository import (
     RoutineRunRepository,
     _now_iso,
 )
+from the_one.sessions.turn_host import TurnHost, get_turn_host, set_turn_host
 
 logger = logging.getLogger(__name__)
 
@@ -50,30 +51,13 @@ def routine_run_timeout_seconds() -> float:
 # ── TurnHost ──────────────────────────────────────────────────────────────
 
 
-class TurnHost(Protocol):
-    """What the runner needs from the web app (registered in the lifespan)."""
-
-    async def get_or_restore(self, sid: str) -> tuple[Any | None, str]: ...
-
-    async def create_web_session(self, agent_name: str, title: str) -> str: ...
-
-    def spawn_turn(self, session: Any, prompt: str, turn_info: dict[str, Any]) -> asyncio.Task: ...
-
-    def mark_silent_and_cancel(self, task: asyncio.Task) -> None: ...
-
-    def discard_silent(self, task: asyncio.Task) -> None: ...
-
-    def mirror_metadata(self, sid: str, key: str, value: Any) -> None: ...
-
-    async def broadcast(self, sid: str, payload: dict[str, Any]) -> None: ...
+__all__ = ["TurnHost", "set_turn_host"]  # the seam lives in the_one.sessions.turn_host (M36 F2 L5)
 
 
-_host: TurnHost | None = None
-
-
-def set_turn_host(host: TurnHost | None) -> None:
-    global _host
-    _host = host
+def __getattr__(name: str) -> Any:
+    if name == "_host":
+        return get_turn_host()
+    raise AttributeError(name)
 
 
 # ── RunRegistry ───────────────────────────────────────────────────────────
@@ -231,7 +215,7 @@ async def _fail_early(
 
 
 async def run_routine(routine_id: str, trigger_kind: str, due_at: str | None = None) -> None:
-    host = _host
+    host = get_turn_host()
     if host is None:
         logger.warning("routine run %s: no turn host registered", routine_id)
         return

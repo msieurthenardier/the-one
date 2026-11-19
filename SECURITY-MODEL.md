@@ -1337,6 +1337,14 @@ provider's request or any log it writes.
   a value that fails to decrypt is skipped (the key-shape rule still applies); and an
   unbroken random-looking run of 32 or more characters in an ordinary prompt can be a false
   positive.
+- **Approving a proposal is operator-only (M36 F2 L4).** The three proposal routes
+  (`GET`/`POST /api/gleepglorp/proposals…`) sit behind the credential gate like every other
+  route, writes are POST only, and no GleepGlorp tool reaches them (`propose_change` only
+  records; it cannot approve, dismiss or retry). The apply runs the stored change through the
+  same services and validation as the operator's own forms, so a proposal gets no authority
+  the operator lacks; it never touches the operator-only fields. The status mark rides in the
+  write's transaction, so a double approve applies once, and a proposal made after untrusted
+  content keeps its routine flag when applied (the routine is stored `untrusted`).
 
 ### GleepGlorp's notes and web tools (M36 F1 L06)
 

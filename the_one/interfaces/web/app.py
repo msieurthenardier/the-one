@@ -130,7 +130,7 @@ from the_one.sessions import (
     turn_seq,
 )
 from the_one.sessions._broadcast import broadcast_to_session as _broadcast_to_session
-from the_one.sessions._locks import _session_inflight
+from the_one.sessions._locks import _session_inflight, hold_session_lock
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 from the_one.vectors import close_vector_store
 
@@ -1302,6 +1302,27 @@ async def _locked_message_processing(
             conn = await get_connection()
             gg_state = await gg_settings.state(conn, await gg_settings.load_settings(conn))
             if gg_state != "ready":
+                proposal_mark = (turn_info or {}).get("proposal")
+                if isinstance(proposal_mark, dict):
+                    # M36 F2 L5 (AC4): an approval's turn lost the race with a settings change.
+                    # Store the marked message (this code holds the turn lock, so the lock-free
+                    # helper, after the resync above); no system frame, no error.
+                    try:
+                        await _append_marked_user_message(
+                            session,
+                            user_input
+                            if isinstance(user_input, str)
+                            else content_to_text(user_input),
+                            {
+                                "proposal_id": proposal_mark.get("id"),
+                                "proposal_event": "approved_no_turn",
+                            },
+                        )
+                    except Exception:
+                        logger.warning(
+                            "could not store the approval message for %s", session.id, exc_info=True
+                        )
+                    return
                 if turn_info is not None:
                     turn_info["error"] = unavailable_sentence(gg_state)
                 with contextlib.suppress(Exception):
@@ -1373,6 +1394,38 @@ def _spawn_routine_turn(session: Session, prompt: str, turn_info: dict[str, Any]
         _spawn_message_processing(session, prompt, "routine", None, turn_info)
     )
     return _register_turn_task(session, task)
+
+
+def _spawn_proposal_turn(session: Session, prompt: str, turn_info: dict[str, Any]) -> asyncio.Task:
+    """Spawn the turn that follows an approved GleepGlorp proposal (M36 F2 L5), registered
+    like a web turn. The prompt is stored by the turn itself as its marked user message
+    (``turn_info["proposal"]``), so nothing is appended separately."""
+    task = asyncio.create_task(
+        _spawn_message_processing(session, prompt, "proposal", None, turn_info)
+    )
+    return _register_turn_task(session, task)
+
+
+async def _append_marked_user_message(session: Session, text: str, marks: dict[str, Any]) -> None:
+    """Append a marked USER message with no turn, lock-free (the caller holds the session's
+    lock): repair, append, history event, save (which notifies the Chats list), send."""
+    repair_unanswered_tool_calls(session.agent.messages)
+    msg = Message.user(text)  # sets created_at the way every user message does
+    msg.proposal_id = marks.get("proposal_id")
+    msg.proposal_event = marks.get("proposal_event")
+    session.agent.messages.append(msg)
+    user_event: dict[str, Any] = {
+        "type": "user",
+        "content": text,
+        "source": "proposal",
+        "ts": msg.created_at,
+        "proposal_id": marks.get("proposal_id"),
+        "proposal_event": marks.get("proposal_event"),
+        "session_id": session.id,
+    }
+    session.add_event(user_event)
+    await _save_session_to_db(session)
+    await _send_to_session(session, user_event)
 
 
 def _register_turn_task(session: Session, task: asyncio.Task) -> asyncio.Task:
@@ -2077,6 +2130,8 @@ class _RoutineTurnHost:
         return (await _create_session(agent_name, "web", title=title)).id
 
     def spawn_turn(self, session: Session, prompt: str, turn_info: dict[str, Any]) -> asyncio.Task:
+        if "proposal" in turn_info:
+            return _spawn_proposal_turn(session, prompt, turn_info)
         return _spawn_routine_turn(session, prompt, turn_info)
 
     def mark_silent_and_cancel(self, task: asyncio.Task) -> None:
@@ -2092,6 +2147,24 @@ class _RoutineTurnHost:
 
     async def broadcast(self, sid: str, payload: dict[str, Any]) -> None:
         await _broadcast_to_session(sid, payload)
+
+    async def append_marked_message(
+        self, session_id: str, text: str, marks: dict[str, Any]
+    ) -> bool:
+        """Append a marked USER message with no turn (M36 F2 L5, AC2).
+
+        Takes the session's lock directly (never ``track_turn``: that would push
+        ``sessions_changed`` twice and make the chat flash busy). ``False`` only for a chat
+        that is gone; an unready GleepGlorp chat restores degraded and still gets the message.
+        """
+        session, _status = await self.get_or_restore(session_id)
+        if session is None:
+            return False
+        async with hold_session_lock(session_id):
+            with contextlib.suppress(Exception):
+                await _resync_session_from_db(session)
+            await _append_marked_user_message(session, text, marks)
+        return True
 
 
 async def _save_session_to_db(session: Session) -> None:
@@ -2526,7 +2599,10 @@ def _routine_turn_sources(routine: dict[str, Any] | None) -> list[str]:
 
 
 def _bind_turn_user_marks(
-    session: Session, pre_step_len: int, routine: dict[str, Any] | None
+    session: Session,
+    pre_step_len: int,
+    routine: dict[str, Any] | None,
+    proposal: dict[str, Any] | None = None,
 ) -> None:
     """Bind the turn's marks onto its USER message (M33 F1 L3).
 
@@ -2546,6 +2622,10 @@ def _bind_turn_user_marks(
         msg.routine_name = routine.get("name")
         # M33 F2 L3 (DD7): the flag snapshot; ``[]`` when unflagged, set on routine turns only.
         msg.routine_untrusted_sources = _routine_turn_sources(routine)
+    if proposal is not None:
+        # M36 F2 L5: the approval continuation's mark (the operator's own message).
+        msg.proposal_id = proposal.get("id")
+        msg.proposal_event = proposal.get("event")
     if session.platform is not None:
         msg.visibility = OPERATOR_VISIBILITY
 
@@ -2572,6 +2652,9 @@ async def _process_and_broadcast(
     routine = (turn_info or {}).get("routine")
     if not isinstance(routine, dict):
         routine = None
+    proposal = (turn_info or {}).get("proposal")
+    if not isinstance(proposal, dict):
+        proposal = None
     # Auto-load Ollama model if needed (fast check, safe to run every message)
     await _ensure_ollama_model_loaded(session)
 
@@ -2591,6 +2674,10 @@ async def _process_and_broadcast(
     if routine is not None:
         user_event["routine_id"] = routine.get("id")
         user_event["routine_name"] = routine.get("name")
+        user_event["session_id"] = session.id
+    if proposal is not None:
+        user_event["proposal_id"] = proposal.get("id")
+        user_event["proposal_event"] = proposal.get("event")
         user_event["session_id"] = session.id
     # M10 F06 L6: close the F5 live-broadcast carry-forward. The
     # operator-typed message on a connector-attached session must
@@ -2726,7 +2813,7 @@ async def _process_and_broadcast(
         with contextlib.suppress(Exception):
             if session.platform is not None:
                 tag_post_step_visibility(session.agent.messages, pre_step_len)
-            _bind_turn_user_marks(session, pre_step_len, routine)
+            _bind_turn_user_marks(session, pre_step_len, routine, proposal)
         with contextlib.suppress(Exception):
             await _save_session_to_db(session)
         await _notify_cancelled_once(session)
@@ -2978,7 +3065,7 @@ async def _process_and_broadcast(
         tag_post_step_visibility(session.agent.messages, pre_step_len)
     # The helper SKIPS USER messages; it binds the operator mark (connector
     # chat) and the routine marker onto the typed message at pre_step_len.
-    _bind_turn_user_marks(session, pre_step_len, routine)
+    _bind_turn_user_marks(session, pre_step_len, routine, proposal)
 
     # Save to DB after each complete exchange
     try:
