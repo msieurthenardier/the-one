@@ -1,6 +1,6 @@
 # Leg: prompt-and-evals
 
-**Status**: in-flight (Part A landed; Part B pending)
+**Status**: completed (Part A and Part B done; D-min shipped, baseline `evals/baselines/m36-gleepglorp.json` recorded)
 **Flight**: [GleepGlorp exists and can answer](../flight.md)
 
 ## Objective

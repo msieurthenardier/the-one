@@ -202,7 +202,8 @@ and tool-config rows, so no check asserts a row count.
 
 The set is `evals/gleepglorp/scenarios` (fixture pages in `evals/gleepglorp/fixtures/web`, ten
 scenarios of 5 facts x 4 phrasings, so 20 variants each, and its own baseline,
-`evals/baselines/m36-gleepglorp.json`, recorded in Part B). Run it with
+`evals/baselines/m36-gleepglorp.json`, recorded in Part B from the shipped D-min prompt on `haiku`
+and `qwen3-4b`, n=20, size targets ratio 1.0, harness default bars; `lfm3` is not evaluated for it). Run it with
 `--scenarios-dir evals/gleepglorp/scenarios --measure-dir evals/gleepglorp/measure`:
 
 | scenario | class | what it scores |
@@ -232,8 +233,9 @@ per starting tool schema. The `prompt` fingerprint of that directory is in the r
 holds a whole GleepGlorp prompt as lower-case keys (`identity`, `scope`, `limits`, `secrets`,
 `answering_tools`, `answering_tool_free`, `links`, `style`; all required, exact text) and an optional
 `web_off_answering` (the tool-capable answering text used when `web_access` is off; the shipped
-prompt has none). `v1.toml` is the shipped prompt, pinned equal to it byte for byte by
-`tests/test_evals_gleepglorp_prompt_file.py`. `run --prompt-file PATH` and `measure-prompt
+prompt has one too, so a candidate without it uses its `answering_tools` text either way).
+`dmin.toml` is the shipped prompt (D-min, Part B), pinned equal to it byte for byte, web on and
+off, by `tests/test_evals_gleepglorp_prompt_file.py`; `v1.toml` is the historical first version. `run --prompt-file PATH` and `measure-prompt
 --prompt-file PATH` use the candidate's sections for that invocation, through the eval-only seam
 `the_one.gleepglorp.prompt.override_sections` (set for the run, restored afterwards; no product
 setting reaches it); they are refused unless every scenario is a `builder = "gleepglorp"` one

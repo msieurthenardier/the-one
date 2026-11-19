@@ -391,6 +391,40 @@ In flight. Branch `flight/01-gleepglorp-exists-and-answers` from `main` at
   descriptions (the running eval imported its code at start, so the edits
   cannot affect it). Then D-min plus the trimmed tools runs at n=20 on Haiku
   and qwen3-4b.
+- D-min and the tool trim reviewed (Reviewer, Sonnet: [HANDOFF:confirmed];
+  non-blocking: `get_app_guide`'s description no longer says it explains how
+  the app works, restore a few words if tool choice weakens) and committed
+  **`f44adc06`**. **D-min confirmation started:** n=20 on Haiku
+  (`evals/runs/m36-c-dmin-haiku`) and qwen3-4b
+  (`evals/runs/m36-c-dmin-qwen3-4b`), run alongside the D reference.
+- **Confirmation results (n=20, scored checks of 580, report-only
+  excluded):** D on Haiku 574 (99.0%), **D-min on Haiku 572 (98.6%)**, both
+  with zero safety failures (D-min within noise of D: two checks, scattered);
+  D-min on qwen3-4b 443 (76.4%) with 32 safety failures (off-topic declined
+  18/40, played along with the injected page 6/20, repeated a pasted key
+  2/40), no better than v1 on qwen3-4b in round 1 (431/560 under the older
+  checks) and lower on memory and feature links.
+- **Operator decisions (2026-11-18):** ship **D-min** as GleepGlorp's prompt;
+  record the baseline `m36-gleepglorp` from the D-min runs on Haiku and
+  qwen3-4b; the Haiku pass bar is the **harness default bars** (safety: every
+  counted run passes; others: not significantly worse than the baseline, the
+  rule the other sets use); qwen3-4b's weakness is reported, and the Settings
+  page keeps its current "small local models may struggle" hint. D-min: about
+  255 prompt tokens and 182 tool-schema tokens for GleepGlorp's own two tools
+  (from v1's 302 and 420). A Developer moves D-min into
+  `the_one/gleepglorp/prompt.py`, records the baseline and derives the bars.
+- Leg 9 Part B shipped and reviewed (Reviewer, Sonnet: [HANDOFF:confirmed]):
+  D-min pinned byte for byte to the shipped prompt; web-off answering wired
+  through `build_prompts` (a bad setting falls back safely); the override seam
+  unreachable from product paths; platform pins untouched; baseline
+  `m36-gleepglorp` (Haiku, qwen3-4b) with default bars and size targets at
+  ratio 1.0. Non-blocking: qwen3-4b's safety bars at 1.0 will always flag it
+  (by decision: its weakness is reported, not gated); the `get_app_guide`
+  description note is closed (the shipped D-min looked up the guide 19/20 on
+  Haiku). The shipping agent left a background task running after reporting;
+  stopped. Leg 9 `completed`, committed by the Flight Director.
+- Leg 10 `hat` designed (seven state-transition steps); apparatus check by a
+  Developer before the operator walks it (DD13).
 
 ---
 
@@ -1021,3 +1055,36 @@ agent-lookup clause required only of the non-ablation files, 450 cap).
 | tool-free (incl. date line) | 386 | 270 (243 excl.) |
 
   Platform text total (prompt plus tools), D-min: notes-on 1155 (1393 with untrimmed tools), web-on 847, web-off 722; D with trimmed tools: 1302 / 994 / 867.
+
+### prompt-and-evals — Part B ship D-min and baseline
+
+- **Shipped.** `the_one/gleepglorp/prompt.py` now holds D-min's sections, including `WEB_OFF_ANSWERING`.
+  `build_prompts` always reads the GleepGlorp `web_access` setting (the eval seam's `web_variant_active`
+  is gone); with it off, the tool-capable answering section is `WEB_OFF_ANSWERING` (no word about the
+  web), tool-free is unchanged. `override_sections` still takes the eight keys plus an optional
+  `WEB_OFF_ANSWERING` (a candidate without it uses its `ANSWERING_TOOLS` either way). This resolves the
+  deferred review item.
+- **Tokens (o200k_base, `measure-prompt --measure-dir evals/gleepglorp/measure`).** Prompt sections:
+  web on 296 (255 excl. date line), web off 288, tool-free 270, notes on 433. Tool schemas: web on 551,
+  web off 434, notes-on 722. Prompt fingerprint `c8a380cf...3e580` equals the D-min runs' `measure.json`.
+- **Tests.** `tests/test_evals_gleepglorp_prompt_file.py`: v1 is no longer the shipped text, so
+  the v1-equals-shipped assertion was replaced by `dmin.toml` composing to the shipped prompt byte for
+  byte (web on and off, tools on and off); `v1.toml` stays as historical data (checked valid and different).
+  `tests/test_gleepglorp_prompt.py` rewritten for D-min (route tokens checked, must-keep phrases, tool-free
+  names no tool, section order including web off, web-off text says nothing about the web, `build_prompts`
+  follows the setting, 450-token cap all variants, only `{name}` left). `tests/test_gleepglorp_build.py`
+  prefix assertions use `web=False` (that helper's default). No browser test pinned old phrases.
+- **Baseline.** `evals/baselines/m36-gleepglorp.json` from `evals/runs/m36-c-dmin-haiku` and
+  `m36-c-dmin-qwen3-4b` (n=20 each, ran with `--prompt-file`; the shipped prompt's fingerprint equals
+  theirs, so no special path was needed). `derive-bars --size-ratio 1.0`: harness default bars (safety =
+  every counted run passes; improve = min(0.9, rate + 0.3) and not worse; hold = not worse; report,
+  never gated: `off-topic-suggests-agent`); size targets at ratio 1.0 (prompt text / tools: notes-on 433 /
+  722, tool-free 270 / 0, web-off 288 / 434, web-on 296 / 551). Haiku's baseline cells are 20/20 except a
+  handful at 18-19/20; its `off-topic-suggests-agent` is 0/20 (report only).
+- **Docs.** CLAUDE.md "Prompt evals" names the baseline and the rule (prompt plus the two tool
+  descriptions land with a compared run); `the_one/agents.md` GleepGlorp prompt section; `evals/README.md`.
+- **Results.** Targeted (`tests/test_evals_*`, `test_gleepglorp_*`, `test_prompt_layers`,
+  `test_platform_prompt`): 987 passed. `THE_ONE_TEST_NETNS=1 make test-unit` (start load 3.91):
+  10688 passed, 15 skipped, 329.76 s (the loaded start explains the reading). Browser lanes with
+  `THE_ONE_TEST_NETNS=1` and `THE_ONE_REQUIRE_WEBKIT=1`: `settings` 125 passed (283 s), `shared` 365 passed
+  (292 s; start load 1.06).

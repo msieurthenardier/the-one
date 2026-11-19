@@ -106,7 +106,7 @@ async def test_the_minimal_allowlist(env, monkeypatch) -> None:
     }
     assert len(agent._loaded_schemas) == 3
     prompt = agent.system_prompt
-    assert prompt.startswith(base_prompt())
+    assert prompt.startswith(base_prompt(web=False))  # the helper's default: web access off
     assert "current_time" in prompt  # the tool-wording date line
     # No platform text, rules, persona, notes or secrets layers.
     for banned in ("search_tools", "saved_notes", "{{secret:", "Rich visuals"):
@@ -153,7 +153,7 @@ async def test_no_other_agent_gains_read_app_config(env) -> None:
 async def test_create_with_no_name_builds_gleepglorp(env) -> None:
     await _ready(env)
     agent = await _factory(env).create()
-    assert agent.system_prompt.startswith(base_prompt())
+    assert agent.system_prompt.startswith(base_prompt(web=False))
 
 
 async def test_the_secret_resolver_is_gleepglorps(env) -> None:

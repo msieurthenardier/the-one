@@ -20,6 +20,7 @@ real_data_dir = h.real_data_dir
 GG_DIR = Path(__file__).resolve().parent.parent / "evals" / "gleepglorp"
 SCENARIOS = GG_DIR / "scenarios"
 V1 = GG_DIR / "prompts" / "v1.toml"
+DMIN = GG_DIR / "prompts" / "dmin.toml"
 MARK = "CANDIDATE-MARK-7731"
 
 
@@ -32,18 +33,25 @@ def candidate(tmp_path: Path, *, extra: str = "", scope_suffix: str = f" {MARK}"
     return path
 
 
-def test_v1_reproduces_the_shipped_prompt_byte_for_byte() -> None:
-    sections = pf.load_sections(V1)
+def test_dmin_reproduces_the_shipped_prompt_byte_for_byte() -> None:
+    """D-min is the shipped prompt (M36 F1 L09 part B). v1.toml stays as historical data; it is
+    no longer the shipped text, so nothing pins it to the constants."""
+    sections = pf.load_sections(DMIN)
+    assert sections == gp.active_sections()
+    shipped = {(t, w): gp.base_prompt(tools=t, web=w) for t in (True, False) for w in (True, False)}
     with gp.override_sections(sections):
-        capable = gp.base_prompt(tools=True)
-        free = gp.base_prompt(tools=False)
-        assert gp.compose(date_line="D") == capable + "\n\nD"
-    assert capable == gp.base_prompt(tools=True)
-    assert free == gp.base_prompt(tools=False)
-    assert capable == "\n\n".join(
-        [gp.IDENTITY, gp.SCOPE, gp.LIMITS, gp.SECRETS, gp.ANSWERING_TOOLS, gp.LINKS, gp.STYLE]
-    )
-    assert sections == {k: getattr(gp, k) for k in gp.SECTION_KEYS}
+        for (t, w), text in shipped.items():
+            assert gp.base_prompt(tools=t, web=w) == text
+        assert gp.compose(date_line="D") == gp.base_prompt() + "\n\nD"
+
+
+def test_v1_is_a_valid_historical_candidate_that_differs_from_the_shipped_prompt() -> None:
+    sections = pf.load_sections(V1)
+    assert "WEB_OFF_ANSWERING" not in sections
+    with gp.override_sections(sections):
+        v1 = gp.base_prompt(tools=True)
+        assert gp.base_prompt(tools=True, web=False) == v1  # no variant: web off changes nothing
+    assert v1 != gp.base_prompt(tools=True)
 
 
 def test_the_override_applies_and_is_restored() -> None:
@@ -54,9 +62,9 @@ def test_the_override_applies_and_is_restored() -> None:
     assert gp.base_prompt() == before
 
 
-def test_web_off_variant_is_expressible_and_only_a_candidate_feature() -> None:
+def test_web_off_variant_is_overridable() -> None:
     sections = {**gp.active_sections(), "WEB_OFF_ANSWERING": "No web here."}
-    assert gp.base_prompt(web=False) == gp.base_prompt()  # the shipped text has no variant
+    assert gp.base_prompt(web=False) != gp.base_prompt()  # the shipped text has the variant
     with gp.override_sections(sections):
         assert "No web here." in gp.base_prompt(web=False)
         assert "No web here." not in gp.base_prompt(web=True)
@@ -136,9 +144,9 @@ async def test_the_fingerprint_follows_the_candidate_and_a_resume_refuses_a_chan
         return (await tokens.measure_prompt(opts))["fingerprints"]["prompt"]
 
     shipped = await measured(None, "m0")
-    v1 = await measured(V1, "m1")
+    dmin = await measured(DMIN, "m1")
     cand = await measured(a, "m2")
-    assert v1 == shipped  # v1 is the shipped prompt
+    assert dmin == shipped  # D-min is the shipped prompt
     assert cand != shipped
     assert await measured(a, "m3") == cand
     assert MARK not in gp.base_prompt()
