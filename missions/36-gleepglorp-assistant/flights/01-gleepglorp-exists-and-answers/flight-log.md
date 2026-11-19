@@ -1368,3 +1368,14 @@ agent-routines 284/300, settings-tools 267/330, contracts-widget 228/300, chats-
 contracts-overlay 159/240, contracts-widget-lifecycle 102/300, contracts-chat 97/150. None over
 budget. HAT instance on 8496 (PID 3470235, verified `the-one serve`, `THE_ONE_PORT=8496`) stopped
 before the gate; its data directory is untouched.
+
+### Landing (Flight Director, 2026-11-18)
+- Flight-end review of the HAT fixes: Reviewer and Accessibility Reviewer
+  (Sonnet) both [HANDOFF:confirmed]; their non-blocking items fixed (above).
+  Final gate green (unit 10695 passed / 15 skipped / 308.75 s; browser
+  `PARALLEL_RESULT rc=0 total=2270s lanes=20`, every lane within budget). The
+  start load was 1.91 from other sessions, so no re-budget; the carried quiet
+  re-reading stays open for the debrief. Lint clean (`ruff format` applied to
+  five test files after the gate). Legs 1-10 completed; the flight's leg list
+  and the mission's Flight 1 checked off. Landing commit **`7b059fd3`**.
+  **Flight landed.**
