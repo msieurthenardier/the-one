@@ -633,7 +633,12 @@ class Harness:
                     session_id = f"ev-{spec.stem}-c{ci}"
                     attempt.effective = effective_values(agent.llm)
                     for text in turns:
-                        tt = TurnTrace(conversation=ci, index=turn_index, user=text)
+                        tt = TurnTrace(
+                            conversation=ci,
+                            index=turn_index,
+                            user=text,
+                            skip_empty_reply=sc.skip_empty_final_reply,
+                        )
                         trace.turns.append(tt)
                         turn_index += 1
                         t0 = time.monotonic()

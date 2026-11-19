@@ -228,8 +228,11 @@ at `9fea53cd`; each flight design re-verifies them.
     flights extend the set and re-baseline it).
   - Form filling is scored on what GleepGlorp sends to the browser. Browser and
     behavior tests prove what the form then shows.
-  - The small default models are measured and reported, and the model setting
-    notes that small models may struggle.
+  - The small default model `qwen3-4b` is measured and reported, and the model
+    setting notes that small models may struggle. *(Amended 2026-11-18,
+    operator decision during Flight 1 Leg 9: `lfm3` is not evaluated for
+    GleepGlorp; it is too small to follow the link and tool format, and its
+    numbers would not move with prompt wording.)*
   - The prompt that makes GleepGlorp does not change the prompt or token cost
     of any other agent.
 

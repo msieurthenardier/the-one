@@ -4,6 +4,7 @@ description = "The operator pastes an MCP server's README and asks how to add it
 
 [agent]
 builder = "gleepglorp"
+skip_empty_final_reply = true
 
 [variants]
 phrasings = [

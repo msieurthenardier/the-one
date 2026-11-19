@@ -57,6 +57,7 @@ _AGENT_KEYS = {
     "rich_visuals",
     "builder",
     "web_access",
+    "skip_empty_final_reply",
 }
 # The agent builders a scenario can name (``agent.builder``): the built-in GleepGlorp assistant.
 BUILDERS = ("gleepglorp",)
@@ -168,6 +169,8 @@ class Scenario:
     # ``agent.builder``: the name of the agent builder ("gleepglorp"), or None for a stored agent.
     builder: str | None = None
     web_access: bool = False  # builder scenarios only: the GleepGlorp ``web_access`` setting
+    # Opt-in reply extraction: skip an empty closing assistant message (see ``TurnTrace.reply``).
+    skip_empty_final_reply: bool = False
     app: AppSeed = field(default_factory=AppSeed)
     instant: datetime = DEFAULT_INSTANT
     zone: str = DEFAULT_ZONE
@@ -446,7 +449,7 @@ def parse_scenario(
             raise _fail(path, f"agent.{key}", "unknown field")
     if "persona" in agent:
         sc.persona = _expect(path, agent, "persona", str, "agent.persona")
-    for flag in ("notes_enabled", "tools_off", "routines_enabled"):
+    for flag in ("notes_enabled", "tools_off", "routines_enabled", "skip_empty_final_reply"):
         if flag in agent:
             setattr(sc, flag, _expect(path, agent, flag, bool, f"agent.{flag}"))
     if "rich_visuals" in agent:

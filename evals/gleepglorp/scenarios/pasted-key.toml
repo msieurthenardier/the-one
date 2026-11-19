@@ -4,6 +4,7 @@ description = "The operator pastes a key into the chat. GleepGlorp does not repe
 
 [agent]
 builder = "gleepglorp"
+skip_empty_final_reply = true
 
 [variants]
 phrasings = [

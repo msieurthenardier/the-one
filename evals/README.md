@@ -68,7 +68,7 @@ Provider `input_tokens` (and so the informational `model_counts`) is the whole p
 
 A scenario is a TOML file in `evals/scenarios/` (the schema is documented at the top of
 `scenario.py`): `id`, `class` (`safety`, `improve` or `hold`), `[agent]` (persona,
-`notes_enabled`, `routines_enabled`, `rich_visuals`, `rules`, `seeded_notes`, `kb`, `tools_off`, `max_iterations`, `builder`, `web_access`; `[app]`, see below), `[clock]`
+`notes_enabled`, `routines_enabled`, `rich_visuals`, `rules`, `seeded_notes`, `kb`, `tools_off`, `max_iterations`, `builder`, `web_access`, `skip_empty_final_reply`; `[app]`, see below), `[clock]`
 (a frozen instant and zone, default `2026-03-02T15:00:00Z` in `Pacific/Kiritimati`),
 `[variants]` (phrasings x facts, so 20 distinct inputs, DD9), `[[conversations]]` (each a
 list of user turns; a new conversation rebuilds the agent) and `[[checks]]`. A check may
@@ -166,7 +166,10 @@ rules, knowledge bases, routines, Rich visuals or iteration limit, so the loader
 `agent.persona`, `rules`, `kb`, `routines_enabled`, `rich_visuals` and `max_iterations` beside the
 builder (one plain error each); `[agent] web_access` (default false) is the GleepGlorp
 `web_access` setting, `notes_enabled` is its `memory` setting and `seeded_notes` go into
-`gleepglorp_notes`; `tools_off` gives the tool-free prompt. The harness writes ready settings
+`gleepglorp_notes`; `tools_off` gives the tool-free prompt; `skip_empty_final_reply` (default
+false, any scenario; the GleepGlorp set turns it on) makes a turn's reply the last tool-free
+assistant message with non-empty content, so an empty closing message no longer hides a correct
+earlier reply (unset, the reply is the last tool-free message, as before). The harness writes ready settings
 (the preset's provider and model), and `fetch_url` reaches only the fixture host as for every set
 (`web_search` is disabled in the scratch app, so the measured starting tools omit it). GleepGlorp is
 a singleton per data directory, so **state is reset at the top of every builder seed**, on every
@@ -225,6 +228,24 @@ prompt's section constants (`identity`, `scope`, `limits`, `secrets`, `answering
 per starting tool schema. The `prompt` fingerprint of that directory is in the run directory's
 `measure.json`, so `compare --same-prompt` refuses a run on a changed GleepGlorp prompt.
 
+**Candidate prompts and `--prompt-file` (M36 F1 L09 part B).** `evals/gleepglorp/prompts/<name>.toml`
+holds a whole GleepGlorp prompt as lower-case keys (`identity`, `scope`, `limits`, `secrets`,
+`answering_tools`, `answering_tool_free`, `links`, `style`; all required, exact text) and an optional
+`web_off_answering` (the tool-capable answering text used when `web_access` is off; the shipped
+prompt has none). `v1.toml` is the shipped prompt, pinned equal to it byte for byte by
+`tests/test_evals_gleepglorp_prompt_file.py`. `run --prompt-file PATH` and `measure-prompt
+--prompt-file PATH` use the candidate's sections for that invocation, through the eval-only seam
+`the_one.gleepglorp.prompt.override_sections` (set for the run, restored afterwards; no product
+setting reaches it); they are refused unless every scenario is a `builder = "gleepglorp"` one
+(`measure-prompt` also needs `--measure-dir evals/gleepglorp/measure`). With `--measure-dir`, the
+run's `measure.json` and prompt fingerprint reflect the candidate, so different candidates are
+distinguishable; the run directory also gets `prompt-file.json` (name and hash), and `--resume`
+refuses a changed candidate. Screening workflow: copy `v1.toml` per candidate, commit it, then run
+each on Haiku at small n in its own run directory, in parallel, e.g. `make eval ARGS="run --models
+haiku --n 5 --scenarios-dir evals/gleepglorp/scenarios --measure-dir evals/gleepglorp/measure
+--prompt-file evals/gleepglorp/prompts/<name>.toml --run-dir evals/runs/m36-<name>"`; a candidate
+that fails a safety check is out; move the winner's text into `the_one/gleepglorp/prompt.py`.
+
 **Visuals scenarios (M35 F1 L4).** `[agent] rich_visuals = false` builds the scenario agent with
 the Rich visuals switch off (`AgentConfig.rich_visuals`); when the key is absent it is omitted and
 the product default, on, applies, so every other scenario's agent takes the platform prompt's
@@ -280,6 +301,7 @@ means notes the run's agent created, seeded notes excluded.
 |---|---|
 | `tool_called(pattern)` / `tool_not_called(pattern)` / `search_tools_used` | a tool call whose name matches the regex was (not) made / `search_tools` was called (no shipped scenario declares `search_tools_used` since sortie 11) |
 | `claims_match_actions(pattern, actions)` | no turn's final reply matches the claim `pattern` without a successful call matching `actions` in that turn (report class only in practice; see above) |
+| `claim_needs_call(pattern, call)` | no turn's reply matches the first-person claim `pattern` unless a call whose name fully matches `call` exists anywhere in the run (run-wide, unlike `claims_match_actions`; the call's result is not read). The GleepGlorp `memory` scenario uses it for "I saved that" / "I'll remember" with `save_note` (M36 F1 L09 part B) |
 | `reply_matches(pattern, turn=)` / `reply_not_matches(...)` | the reply does (not) match |
 | `reply_has_markdown_link(pattern)` | a `[text](url)` link outside code, URL matching, and the URL not also bare |
 | `reply_links_to_route(pattern, turn=)` | a `[text](#route)` link outside code whose route (the part after `#`) fully matches `pattern` and **lands on a page as written**: not an alias the router redirects (a bare Library section, bare `settings`, `settings/general`, the legacy `#chat`/`#studio`/`#admin`, bare `chats/~new`, `agents/{name}/mcps`) and not an unknown route. The rules are a copy of `router.js` `resolve` in `evals/checks.py` (`route_problem`), held equal to `tests/browser/_nav.py` by a parity test |

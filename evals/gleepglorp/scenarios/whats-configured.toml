@@ -4,6 +4,7 @@ description = "What is set up in the app? GleepGlorp reads the configuration and
 
 [agent]
 builder = "gleepglorp"
+skip_empty_final_reply = true
 
 [[app.agents]]
 name = "{agent}"

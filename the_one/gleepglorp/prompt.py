@@ -9,8 +9,9 @@ date line.
 
 from __future__ import annotations
 
+import contextlib
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Any
 
 from the_one import time_zones
@@ -64,10 +65,66 @@ LINKS = (
 STYLE = "Reply briefly, in Markdown."
 
 
-def base_prompt(*, tools: bool = True) -> str:
-    """The prompt's own text (no notes, no date line): the sections joined by blank lines."""
-    answering = ANSWERING_TOOLS if tools else ANSWERING_TOOL_FREE
-    return "\n\n".join([IDENTITY, SCOPE, LIMITS, SECRETS, answering, LINKS, STYLE])
+SECTION_KEYS = (
+    "IDENTITY",
+    "SCOPE",
+    "LIMITS",
+    "SECRETS",
+    "ANSWERING_TOOLS",
+    "ANSWERING_TOOL_FREE",
+    "LINKS",
+    "STYLE",
+)
+
+# Eval-only seam (M36 F1 L09 part B): a candidate prompt's sections, set by ``override_sections``
+# for the duration of an eval run. No product setting or route reaches it; ``None`` is the
+# shipped prompt. ``WEB_OFF_ANSWERING`` is a candidate-only key: the tool-capable answering
+# text used when web access is off (the shipped prompt has no such variant).
+_override: dict[str, str] | None = None
+
+
+def active_sections() -> dict[str, str]:
+    """The sections in effect: the candidate's during an eval override, else the constants."""
+    if _override is not None:
+        return dict(_override)
+    return {k: globals()[k] for k in SECTION_KEYS}
+
+
+@contextlib.contextmanager
+def override_sections(sections: Mapping[str, str]) -> Iterator[None]:
+    """Eval-only: use ``sections`` (the eight ``SECTION_KEYS``, plus an optional
+    ``WEB_OFF_ANSWERING``) instead of the shipped text, restored on exit."""
+    global _override
+    missing = [k for k in SECTION_KEYS if k not in sections]
+    if missing:
+        raise ValueError(f"prompt override lacks sections: {', '.join(missing)}")
+    previous = _override
+    _override = {k: sections[k] for k in (*SECTION_KEYS, "WEB_OFF_ANSWERING") if k in sections}
+    try:
+        yield
+    finally:
+        _override = previous
+
+
+def web_variant_active() -> bool:
+    """True when an eval override carries a web-off answering variant."""
+    return _override is not None and "WEB_OFF_ANSWERING" in _override
+
+
+def base_prompt(*, tools: bool = True, web: bool = True) -> str:
+    """The prompt's own text (no notes, no date line): the sections joined by blank lines.
+
+    ``web`` only matters to an eval override that carries a web-off answering variant."""
+    s = active_sections()
+    if not tools:
+        answering = s["ANSWERING_TOOL_FREE"]
+    elif not web and "WEB_OFF_ANSWERING" in s:
+        answering = s["WEB_OFF_ANSWERING"]
+    else:
+        answering = s["ANSWERING_TOOLS"]
+    return "\n\n".join(
+        [s["IDENTITY"], s["SCOPE"], s["LIMITS"], s["SECRETS"], answering, s["LINKS"], s["STYLE"]]
+    )
 
 
 def compose(
@@ -103,6 +160,11 @@ async def build_prompts(conn, *, tool_available: bool, now=None) -> SystemPrompt
 
     notes = await GleepGlorpNoteRepository(conn).list_if_enabled()
     block, block_tool_free = notes_blocks(notes)
+    web = True
+    if web_variant_active():  # an eval candidate only; the shipped path reads nothing extra
+        from the_one.gleepglorp.settings import load_settings
+
+        web = (await load_settings(conn)).web_access
     date_line: str | None = None
     date_line_tool_free: str | None = None
     try:
@@ -114,7 +176,9 @@ async def build_prompts(conn, *, tool_available: bool, now=None) -> SystemPrompt
         logger.warning("Could not build the date layer; omitting it", exc_info=True)
 
     return SystemPrompts(
-        tool_capable=compose(notes_block=block, date_line=date_line),
+        tool_capable=compose(
+            notes_block=block, date_line=date_line, base=base_prompt(tools=True, web=web)
+        ),
         tool_free=compose(
             notes_block=block_tool_free,
             date_line=date_line_tool_free,

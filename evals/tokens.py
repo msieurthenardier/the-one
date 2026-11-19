@@ -202,16 +202,19 @@ def gleepglorp_prompt_sections(text: str) -> list[tuple[str, str]]:
     """
     from the_one.gleepglorp import prompt as gp
 
-    for tools in (True, False):
-        answering = gp.ANSWERING_TOOLS if tools else gp.ANSWERING_TOOL_FREE
+    s = gp.active_sections()  # the shipped text, or an eval candidate's (``--prompt-file``)
+    answerings = [s["ANSWERING_TOOLS"], s["ANSWERING_TOOL_FREE"]]
+    if "WEB_OFF_ANSWERING" in s:
+        answerings.append(s["WEB_OFF_ANSWERING"])
+    for answering in answerings:
         named = [
-            ("identity", gp.IDENTITY),
-            ("scope", gp.SCOPE),
-            ("limits", gp.LIMITS),
-            ("secrets", gp.SECRETS),
+            ("identity", s["IDENTITY"]),
+            ("scope", s["SCOPE"]),
+            ("limits", s["LIMITS"]),
+            ("secrets", s["SECRETS"]),
             ("answering", answering),
-            ("links", gp.LINKS),
-            ("style", gp.STYLE),
+            ("links", s["LINKS"]),
+            ("style", s["STYLE"]),
         ]
         base = "\n\n".join(t for _n, t in named)
         if text != base and not text.startswith(base + "\n\n"):
@@ -636,6 +639,7 @@ class MeasureOptions:
     cache_dir: Path | None = None
     run_dir: Path | None = None
     measure_dir: Path | None = None
+    prompt_file: Path | None = None
     counter: Counter | None = None
     environ: Any = None
     unload: Callable[[Any], Awaitable[None]] | None = None
@@ -651,6 +655,7 @@ async def measure_prompt(opts: MeasureOptions) -> dict[str, Any]:
     """
     import shutil
 
+    from evals import prompt_file as pf
     from evals.env import StartupOptions, shutdown, startup
     from evals.fingerprint import prompt_fingerprint
     from evals.fixtures import KBFixtures
@@ -658,6 +663,11 @@ async def measure_prompt(opts: MeasureOptions) -> dict[str, Any]:
     from evals.models import Preset, load_presets, select_presets
     from evals.scenario import DEFAULT_INSTANT, DEFAULT_ZONE
 
+    if opts.prompt_file is not None:
+        # the candidate prompt applies to the whole measurement (GleepGlorp configurations only)
+        pf.require_builder_scenarios(load_config_scenarios(opts.measure_dir))
+        with pf.applied(opts.prompt_file):
+            return await measure_prompt(dataclasses.replace(opts, prompt_file=None))
     counter = opts.counter or TiktokenCounter(opts.cache_dir)
     scenarios = load_config_scenarios(opts.measure_dir)
     presets: list[Preset] = []

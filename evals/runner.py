@@ -61,6 +61,9 @@ class RunOptions:
     # --same-prompt`` refuses a changed one) and ``baseline`` needs no separate measure-prompt step.
     measure_dir: Path | None = None
     measure_counter: Any = None  # a test seam: the token counter (default: tiktoken)
+    # A candidate GleepGlorp prompt (``evals/gleepglorp/prompts/<name>.toml``) used instead of
+    # the shipped one for this invocation (GleepGlorp builder scenarios only).
+    prompt_file: Path | None = None
 
 
 @dataclass
@@ -318,9 +321,23 @@ async def run_invocation(
     opts: RunOptions, hooks: Hooks | None = None, out: Callable[[str], None] = print
 ) -> int:
     """Return the process exit code: 0 ok, 1 a model stopped or the run aborted, 2 refused."""
-    hooks = hooks or Hooks()
+    from evals import prompt_file as pf
+
+    try:
+        with pf.applied(opts.prompt_file):
+            return await _run_invocation(opts, hooks or Hooks(), out)
+    except pf.PromptFileError as exc:
+        print(str(exc), flush=True)
+        return 2
+
+
+async def _run_invocation(opts: RunOptions, hooks: Hooks, out: Callable[[str], None]) -> int:
+    from evals import prompt_file as pf
+
     try:
         plan = build_plan(opts)
+        if opts.prompt_file is not None:
+            pf.require_builder_scenarios(plan.scenarios)
     except (ScenarioError, PresetError) as exc:
         print(str(exc), flush=True)
         return 2
@@ -359,6 +376,8 @@ async def run_invocation(
         return 2
     try:
         write_fingerprints(env.run_dir, opts, plan, resume=bool(opts.resume))
+        if opts.prompt_file is not None:
+            _record_prompt_file(env.run_dir, opts.prompt_file, resume=bool(opts.resume))
         if measure_doc is not None:
             _write_measure(env.run_dir, measure_doc)
     except EvalRefusalError as exc:
@@ -375,7 +394,7 @@ async def run_invocation(
 async def _measure_for_run(opts: RunOptions, hooks: Hooks) -> dict[str, Any]:
     """The offline prompt measurement of ``opts.measure_dir`` (before any run, so a missing
     counter refuses before quota is spent). Its own scratch environment, torn down afterwards."""
-    return await tokens.measure_prompt(
+    return await tokens.measure_prompt(  # runs under the invocation's prompt override
         tokens.MeasureOptions(
             measure_dir=opts.measure_dir, counter=opts.measure_counter, environ=hooks.environ
         )
@@ -395,6 +414,27 @@ def _check_resume_prompt(run_dir: Path, doc: dict[str, Any], *, resume: bool) ->
         return
     if old != doc["fingerprints"]["prompt"]:
         raise EvalRefusalError("--resume: the measured prompt changed since this run started")
+
+
+def _record_prompt_file(run_dir: Path, path: Path, *, resume: bool) -> None:
+    """Record the candidate prompt's name and hash in ``prompt-file.json``; a resume with a
+    changed candidate is refused."""
+    import json
+
+    from evals import prompt_file as pf
+
+    doc = {"name": Path(path).stem, "sha256": pf.digest(path)}
+    target = run_dir / "prompt-file.json"
+    if resume and target.is_file():
+        try:
+            old = json.loads(target.read_text(encoding="utf-8"))
+        except ValueError:
+            old = {}
+        if old.get("sha256") not in (None, doc["sha256"]):
+            raise EvalRefusalError(
+                "--resume: the candidate prompt file changed since this run started"
+            )
+    target.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _write_measure(run_dir: Path, doc: dict[str, Any]) -> None:

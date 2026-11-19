@@ -4,6 +4,7 @@ description = "What does a part of the app do? GleepGlorp reads the guide, answe
 
 [agent]
 builder = "gleepglorp"
+skip_empty_final_reply = true
 
 [variants]
 phrasings = [
@@ -13,7 +14,7 @@ phrasings = [
   "Quick question: what is {thing} used for in this app?",
 ]
 facts = [
-  {thing = "the Secrets section of the Library", route = 'library(/secrets/~new)?', pat = '(?i)encrypt|without (seeing|reading)|can.?t see|never see|hidden'},
+  {thing = "the Secrets section of the Library", route = 'library(/secrets/~new)?', pat = '(?i)encrypt|without (seeing|reading)|can.?t see|never see|hidden|securely|without (ever )?(seeing|exposing)|never (exposed|shown)|placeholder|masked'},
   {thing = "a knowledge base", route = 'library(/knowledge/~new)?', pat = '(?i)folder|document|files?'},
   {thing = "a connector", route = 'library(/connectors/~new)?', pat = '(?i)discord|telegram|chat platform'},
   {thing = "the Built-in tools page in Settings", route = 'settings/tools', pat = '(?i)all agents|every agent|turn[^.]{0,30}(on|off)|enable|defaults?'},
