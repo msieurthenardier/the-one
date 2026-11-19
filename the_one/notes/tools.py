@@ -109,12 +109,19 @@ class _NotesToolBase(Tool):
             raise ValueError("text must be a string.")
         return value
 
-    @staticmethod
-    async def _repo():
+    async def _repo(self):
         from the_one.db.connection import get_connection
+        from the_one.naming import GLEEPGLORP_AGENT_NAME
+
+        conn = await get_connection()
+        if self._agent_name == GLEEPGLORP_AGENT_NAME:
+            # M36 F1 L06: GleepGlorp is not an agent; its notes live in their own table.
+            from the_one.gleepglorp.notes import GleepGlorpNoteRepository
+
+            return GleepGlorpNoteRepository(conn)
         from the_one.db.repositories import AgentNoteRepository
 
-        return AgentNoteRepository(await get_connection())
+        return AgentNoteRepository(conn)
 
 
 async def _origin(turn: TurnContext | None) -> dict[str, Any]:
@@ -162,6 +169,15 @@ class SaveNoteTool(_NotesToolBase):
         "properties": {"text": {"type": "string", "description": "The note, one short line."}},
         "required": ["text"],
     }
+
+    def __init__(self, agent_name: str | None, counter: _WriteCounter | None = None) -> None:
+        super().__init__(agent_name, counter)
+        from the_one.naming import GLEEPGLORP_AGENT_NAME
+
+        if agent_name == GLEEPGLORP_AGENT_NAME:
+            from the_one.gleepglorp.notes import GLEEPGLORP_SAVE_DESCRIPTION
+
+            self.description = GLEEPGLORP_SAVE_DESCRIPTION
 
     async def execute(self, text: str) -> str:
         name = self._name()

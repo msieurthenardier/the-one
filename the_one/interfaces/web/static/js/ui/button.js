@@ -19,6 +19,8 @@
   //   iconOnly: true adds btn-icon and requires ariaLabel (throws otherwise)
   //   compactIcon: true draws a labelled button's icon at 14px (a .btn-sm button otherwise
   //   keeps the standard 16px icon, so the small "+ New" is unchanged)
+  //   tone: 'danger' (ghost only) draws the resting label or icon in --status-danger; the
+  //   armed fill of App.ui.confirm still wins
   //   ariaLabel, disabled, onClick, className
   //   the test id option: placed on the button itself (supplied by the caller)
   // App.ui.button.setIcon(btn, name): swap the button's icon in place (its first svg child,
@@ -38,6 +40,11 @@
     if (opts.size) classes.push(SIZE_CLASS[opts.size]);
     if (opts.iconOnly) classes.push('btn-icon');
     if (opts.compactIcon) classes.push('btn-icon-compact');
+    if (opts.tone) {
+      if (opts.tone !== 'danger') throw new Error('App.ui.button: unknown tone "' + opts.tone + '"');
+      if (variant !== 'ghost') throw new Error('App.ui.button: tone applies to ghost buttons');
+      classes.push('btn-tone-danger');
+    }
     if (opts.className) classes.push(opts.className);
     var btn = App.ui.util.el('button', { type: 'button', className: classes.join(' ') });
     if (opts.icon) btn.appendChild(App.ui.util.icon(opts.icon));

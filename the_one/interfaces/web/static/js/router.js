@@ -13,8 +13,9 @@
 //                          library/mcp[/~new|/{id}]      mcp-sources[/new|/{id}]
 //                          library/connectors[/~new|/{id}] connectors[/new|/{id}]
 //                          library/secrets[/~new|/{id}]  secrets[/new|/{id}]  (sortie 10)
-//   settings     admin    settings/appearance           appearance
-//                          settings/prompts              prompts
+//   settings     admin    settings/gleepglorp           gleepglorp  (M36 F1 L03)
+//                          settings/appearance           appearance
+//                          settings/prompts             prompts
 //                          settings/encryption           encryption
 //                          settings/tools[/{name}]       tools[/{name}]
 //                          settings/knowledge-indexing   knowledge
@@ -93,6 +94,7 @@
     // in resolve(), not a row. The Settings rows' routes equal
     // App.settingsPages' sections, in order: a static test
     // pins it (tests/test_settings_pages_static.py, M25 F4 L7).
+    { dest: 'settings', area: 'admin', route: 'gleepglorp', sub: 'gleepglorp', create: false },
     { dest: 'settings', area: 'admin', route: 'appearance', sub: 'appearance', create: false },
     { dest: 'settings', area: 'admin', route: 'date-and-time', sub: 'date-and-time', create: false },
     { dest: 'settings', area: 'admin', route: 'prompts', sub: 'prompts', create: false },

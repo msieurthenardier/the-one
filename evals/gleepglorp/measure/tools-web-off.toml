@@ -1,0 +1,14 @@
+# GleepGlorp, tool-capable, web access off: no web tools in the starting set.
+id = "measure-gg-tools-web-off"
+class = "hold"
+description = "GleepGlorp: tool-capable prompt, web access off."
+
+[agent]
+builder = "gleepglorp"
+web_access = false
+
+[[conversations]]
+turns = ["Hello."]
+
+[[checks]]
+name = "date_line_present"

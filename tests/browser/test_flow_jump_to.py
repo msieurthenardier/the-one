@@ -48,6 +48,7 @@ DESCRIPTION = '[data-field="description"]'
 
 PLACEHOLDER = "Jump to an agent, chat, library item or setting"
 SETTINGS_PAGES = [
+    ("gleepglorp", "GleepGlorp", "Settings · Assistant"),
     ("appearance", "Appearance", "Settings · General"),
     ("date-and-time", "Date and time", "Settings · General"),
     ("prompts", "Prompts", "Settings · General"),
@@ -146,7 +147,10 @@ def _wait_for_rows(page: Page, *kinds: str) -> None:
         expect(page.locator(f'{RESULT}[data-kind="{kind}"]').first).to_be_visible()
 
 
-def _boot(page: Page, base: str, route: str) -> None:
+def _boot(page: Page, base: str, route: str, gleepglorp: bool = False) -> None:
+    # GleepGlorp (on by default) adds a candidate to every list below; only its own test keeps it.
+    if not gleepglorp:
+        _chats.gleepglorp_off(base)
     _nav.goto(page, base, route)
     expect(page.locator(RAIL_JUMP)).to_be_visible(timeout=8000)
     dest = route.split("/")[0]
@@ -539,7 +543,7 @@ def test_empty_query_mixes_recent_chats_new_chat_and_recent_agents(world: dict, 
             NEW_CHAT_ROW,
             _agent_row("Alpha"),
             _agent_row("test-agent"),
-            _chat_row(world["untitled"], "Untitled chat", "Default agent"),
+            _chat_row(world["untitled"], "Untitled chat", "Unknown agent"),
             _chat_row(world["alpha_chat"], "Alpha", "test-agent"),
         ],
     )
@@ -715,10 +719,10 @@ def test_matching_finds_each_kind_case_insensitively_and_has_an_empty_state(
     expect(page.locator(RESULT)).to_have_count(2)
     assert [r[1] for r in _rows(page)] == ["tools", "knowledge-indexing"]
     inp.fill("settings")
-    # Six pages (Providers moved to Library), under the 8-match cap.
+    # Seven pages (Providers moved to Library), under the 8-match cap.
     expect(page.locator(RESULT)).to_have_count(len(SETTINGS_PAGES))
     assert [[r[1], r[2], r[3]] for r in _rows(page)] == [list(p) for p in SETTINGS_PAGES]
-    inp.fill("default agent")
+    inp.fill("unknown agent")
     expect(page.locator(RESULT)).to_have_count(1)
     assert _rows(page)[0][:3] == ["chat", world["untitled"], "Untitled chat"]
     inp.fill("new chat")
@@ -741,7 +745,7 @@ def test_an_empty_install_lists_new_chat_and_the_settings_pages(app_clean: str, 
     _open_with_keys(page)
     expect(page.locator(RESULT)).to_have_count(1 + len(SETTINGS_PAGES))
     page.wait_for_timeout(300)  # every collection has resolved (empty)
-    # New chat plus all six pages: seven rows, under the empty mix's cap of 8.
+    # New chat plus all seven pages: eight rows, at the empty mix's cap of 8.
     assert _rows(page) == [["action", "new-chat", "New chat…", "Action"]] + [
         ["settings", s, label, where] for s, label, where in SETTINGS_PAGES
     ]
@@ -943,6 +947,52 @@ def test_provider_query_lists_only_library_provider_rows(world: dict, page: Page
     page.locator(INPUT).fill("mock")
     row = page.locator(f'{RESULT}[data-kind="provider"][data-id="{world["provider"]}"]')
     expect(row).to_contain_text("Library · Model provider")
+
+
+def test_gleepglorp_is_a_built_in_candidate_first_among_the_agents(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """M36 F1 L04: while enabled, GleepGlorp is its own kind ("Built in"), first among the
+    agents, never an agent row; a pick opens the pending ``#chats/~new/GleepGlorp``; a chat
+    of it reads "Chat · GleepGlorp"; turned off, it is gone."""
+    import httpx
+    from browser._credential_registry import auth_headers_for
+
+    base = app_with_agent.base_url
+    seed_session(base, "GleepGlorp", "Help with setup", "2026-09-02T10:00:00+00:00")
+    _boot(page, base, "agents", gleepglorp=True)
+    _open_with_keys(page)
+    expect(page.locator(f'{RESULT}[data-kind="gleepglorp"]')).to_be_visible()
+    kinds = page.evaluate("() => App.jumpTo.candidates().map((c) => [c.kind, c.label, c.where])")
+    order = [k for k in kinds if k[0] in ("gleepglorp", "agent", "chat")]
+    assert order == [
+        ["gleepglorp", "GleepGlorp", "Built in"],
+        ["agent", app_with_agent.agent_name, "Agent"],
+        ["chat", "Help with setup", "Chat · GleepGlorp"],
+    ]
+    page.keyboard.press("Escape")
+    _jump(page, "gleep", "gleepglorp", "GleepGlorp")
+    _nav.expect_route(page, "chats/~new/GleepGlorp", timeout=8000)
+
+    # [on] -> [off]: the candidate is gone (the push updates the open page's copy).
+    r = httpx.put(
+        f"{base}/api/gleepglorp",
+        json={
+            "enabled": False,
+            "provider_config_id": None,
+            "model": None,
+            "web_access": True,
+            "memory": True,
+            "retention_days": 30,
+        },
+        headers=auth_headers_for(base),
+        timeout=5.0,
+    )
+    assert r.status_code == 200, r.text
+    page.wait_for_function("() => !(App.gleepglorp.peek().value || {}).enabled", timeout=8000)
+    assert not [
+        c for c in page.evaluate("() => App.jumpTo.candidates()") if c["kind"] == "gleepglorp"
+    ]
 
 
 def test_secrets_are_listed_and_a_pick_opens_the_editor(world: dict, page: Page) -> None:

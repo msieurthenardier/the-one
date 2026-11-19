@@ -198,13 +198,13 @@ def test_header_in_pending_starting_and_joined_follows_the_store(
     )
     expect(title).to_have_text("Renamed in the store")
     expect(_chats.chat_agent_line(page)).to_have_text("with renamed-agent")
-    # A null agent reads "Default agent".
+    # A null agent (impossible after schema v53) reads "Unknown agent".
     page.evaluate(
         """(sid) => App.store.prime('sessions', App.store.peek('sessions').value.map(
              (r) => r.id === sid ? Object.assign({}, r, {agent_name: null}) : r))""",
         sid,
     )
-    expect(_chats.chat_agent_line(page)).to_have_text("with Default agent")
+    expect(_chats.chat_agent_line(page)).to_have_text("with Unknown agent")
 
     # Geometry and type (reference spec 5.2).
     geo = _chats.chat_header(page).evaluate(
@@ -422,7 +422,8 @@ def test_guidance_state_has_hello_and_the_links_and_no_new_chat(
 ) -> None:
     """Setup incomplete (a provider, no agent): the guidance, rebuilt with DOM
     APIs (same copy and hrefs), no prompt, no New chat in the pane, and the
-    list's New chat disabled."""
+    list's New chat disabled (GleepGlorp off: while on, New chat works with no agent)."""
+    _chats.gleepglorp_off(app_with_provider.base_url)
     _nav.goto(page, app_with_provider.base_url, "chats")
     welcome = _chats.welcome(page)
     expect(welcome).to_be_visible(timeout=8000)

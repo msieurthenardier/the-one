@@ -191,5 +191,16 @@
     announce(armSentence(itemEl._confirmSubject, confirmLabel));
     armChange(true);
     itemEl._confirmRevertTimer = setTimeout(lapse, revertMs);
+    itemEl._confirmRevert = revert;
+  };
+
+  // App.ui.confirm.disarm(itemEl): put an armed control back to its resting state (its
+  // title, no armed class, no timer) without the lapse cue, e.g. when what armed it no
+  // longer holds. Does nothing when the control is not armed.
+  App.ui.confirm.disarm = function (itemEl) {
+    if (!itemEl || !itemEl.classList.contains('confirm-delete')) return;
+    if (typeof itemEl._confirmRevert === 'function') itemEl._confirmRevert();
+    else itemEl.classList.remove('confirm-delete');
+    announce('');
   };
 })();

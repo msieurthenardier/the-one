@@ -427,6 +427,54 @@ def test_button_icon_only_requires_aria_label(engine_page: Page) -> None:
     engine_page.get_by_role("button", name="Add", exact=True).click()
 
 
+def test_button_danger_tone_rests_danger_and_armed_and_lapsed_keep_their_look(
+    engine_page: Page,
+) -> None:
+    """M36 F1 review: tone 'danger' colours a ghost button's resting label in
+    --status-danger; the armed fill of App.ui.confirm wins, and a LAPSED arm (the
+    `confirm-lapsed` class) keeps the danger colour (a prefix selector once greyed it)."""
+    _load(engine_page)
+    assert "tone" in _throws(
+        engine_page, "App.ui.button({variant: 'primary', tone: 'danger', label: 'x'});"
+    )
+    assert "tone" in _throws(
+        engine_page, "App.ui.button({variant: 'ghost', tone: 'loud', label: 'x'});"
+    )
+    out = engine_page.evaluate(
+        """async () => {
+          const root = document.getElementById('harness-root');
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--status-danger)';
+          root.appendChild(probe);
+          const danger = getComputedStyle(probe).color;
+          const b = App.ui.button({variant: 'ghost', tone: 'danger', iconOnly: true, icon: 'trash',
+                                   ariaLabel: 'Delete it', testid: 'b-tone'});
+          const t = document.createElement('span');
+          t.className = 'visually-hidden';
+          t.setAttribute('data-confirm-title', '');
+          t.textContent = 'Delete';
+          b.appendChild(t);
+          root.appendChild(b);
+          const color = () => getComputedStyle(b).color;
+          const out = {danger, cls: b.className, resting: color()};
+          App.ui.confirm(b, function () {}, {revertMs: 900});
+          await new Promise((r) => setTimeout(r, 400)); // past the 150 ms colour transition
+          out.armedBg = getComputedStyle(b).backgroundColor;
+          out.armedColor = color();
+          await new Promise((r) => setTimeout(r, 1000));
+          out.lapsed = b.classList.contains('confirm-lapsed');
+          out.armedAfter = b.classList.contains('confirm-delete');
+          out.lapsedColor = color();
+          return out;
+        }"""
+    )
+    assert "btn-tone-danger" in out["cls"]
+    assert out["resting"] == out["danger"]
+    assert out["armedBg"] == out["danger"] and out["armedColor"] != out["danger"]
+    assert out["lapsed"] is True and out["armedAfter"] is False
+    assert out["lapsedColor"] == out["danger"]  # the lapse cue must not grey the icon
+
+
 def test_button_label_is_text_not_html_and_onclick_disabled(engine_page: Page) -> None:
     _load(engine_page)
     engine_page.evaluate(

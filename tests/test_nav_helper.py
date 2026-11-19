@@ -412,6 +412,8 @@ RETIRED_SELECTORS = (
     "chat-widget-placeholder-source",
     "mcp-source-self-configuration-hint-",  # sortie 08: the Tools tab shows no surface row
     "base-prompt-content",
+    "routines-default-agent",  # Mission 36 F1 L02: no agent can be named `default`
+    "self-config-routines-default-agent",
     "platform-variant-",
     "ui-demo-chooser",
     "ui-demo-chooser-close",
@@ -530,12 +532,18 @@ RETIRED_SELECTORS = (
     "mcp-agent-cred-row-",
     "mcp-agent-cred-empty-",
     "mcp-refresh-tools-btn-",
+    # M36 F1 HAT: notes are deleted, never edited, in the UI (`notes-row-edit` itself is in
+    # RETIRED_EXACT: it is a prefix of the live `notes-row-edited`).
+    "notes-row-edit-count",
+    "notes-row-edit-input",
+    "notes-row-save",
+    "notes-row-cancel",
 )
 # Retired ids matched EXACTLY, with a right boundary too (Flight 4 leg 4a,
 # DD12): the chat sidebar's ``agent-select`` dropdown, whose name is a prefix
 # of the live Flight 3 testid ``agent-select-empty`` (the Agents detail
 # pane's empty state), which must stay usable.
-RETIRED_EXACT = ("agent-select", "routine-form-schedule", "routine-run")
+RETIRED_EXACT = ("agent-select", "routine-form-schedule", "routine-run", "notes-row-edit")
 # RETIRED_SELECTORS take a left boundary only: ``entity-tile-name`` is part of
 # the retired tile, while a longer id that merely ends in one
 # (``feedback-agent-btn``) is not.  RETIRED_EXACT entries take both.

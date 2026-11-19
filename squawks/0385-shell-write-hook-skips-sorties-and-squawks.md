@@ -11,6 +11,8 @@ The project's `PreToolUse` hook refuses shell commands that write into `the_one/
 
 Needed: add `sorties/` and `squawks/` to the hook's protected folders, with a case in its test file for each.
 
+**Added 2026-11-19 (Mission 36 Flight 1 debrief):** repo-root files are not covered either. In that flight a Developer's `sed -i` wrote to `CLAUDE.md` and the hook let it through. Cover the root documents (`CLAUDE.md`, `SECURITY-MODEL.md`, `README.md`) too, with a test case.
+
 ## Evidence
 - `.claude/hooks/block_shell_writes.py` — the list of protected folders.
 - `tests/test_shell_write_hook.py` — the hook's tests.

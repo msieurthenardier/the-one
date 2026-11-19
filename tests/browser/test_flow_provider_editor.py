@@ -303,28 +303,136 @@ def test_delete_error_toast_has_no_error_prefix(app_with_provider: SeededApp, pa
 
 @pytest.mark.browser
 def test_delete_blocked_when_provider_in_use(app_with_agent: SeededApp, page: Page) -> None:
-    """Provider with an agent attached must hard-block (no confirm flow).
-
-    Hard-block message lives in a sibling banner below the button, NOT
-    in the button text — keeps the button compact when agent-name lists
-    are long. Button stays at "Delete provider" but is disabled. F6 HAT
-    refinement.
-    """
+    """A provider in use shows, on open, one box: who uses it (as links), the checkbox
+    and the Delete button; Delete stays disabled, with no timed lockout, until the
+    checkbox is ticked (M36 F1 HAT)."""
     _nav.goto(
         page, app_with_agent.base_url, f"library/providers/{_nav.seg(app_with_agent.provider_id)}"
     )
     delete_btn = page.locator('[data-testid="delete-provider-btn"]')
-    expect(delete_btn).to_be_visible(timeout=8000)
-    delete_btn.click()
-    # Hard-block message banner reveals + names the blocking agent.
     blocked_msg = page.locator('[data-testid="delete-blocked-message"]')
-    expect(blocked_msg).to_be_visible(timeout=5000)
-    expect(blocked_msg).to_contain_text("Used by:")
+    expect(blocked_msg).to_be_visible(timeout=8000)  # on open, no Delete click first
+    expect(blocked_msg).to_contain_text("This provider is used by")
+    expect(blocked_msg).to_contain_text(
+        "If you delete it, it will need a new model before it can answer."
+    )
+    # The Delete button sits inside the same box, after the checkbox.
+    box_el = page.locator(".provider-delete-box")
+    expect(box_el.locator('[data-testid="delete-provider-btn"]')).to_have_count(1)
     assert app_with_agent.agent_name is not None
-    expect(blocked_msg).to_contain_text(app_with_agent.agent_name)
-    # Button itself stays at "Delete provider" but is disabled.
+    link = blocked_msg.locator('[data-testid="delete-user-link"]')
+    expect(link).to_have_text(app_with_agent.agent_name)
+    assert (link.get_attribute("href") or "").endswith(f"agents/{app_with_agent.agent_name}")
+    box = page.locator('[data-testid="delete-force-checkbox"]')
+    expect(box).not_to_be_checked()
     expect(delete_btn).to_be_disabled()
-    expect(delete_btn).to_contain_text("Delete provider")
+    # No timed lockout: still disabled well past the old 3 s, and the notice stays.
+    page.wait_for_timeout(3500)
+    expect(delete_btn).to_be_disabled()
+    expect(blocked_msg).to_be_visible()
+    box.check()
+    expect(delete_btn).to_be_enabled()
+    box.uncheck()
+    expect(delete_btn).to_be_disabled()
+
+
+@pytest.mark.browser
+def test_forced_delete_clears_agent_and_gleepglorp(app_with_agent: SeededApp, page: Page) -> None:
+    """Tick, arm, confirm: the provider goes and its users need a model."""
+    base = app_with_agent.base_url
+    headers = auth_headers_for(base)
+    gg = {
+        "enabled": True,
+        "provider_config_id": app_with_agent.provider_id,
+        "model": "mock-default",
+        "web_access": True,
+        "memory": True,
+        "retention_days": 30,
+    }
+    assert (
+        httpx.put(f"{base}/api/gleepglorp", json=gg, headers=headers, timeout=5.0).status_code
+        == 200
+    )
+    _nav.goto(page, base, f"library/providers/{_nav.seg(app_with_agent.provider_id)}")
+    delete_btn = page.locator('[data-testid="delete-provider-btn"]')
+    blocked_msg = page.locator('[data-testid="delete-blocked-message"]')
+    expect(blocked_msg).to_contain_text("GleepGlorp", timeout=8000)
+    gg_link = blocked_msg.locator('[data-testid="delete-user-link"]', has_text="GleepGlorp")
+    assert (gg_link.get_attribute("href") or "").endswith("settings/gleepglorp")
+    page.locator('[data-testid="delete-force-checkbox"]').check()
+    delete_btn.click()
+    expect(delete_btn).to_contain_text("Confirm delete?")
+    delete_btn.click()
+    expect(page.locator(".app-flash")).to_contain_text("Cleared the model for", timeout=8000)
+    providers = httpx.get(f"{base}/api/providers", headers=headers, timeout=5.0).json()
+    assert all(p["id"] != app_with_agent.provider_id for p in providers)
+    agent = httpx.get(
+        f"{base}/api/agents/{app_with_agent.agent_name}", headers=headers, timeout=5.0
+    )
+    assert not agent.json().get("provider_config_id")
+    assert not agent.json().get("llm_model")
+    state = httpx.get(f"{base}/api/gleepglorp", headers=headers, timeout=5.0).json()
+    assert state["state"] == "needs_model"
+    assert state["provider_config_id"] is None and state["model"] is None
+
+
+@pytest.mark.browser
+def test_unticking_while_armed_takes_the_arm_back_and_the_reason_is_tied(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Review fix: Delete is described by the explanation, the checkbox too; unticking the
+    box while Delete is armed puts it back to its resting, disabled state."""
+    _nav.goto(
+        page, app_with_agent.base_url, f"library/providers/{_nav.seg(app_with_agent.provider_id)}"
+    )
+    delete_btn = page.locator('[data-testid="delete-provider-btn"]')
+    msg = page.locator('[data-testid="delete-blocked-message"]')
+    expect(msg).to_be_visible(timeout=8000)
+    box = page.locator('[data-testid="delete-force-checkbox"]')
+    msg_id = msg.get_attribute("id")
+    assert msg_id
+    assert msg_id in (delete_btn.get_attribute("aria-describedby") or "").split()
+    assert msg_id in (box.get_attribute("aria-describedby") or "").split()
+    resting = delete_btn.inner_text()
+    box.check()
+    delete_btn.click()
+    expect(delete_btn).to_contain_text("Confirm delete?")
+    box.uncheck()
+    # Within the 3 s arm window (the timeout), so the timed lapse cannot be what reverts it.
+    expect(delete_btn).not_to_contain_text("Confirm delete?", timeout=1000)
+    expect(delete_btn).not_to_have_class(re.compile(r"confirm-delete"), timeout=1000)
+    expect(delete_btn).to_be_disabled()
+    assert delete_btn.inner_text() == resting
+
+
+@pytest.mark.browser
+def test_a_failed_forced_delete_returns_focus_to_the_rebuilt_checkbox(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Review fix: after a failed delete rebuilds the box, focus that was inside it goes to
+    the new checkbox, not to the page."""
+    _nav.goto(
+        page, app_with_agent.base_url, f"library/providers/{_nav.seg(app_with_agent.provider_id)}"
+    )
+    page.route(
+        "**/api/providers/*?force=true",
+        lambda route: (
+            route.fulfill(
+                status=500, content_type="application/json", body='{"detail": "Disk is full"}'
+            )
+            if route.request.method == "DELETE"
+            else route.continue_()
+        ),
+    )
+    delete_btn = page.locator('[data-testid="delete-provider-btn"]')
+    box = page.locator('[data-testid="delete-force-checkbox"]')
+    expect(box).to_be_visible(timeout=8000)
+    box.check()
+    delete_btn.click()
+    delete_btn.click()
+    expect(page.locator(".app-flash.error")).to_have_text("Disk is full", timeout=5000)
+    expect(page.locator('[data-testid="delete-force-checkbox"]')).to_be_focused(timeout=5000)
+    expect(page.locator('[data-testid="delete-force-checkbox"]')).not_to_be_checked()
 
 
 @pytest.mark.browser

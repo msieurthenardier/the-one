@@ -75,6 +75,7 @@ caught — but it cannot see where the attribute is emitted.
 | `platform-sections` | admin | The Prompts page's mount for the platform prompt blocks (Flight 2 leg 1c, DD8; it replaced `base-prompt-content`) |
 | `routine-flag` | studio | the flag (`App.ui.noteFlag`, subject routine) on a flagged routine row (M33 F2 L5) |
 | `routine-origin` | studio | "Made by the agent" on a routine row whose `created_by` is `agent` (M33 F2 L5) |
+| `gleepglorp-prompt-content` | admin | The Prompts page's read-only GleepGlorp prompt block, the first layer (M36 F1 L08; `/api/info` `gleepglorp_prompt`) |
 | `rules-prompt-content` | admin | The Prompts page's read-only rules-layer example (M27 F3 L3) |
 | `notes-prompt-content` | admin | The Prompts page's read-only notes-layer example (M27 F3 L3) |
 | `secrets-prompt-content` | admin | The Prompts page's read-only secrets-layer example (sortie 10 B4) |
@@ -124,7 +125,6 @@ caught — but it cannot see where the attribute is emitted.
 | `self-config-routine-when` | studio | a waiting item or history row's time (full ISO in `title`) (M33 F2 L5) |
 | `self-config-routines-approval-status` | studio | the Routines item's approval status line (M33 F2 L5) |
 | `self-config-routines-approval-toggle` | studio | "Require approval for routine changes" switch (immediate PUT) (M33 F2 L5) |
-| `self-config-routines-default-agent` | studio | the Routines item's "Routines need a named agent." note on the `default` agent (M33 F2 L5) |
 | `self-config-routines-history-details` | studio | the Routines card's "History" `<details>` expander ("Changes by the agent", 20 a page); its summary is `self-config-routines-history-details-summary` (M33 F4 L06) |
 | `self-config-routines-history-details-summary` | studio | that expander's `<summary>` ("History") (M33 F4 L06) |
 | `self-config-routines-error` | studio | the Routines item's switch error line (M33 F2 L5) |
@@ -171,7 +171,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-drawer-routine-item` | chat | one routine in the drawer's Routines group (`<li>`, name + "Next …"/"Off"/"Done" meta, full name in `title`) (M33 F1 L7) |
 | `chat-drawer-rules` | chat | the drawer Rules group's bulleted `<ul>` of enabled rules (M27 F1 L2) |
 | `chat-drawer-rules-off` | chat | the Rules group's "{n} off" line, present only when some rules are disabled (M27 F1 L2) |
-| `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for the default, a deleted or a loading agent (M25 F4 L6) |
+| `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for a deleted or a loading agent (M25 F4 L6); for GleepGlorp (M36 F1 L04) the label is "Open GleepGlorp settings" and it goes to `#settings/gleepglorp` |
 | `chat-drawer-toggle` | chat | The chat header's drawer toggle at its end (`btn-ghost btn-icon`, the `panel-right` icon, `aria-label="Show this chat's agent"`, `aria-pressed` = open, `aria-controls="chat-drawer"`); hidden while idle (M25 F4 L6) |
 | `chat-drawer-uses` | chat | The drawer's "What it can use" (A13): an `h3`, then `.chat-drawer-group[data-group=rules|knowledge|mcp|secrets|tools|self-configuration]` (Rules first, Secrets between MCP servers and Built-in tools in sortie 10, M27 F1 L2), each an `h4` over a list, "None", "Loading…" or "Couldn't load" (M25 F4 L6) |
 | `chat-discarded` | chat | The muted "Queued message discarded." line after "Stopped." when the Stop discarded a held message; never stored (M31 F6 L05c, B9) |
@@ -181,6 +181,11 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-input` | chat | The composer's `<textarea rows=2>` (an `<input>` before M25 F4 L5), labelled by a visually hidden `<label for>` "Message" (no `aria-label`); placeholder "Message {agent}…"; Enter sends, Shift+Enter is a newline, an IME-composing Enter does nothing |
 | `chat-model` | chat | The composer toolbar's model id: the open or pending chat's agent's `llm_model` from the `agents` store, 11px `--font-family-mono` in `--fg-muted`; empty when unknown (M25 F4 L5) |
 | `chat-new-state` | chat | The new-chat state (reference spec 5.4), shown only while a chat is pending: a `badge badge--{providerType}` whose text is the model (A20), the agent name (`h2`), the description, and `chat-pick-different-btn` (M25 F4 L4b) |
+| `chat-new-state-model` | chat | The new-chat state's model line for GleepGlorp (M36 F1 L04): the badge reads "Built in" (`badge--builtin`), this line carries the model; hidden for any other agent and with no model |
+| `chat-new-gleepglorp-setup` | chat | The new-chat state's GleepGlorp setup block (M36 F1 L04, board screen 3): the "quiet next step" (option A: a plain wrapper, no banner or warning tone; a muted line with an info icon, then the action), shown only while GleepGlorp is off ("GleepGlorp is turned off. Turn it on to chat with it."), needs a model ("Choose a model to start chatting with GleepGlorp.") or has no model provider at all ("Add a model provider to start chatting with GleepGlorp."); holds the action below |
+| `chat-new-gleepglorp-setup-live` | chat | A persistent visually hidden `role="status"` region in the new-chat state (built once, not a second banner): holds the setup sentence while the block above shows and is empty otherwise, so a screen reader announces it (WCAG 4.1.3) |
+| `chat-new-gleepglorp-setup-action` | chat | The setup block's one primary button (M36 F1 L04): "Open GleepGlorp settings" (off), "Choose a model" (needs a model; both go to `#settings/gleepglorp`) or "Add a model provider" (no providers; `#library/providers/~new`) |
+| `chat-health-banner-action` | chat | The chat health banner's button (M36 F1 L04), present only for a stored GleepGlorp chat in a `gleepglorp_off`, `gleepglorp_needs_model` or `gleepglorp_provider_missing` status: "Open GleepGlorp settings" (`#settings/gleepglorp`); the banner text is the state's sentence (off adds "Turn it on to continue this chat.") |
 | `chat-pick-different-btn` | chat | The new-chat state's "Pick a different agent" (`btn-ghost btn-sm`); opens the agent picker, and a pick replaces the pending chat (M25 F4 L4b) |
 | `chat-row` | chat | A Chats list row: an `App.ui.listPane` `<a href="#chats/{id}">` with `data-id` (rowStyle `chats`: title, time, agent, a connector's platform badge), or the pending chat's row (`data-pending="true"`, no `data-id`, href `#chats/~new/{agent}`) (M25 F4 L4a) |
 | `chat-row-delete` | chat | A Chats list row's delete action ("Delete chat: {title}"; arm, then confirm through `App.ui.confirm`); never on the pending row (M25 F4 L4a) |
@@ -213,7 +218,9 @@ caught — but it cannot see where the attribute is emitted.
 | `connector-status-label` | studio | Connector-editor header connection-status line: the root `p.ui-status` of an `App.ui.status` (its `data-state` carries the outcome; "Connection check failed" when the automatic probe gets a non-OK response), edit mode only (Squawk 0045; M31 F3 L07a) |
 | `connector-status-led` | studio | The `status`-owned LED span inside the header status line (decorative, `aria-hidden`; its class carries the state), edit mode only (Squawk 0045; M31 F3 L07a) |
 | `delete-agent-btn` | studio | |
-| `delete-blocked-message` | admin | |
+| `delete-blocked-message` | studio | Provider-editor explanation in the neutral Danger-zone box shown on open whenever the provider is in use (no Delete click first): "This provider is used by ..." with each user a `delete-user-link` (agents to their page, GleepGlorp to its Settings page), then what deleting does (HAT, M36 F1) |
+| `delete-user-link` | studio | A link to a user (agent or GleepGlorp) inside `delete-blocked-message` |
+| `delete-force-checkbox` | studio | Provider-editor "Delete anyway and clear their model" checkbox; Delete stays disabled until it is ticked, and the commit sends `?force=true` |
 | `delete-connector-btn` | studio | Connector-editor Danger Zone (M23 F02 L02) |
 | `cancel-secret-btn` | studio | Secret-editor header Cancel (`App.ui.editorShell`); enabled from the first render on the create form, else once the form is dirty (sortie 10) |
 | `save-secret-btn` | studio | Secret-editor header Save / Create (sortie 10) |
@@ -326,6 +333,35 @@ caught — but it cannot see where the attribute is emitted.
 | `knowledge-reconcile-interval-echo` | admin | Knowledge settings panel — the interval echoed in words beside the field, empty when invalid (A22, M31 F4 L10) |
 | `knowledge-settings-chunking-section` | admin | Knowledge settings panel — Chunking section container (M24 F06 L04) |
 | `knowledge-settings-embedding-section` | admin | Knowledge settings panel — Embedding (read-only) section container (M24 F06 L04) |
+| `gleepglorp-behavior-section` | admin | GleepGlorp page — the Behavior `App.ui.section` (the three switches and "Keep chats for"; M36 F1 L03) |
+| `gleepglorp-cancel-btn` | admin | GleepGlorp page — Cancel in the page header; patches the fields back to the baseline (M36 F1 L03) |
+| `gleepglorp-enabled` | admin | GleepGlorp page — the "GleepGlorp" switch (on the native input; M36 F1 L03) |
+| `gleepglorp-error` | admin | GleepGlorp page — the shell's error span after a save failure with no field of its own (M36 F1 L03) |
+| `gleepglorp-flash` | admin | GleepGlorp page — region holding the "Saved." `App.ui.status` (cleared by the next attempt or after 3 s; M36 F1 L03) |
+| `gleepglorp-intro` | admin | GleepGlorp page — the header subtitle (M36 F1 L03) |
+| `gleepglorp-load-error` | admin | GleepGlorp page — the shell's error span when the settings did not load (M36 F1 L03) |
+| `gleepglorp-memory` | admin | GleepGlorp page — the "Let GleepGlorp keep notes" switch in the Notes section (turns GleepGlorp's own notes on or off; saves at once from the last saved settings; the setting key stays `memory`; M36 F1 L03, live in L06, moved at HAT) |
+| `gleepglorp-memory-clear` | admin | GleepGlorp page — Notes section's Clear all, on the title line (through `App.confirmDialog`; acts at once, hidden with no notes; M36 F1 L06) |
+| `gleepglorp-memory-delete` | admin | GleepGlorp page — one note row's icon-only armed Delete (the two-step `App.ui.confirm`; acts at once; M36 F1 L06) |
+| `gleepglorp-memory-empty` | admin | GleepGlorp page — "No saved notes yet." inside the Notes list (M36 F1 L06) |
+| `gleepglorp-memory-error` | admin | GleepGlorp page — the Notes section's `role=alert` error line (load or change failure; M36 F1 L06) |
+| `gleepglorp-memory-list` | admin | GleepGlorp page — wrapper of the Notes rows (the shared `notes-row*` rows of `App.studio.noteRow`, or the empty line; M36 F1 L06) |
+| `gleepglorp-memory-off` | admin | GleepGlorp page — "Notes are off. GleepGlorp keeps no new notes; these stay until you delete them." (shown while the saved setting is off; M36 F1 L06) |
+| `gleepglorp-memory-section` | admin | GleepGlorp page — the Notes `App.ui.section` (M36 F1 L06) |
+| `gleepglorp-memory-usage` | admin | GleepGlorp page — the "{used} of 4,000 characters" line on the Notes title line (same words as the agent tab's `notes-usage`; M36 F1 HAT) |
+| `gleepglorp-model` | admin | GleepGlorp page — the model `<select>` (placeholder first, refilled from the chosen provider's model list; M36 F1 L03) |
+| `gleepglorp-model-error` | admin | GleepGlorp page — the model field's error element (M36 F1 L03) |
+| `gleepglorp-model-hint` | admin | GleepGlorp page — the model field's hint ("Small local models may struggle."; M36 F1 L03) |
+| `gleepglorp-model-section` | admin | GleepGlorp page — the Model `App.ui.section` (M36 F1 L03) |
+| `gleepglorp-provider` | admin | GleepGlorp page — the provider `<select>` (placeholder first; a stored provider that no longer exists shows as "Removed provider"; M36 F1 L03) |
+| `gleepglorp-provider-error` | admin | GleepGlorp page — the provider field's error element (M36 F1 L03) |
+| `gleepglorp-retention` | admin | GleepGlorp page — the "Keep chats for" number input (1 to 365 days; M36 F1 L03) |
+| `gleepglorp-retention-error` | admin | GleepGlorp page — the retention field's error element (M36 F1 L03) |
+| `gleepglorp-save-btn` | admin | GleepGlorp page — Save in the page header; PUT /api/gleepglorp (M36 F1 L03) |
+| `gleepglorp-settings` | admin | GleepGlorp page — the page body wrapper (M36 F1 L03) |
+| `gleepglorp-web` | admin | GleepGlorp page — the "Web access" switch (gives GleepGlorp `fetch_url` and `web_search`; M36 F1 L03, live in L06) |
+| `gleepglorp-web-hint` | admin | GleepGlorp page — under the Web access switch: "Web search isn't set up, so GleepGlorp can only read pages you give it." A persistent `role="status"` paragraph (always in the DOM): its text and link are present while the switch is on and `web_search_available` is false (a keyed engine with a field empty, or the tool switched off app-wide), empty otherwise (M36 F1 L06) |
+| `gleepglorp-web-hint-link` | admin | GleepGlorp page — the hint's "Set up web search" link to `#settings/tools/web_search` (M36 F1 L06) |
 | `knowledge-settings-flash` | admin | Knowledge settings panel — region holding the "Saved." `App.ui.status` (inserted on success, cleared by the next attempt or after 3 s; M31 F4 L10) |
 | `knowledge-settings-load-error` | admin | Knowledge settings panel — `GET /api/knowledge-settings` failure text, set on the shell's error span (`errorRole: 'alert'`); the fields are disabled and Save never enables (M24 F06 L04, M31 F4 L10) |
 | `knowledge-settings-monitoring-section` | admin | Knowledge settings panel — Monitoring section container (M24 F06 L04) |
@@ -420,18 +456,13 @@ caught — but it cannot see where the attribute is emitted.
 | `notes-list` | studio | the notes list (`<ul>`) (M27 F2 L3) |
 | `notes-off-message` | studio | "Notes are off. This agent can't see or write notes. Saved notes are kept." (hidden while on) (M27 F2 L3) |
 | `notes-row` | studio | one note row (`<li>`, `data-id`, `data-number`) (M27 F2 L3) |
-| `notes-row-cancel` | studio | note inline edit Cancel (M27 F2 L3) |
-| `notes-row-delete` | studio | note Delete, two-step through `App.ui.confirm` (M27 F2 L3) |
-| `notes-row-edit` | studio | note Edit; `data-note-id` (M27 F2 L3) |
-| `notes-row-edit-count` | studio | the inline edit's live "{n} / 400" count (M27 F2 L3) |
-| `notes-row-edit-input` | studio | the note inline edit textarea (M27 F2 L3) |
+| `notes-row-delete` | studio | note Delete, a 32px icon-only ghost button (aria-label "Delete note {n}"), two-step through `App.ui.confirm` (M27 F2 L3; icon only since M36 F1 HAT, where Edit went) |
 | `notes-row-edited` | studio | "Edited by you" on an operator-edited note (M27 F2 L3) |
 | `notes-row-flag` | studio | the warning-triangle (`App.ui.noteFlag`, `role=img`) on an untrusted note in the Rules and notes tab; `title` and accessible name are "Check this note: it was written after content that didn't come from you ({sources}). It may have been planted." (M27 F3 L2; replaces `notes-row-check`) |
 | `notes-row-meta` | studio | a note's meta line (time, origin, badges) (M27 F2 L3) |
 | `notes-row-origin` | studio | the note's origin: chat link, "(chat deleted)", platform and peer, or "Outside a chat" (M27 F2 L3) |
 | `notes-row-origin-link` | studio | the origin `<a>` to `#chats/{id}` when the chat still exists (M27 F2 L3) |
 | `notes-row-platform` | studio | a connector origin's platform badge (M27 F2 L3) |
-| `notes-row-save` | studio | note inline edit Save (M27 F2 L3) |
 | `notes-row-text` | studio | the note's text paragraph (M27 F2 L3) |
 | `notes-row-time` | studio | the note's time ("Updated …" when edited) (M27 F2 L3) |
 | `notes-section` | studio | the Notes section of the Rules and notes tab (M27 F2 L3) |
@@ -586,7 +617,6 @@ caught — but it cannot see where the attribute is emitted.
 | `routine-run-now` | studio | the actions menu's Run now item; `aria-disabled` while the routine is running and for a Done routine (M33 F1 L8; menu M33 F4 L03) |
 | `routine-schedule` | studio | the schedule sentence ("Daily at 9:00 AM", "Every 2 hours", …) (M33 F1 L8) |
 | `routine-toggle` | studio | a routine's on/off `App.ui.toggle` input (`role=switch`, name "Enable {name}"; the switch is hidden on a Done row) (M33 F1 L8; M33 F4 L03) |
-| `routines-default-agent` | studio | Routines tab notice for the `default` agent ("Routines need a named agent.") (M33 F1 L8) |
 | `routines-empty` | studio | Routines tab empty state (M33 F1 L8) |
 | `routines-error` | studio | the Routines tab's list-level error line (M33 F1 L8) |
 | `routines-live` | studio | the Routines tab's visually hidden polite status line (Run now start and finish) |
@@ -671,7 +701,7 @@ too-large or cut-off source.
 | `mcp-tools-checkbox-group-` | studio | |
 | `mcp-tools-error-` | studio | |
 | `rail-` | shell | Workbench rail destination links, suffixed with the destination id (`rail-chats`, `rail-agents`, `rail-library`, `rail-settings`) — set by `js/app.js` through `App.ui.rail`'s per-item test id option (M25 F2 L6) |
-| `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
+| `settings-nav-` | admin | Settings nav links, suffixed with the page's route section (`settings-nav-gleepglorp`, `settings-nav-appearance`, `-prompts`, `-encryption`, `-tools`, `-knowledge-indexing`); plain `<a href="#settings/{section}">`, the selected one `aria-current="page"` (M25 F3 L5a, DD6) |
 | `tab-` | admin, studio | `tab-{id}` from `App.ui.tabs` items (ids `tools-tab-{id}` / `tools-panel-{id}` on the Built-in tools page, `idPrefix: 'tools'`, M31 F4 L06): the Built-in tools page's tabs and (M31 F2 L06a, now built from the item id) the agent editor's six: `tab-general`, `tab-rules-and-notes` (label "Rules and notes", route `#agents/{name}/rules-and-notes`, M27 F1 L2), `tab-knowledge`, `tab-tools` (label "Tools"), `tab-routines` (label "Routines", route `#agents/{name}/routines`, M33 F1 L8), `tab-self-configuration` |
 
 ## Manual exceptions (variable-carried literals)
@@ -708,6 +738,8 @@ again. A retired id cannot come back.
 | `mcp-agent-cred-row-` | studio | Sortie 09 L06 — a `role=group` row (also covers the retired `-row-error-`); rows are `tr[data-rid]` in `mcp-agent-cred-table-{id}` |
 | `mcp-agent-cred-empty-` | studio | Sortie 09 L06 — the "This server sets no headers." note |
 | `mcp-refresh-tools-btn-` | studio | Sortie 09 L06 — the tile's Refresh button; Test (`mcp-agent-cred-test-`) does a fresh per-agent listing |
+| `routines-default-agent` | studio | Mission 36 F1 L02 — the Routines tab's "Routines need a named agent." note for an agent named `default`; the name is reserved and no such agent can exist |
+| `self-config-routines-default-agent` | studio | Mission 36 F1 L02 — the Routines item's same note on the Self-configuration tab |
 | `revision-history-summary` | studio | M33 F4 L06 — the Self-configuration tab's nested "History (N)" disclosure is the Agent prompt card's "History" expander; its summary is `revision-history-details-summary` |
 | `routine-form-schedule` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the Schedule radio group (Once, Daily, Weekdays, Weekly, Every N hours); fenced EXACTLY (`RETIRED_EXACT`): the live `routine-form-schedule-error` and `-hint` are unaffected |
 | `routine-form-schedule-readonly` | studio | M33 F3 L7 — the five-kind routine form is replaced by the calendar recurrence (start date and time, Repeat select, Custom recurrence dialog) — the read-only note over a schedule the old form could not express; every stored recurrence now opens in the form (M33 F3 L4 interim, removed in L7) |
@@ -784,3 +816,8 @@ again. A retired id cannot come back.
 | `chat-chart-placeholder-source` | chat | Sortie 16 L04 — the placeholder's "Show source" disclosure; went with `chat-chart-placeholder` |
 | `chat-widget-placeholder` | chat | Sortie 16 L04 (DD3, DD10) — the "Rendering widget" card held while a widget block streamed; a widget is mounted when the reply lands |
 | `chat-widget-placeholder-source` | chat | Sortie 16 L04 — the placeholder's "Show source" disclosure; went with `chat-widget-placeholder` |
+| `notes-row-edit` | studio | M36 F1 HAT (operator) — notes are deleted, never edited, in the UI: the row's Edit button went (the `PUT /api/agents/{name}/notes/{id}` route stays) |
+| `notes-row-edit-count` | studio | M36 F1 HAT — the inline note editor's count; went with `notes-row-edit` |
+| `notes-row-edit-input` | studio | M36 F1 HAT — the inline note editor's textarea; went with `notes-row-edit` |
+| `notes-row-save` | studio | M36 F1 HAT — the inline note editor's Save; went with `notes-row-edit` |
+| `notes-row-cancel` | studio | M36 F1 HAT — the inline note editor's Cancel; went with `notes-row-edit` |

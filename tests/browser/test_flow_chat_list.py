@@ -144,7 +144,7 @@ def test_groups_boundaries_times_and_cross_agent_rows(
     """Day 0, 1, 2, 6, 7, 29, 30 and 400 land in Today, Yesterday, Last 7 days
     (2 and 6), Last 30 days (7 and 29) and Older (30 and 400), newest first,
     under sentence-case captions, with h:mm AM/PM / weekday / "Mon D" times. The
-    rows interleave agents, a null agent reads "Default agent", and a connector
+    rows interleave agents, a null agent reads "Unknown agent", and a connector
     row carries its platform as a neutral badge pill."""
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
     other = seed_mock_agent(base, app_with_agent.provider_id, name="Beta")
@@ -193,7 +193,7 @@ def test_groups_boundaries_times_and_cross_agent_rows(
     rows = {g["group"]: [(r["label"], r["time"], r["meta"]) for r in g["rows"]] for g in got}
     assert rows == {
         "Today": [("Fresh chat", _hhmm(st[0]), agent), ("Early chat", _hhmm(st[1]), "Beta")],
-        "Yesterday": [("Default chat", WEEKDAYS[st[2]["wd"]], "Default agent")],
+        "Yesterday": [("Default chat", WEEKDAYS[st[2]["wd"]], "Unknown agent")],
         "Last 7 days": [
             ("Two days", WEEKDAYS[st[3]["wd"]], "Beta"),
             ("Six days", WEEKDAYS[st[4]["wd"]], agent),
@@ -392,7 +392,9 @@ def test_empty_list_says_no_conversations_yet(app_with_agent: SeededApp, page: P
 def test_new_chat_disabled_while_setup_is_incomplete(app_clean: str, page: Page) -> None:
     """No provider or no agent: New chat is natively disabled (the welcome's
     guidance explains why) and App.chat.openPicker is an inert no-op. With
-    setup complete (the next activation re-reads it) it is enabled."""
+    setup complete (the next activation re-reads it) it is enabled. GleepGlorp is off here: while
+    it is on, New chat works with no agent (test_flow_chat_gleepglorp.py)."""
+    _chats.gleepglorp_off(app_clean)
     _nav.goto(page, app_clean, "chats")
     expect(_chats.welcome(page)).to_be_visible(timeout=8000)
     expect(page.locator(".chat-welcome-guidance")).to_be_visible()

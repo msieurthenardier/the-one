@@ -797,33 +797,3 @@ def test_time_zone_change_repaints_times_without_a_refetch(
     page.evaluate("() => App.time.setZone('Pacific/Kiritimati')")
     expect(nxt).not_to_have_text(before, timeout=5000)
     assert len(reqs) == 1, reqs
-
-
-def test_default_agent_shows_the_named_agent_notice(app_with_agent: SeededApp, page: Page) -> None:
-    base = app_with_agent.base_url
-    r = httpx.post(
-        f"{base}/api/agents",
-        json={
-            "name": "default",
-            "provider_config_id": app_with_agent.provider_id,
-            "llm_model": "mock-default",
-            "system_prompt": "x",
-        },
-        headers=auth_headers_for(base),
-        timeout=5,
-    )
-    assert r.status_code in (200, 201), r.text
-    reqs: list[str] = []
-    page.on(
-        "request",
-        lambda r: (
-            reqs.append(r.url)
-            if "/api/" in r.url and "/routines" in r.url and "/self-configuration/" not in r.url
-            else None
-        ),
-    )
-    _nav.goto(page, base, "agents/default/routines")
-    expect(page.locator('[data-testid="routines-default-agent"]')).to_have_text(
-        "Routines need a named agent.", timeout=8000
-    )
-    assert reqs == []

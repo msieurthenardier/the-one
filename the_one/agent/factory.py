@@ -17,6 +17,7 @@ from the_one.config import settings
 from the_one.db._provider_types import PROVIDER_TYPE_LABELS
 from the_one.llm import get_provider
 from the_one.llm.registry import PROVIDER_TYPE_MAP
+from the_one.naming import GLEEPGLORP_AGENT_NAME
 from the_one.secret_store.runtime import SecretResolver
 from the_one.self_configuration.constants import override_for
 from the_one.time_zones import CURRENT_TIME_TOOL_NAME
@@ -317,6 +318,20 @@ class ProviderNotConfiguredError(ValueError):
     """
 
 
+class GleepGlorpUnavailableError(ProviderNotConfiguredError):
+    """GleepGlorp cannot be built: it is off, has no model, or its provider is gone.
+
+    ``state`` is the setting's derived state (``off``, ``needs_model`` or
+    ``provider_missing``).
+    """
+
+    def __init__(self, state: str) -> None:
+        from the_one.gleepglorp.messages import unavailable_sentence
+
+        self.state = state
+        super().__init__(unavailable_sentence(state))
+
+
 class AgentFactory:
     """Creates configured Agent instances from named agent definitions."""
 
@@ -362,10 +377,29 @@ class AgentFactory:
             routines_provider if routines_provider is not None else _RoutineToolProvider()
         )
 
-    async def create(self, name: str = "default") -> Agent:
-        """Create an Agent instance from a named config."""
+    async def create(self, name: str = GLEEPGLORP_AGENT_NAME) -> Agent:
+        """Create an Agent instance from a named config.
+
+        The exact name ``GleepGlorp`` (M36 F1 L03, DD1) builds the built-in assistant
+        from its settings: it has no ``agents`` row. Every other name is a stored agent.
+        """
         settings.ensure_dirs()
-        config = await self._load_config(name)
+        if name == GLEEPGLORP_AGENT_NAME:
+            from the_one.db.connection import get_connection as _get_conn
+            from the_one.gleepglorp import settings as gg_settings
+            from the_one.gleepglorp.build import gleepglorp_config
+
+            _conn = await _get_conn()
+            gg = await gg_settings.load_settings(_conn)
+            gg_state = await gg_settings.state(_conn, gg)
+            if gg_state != "ready":
+                raise GleepGlorpUnavailableError(gg_state)
+            return await self._build(gleepglorp_config(gg), gleepglorp=True)
+        return await self._build(await self._load_config(name))
+
+    async def _build(self, config: AgentConfig, *, gleepglorp: bool = False) -> Agent:
+        """Build an Agent from a resolved config (a stored agent's, or GleepGlorp's)."""
+        name = config.name
 
         if config.provider_config_id is None:
             raise ProviderNotConfiguredError(
@@ -446,6 +480,21 @@ class AgentFactory:
         # engine API keys (M16 F08 L03) — not the masked admin-GET view.
         tool_configs_by_name = {c.name: c.merged_config() for c in configs}
         disabled_names = {c.name for c in configs if not c.enabled}
+        if gleepglorp:
+            # M36 F1 L06: web search needs a usable engine (a keyed one with a field empty
+            # is not); the same function feeds `web_search_available` in the settings.
+            from the_one.gleepglorp.web import search_configured
+
+            if not search_configured(
+                tool_configs_by_name.get("web_search"), enabled="web_search" not in disabled_names
+            ):
+                config = config.model_copy(
+                    update={
+                        "enabled_tools": [
+                            t for t in config.enabled_tools or [] if t != "web_search"
+                        ]
+                    }
+                )
         agent_overrides = config.tool_overrides or {}
 
         # 3. Build filtered tool registry — fresh ToolRegistry per call,
@@ -485,6 +534,12 @@ class AgentFactory:
         # agent's cold per-agent cache (filled by that listing) is visible to the
         # index in the same build. They are registered further down, unchanged.
         built_mcp_tools: list[Any] | None = None
+        if gleepglorp:
+            # DD1: GleepGlorp's config carries no MCP, knowledge or routines (its notes are
+            # its own, behind the `memory` setting).
+            assert not (
+                config.mcp_source_ids or config.kb_ids or config.routines_self_config_enabled
+            )
         if self.mcp_provider is not None and config.mcp_source_ids:
             built_mcp_tools = await self.mcp_provider.get_tools_for_agent(config, agent_name=name)
         if config.mcp_source_ids and self.mcp_provider is not None:
@@ -508,6 +563,17 @@ class AgentFactory:
                 agent_name=name,
             )
         )
+
+        if gleepglorp:
+            # M36 F1 L05 (DD5): GleepGlorp's one read tool. Registered here, outside every
+            # tool filter (it is not a built-in, so no agent but GleepGlorp can have it).
+            from the_one.gleepglorp.read_tool import ReadAppConfigTool
+
+            registry.register(ReadAppConfigTool(agent_name=name))
+            # M36 F1 L07 (DD6): the app guide, shipped help text (trusted in the taint rule).
+            from the_one.gleepglorp.guide_tool import GetAppGuideTool
+
+            registry.register(GetAppGuideTool(agent_name=name))
 
         for provider in self.tool_providers:
             # Mission 23 Flight 1 (backend-removal leg): this used to branch
@@ -619,7 +685,8 @@ class AgentFactory:
         from the_one.db.repositories import agent_names_in_use
 
         try:
-            connector_bound = config.name in await agent_names_in_use(conn)
+            # A connector cannot bind GleepGlorp (M36 F1 L02), so it never gets the pair.
+            connector_bound = not gleepglorp and config.name in await agent_names_in_use(conn)
         except (sqlite3.Error, ValueError):  # fail open to the pre-DD7 behaviour (seed the pair)
             logger.warning("Could not read connector bindings; seeding the pair", exc_info=True)
             connector_bound = True
@@ -683,27 +750,39 @@ class AgentFactory:
         if tool_exposure.decided:
             loaded_schemas.extend(to_append)
             loaded_tool_names.update(exposure_names)
+        if gleepglorp:
+            # DD1: every tool GleepGlorp has is in its starting set whatever the exposure
+            # decision (`current_time` is seeded above; this seeds `read_app_config`).
+            for n in registry.tool_names:
+                if n != SEARCH_TOOLS_SCHEMA["name"] and n not in loaded_tool_names:
+                    loaded_schemas.append(registry.get(n).to_schema())
+                    loaded_tool_names.add(n)
 
         # 3. Resolve system prompt
-        caps = capabilities_from_registry(
-            registry,
-            notes=bool(notes_tools),
-            rules=True,
-            time_tool=tool_available,
-            tools_preloaded=tool_exposure.decided,
-            visuals=config.rich_visuals,
-        )
-        prompts = await build_system_prompts(
-            config.name,
-            config.system_prompt,
-            conn=conn,
-            tool_available=tool_available,
-            knowledge=caps.knowledge,
-            time_tool=caps.time_tool,
-            exec_tools=caps.exec_tools,
-            tools_preloaded=caps.tools_preloaded,
-            visuals=caps.visuals,
-        )
+        if gleepglorp:
+            from the_one.gleepglorp.prompt import build_prompts as _gg_prompts
+
+            prompts = await _gg_prompts(conn, tool_available=tool_available)
+        else:
+            caps = capabilities_from_registry(
+                registry,
+                notes=bool(notes_tools),
+                rules=True,
+                time_tool=tool_available,
+                tools_preloaded=tool_exposure.decided,
+                visuals=config.rich_visuals,
+            )
+            prompts = await build_system_prompts(
+                config.name,
+                config.system_prompt,
+                conn=conn,
+                tool_available=tool_available,
+                knowledge=caps.knowledge,
+                time_tool=caps.time_tool,
+                exec_tools=caps.exec_tools,
+                tools_preloaded=caps.tools_preloaded,
+                visuals=caps.visuals,
+            )
 
         # 4. Create agent
         # F10 L1: pass the shared containers so the Agent's
@@ -731,24 +810,13 @@ class AgentFactory:
         return agent
 
     async def list_agents(self) -> list[str]:
-        """List all available agent names (stored + default)."""
+        """List the stored agent names (GleepGlorp is not an agent)."""
         if self.store is None:
-            return ["default"]
-        names = set(await self.store.list_agents())
-        names.add("default")
-        return sorted(names)
+            return []
+        return sorted(await self.store.list_agents())
 
     async def _load_config(self, name: str) -> AgentConfig:
-        """Load config from store, falling back to default for 'default'."""
+        """Load a stored agent's config; an unknown name is an error."""
         if self.store is not None and await self.store.exists(name):
             return await self.store.load(name)
-        if name == "default":
-            return self._default_config()
         raise AgentNotFoundError(f"Unknown agent: {name}")
-
-    def _default_config(self) -> AgentConfig:
-        """Synthesize the default agent config from current settings."""
-        return AgentConfig(
-            name="default",
-            description="General-purpose agent with full tool access",
-        )

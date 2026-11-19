@@ -1,0 +1,16 @@
+# GleepGlorp, tool-free: the provider reports no tool support, so the tool-free prompt and
+# no tool schemas.
+id = "measure-gg-tool-free"
+class = "hold"
+description = "GleepGlorp: tool-free prompt."
+
+[agent]
+builder = "gleepglorp"
+web_access = true
+tools_off = true
+
+[[conversations]]
+turns = ["Hello."]
+
+[[checks]]
+name = "date_line_present"

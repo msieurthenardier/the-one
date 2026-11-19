@@ -1,0 +1,21 @@
+# GleepGlorp with memory on and two notes: the notes layer's size (heading plus the notes).
+id = "measure-gg-notes-on"
+class = "hold"
+description = "GleepGlorp: tool-capable prompt, web access on, memory on with two notes."
+
+[agent]
+builder = "gleepglorp"
+web_access = true
+notes_enabled = true
+
+[[agent.seeded_notes]]
+text = "NOTE-ONE: The operator keeps all agents on the local Ollama provider."
+
+[[agent.seeded_notes]]
+text = "NOTE-TWO: The operator only uses the Discord connector."
+
+[[conversations]]
+turns = ["Hello."]
+
+[[checks]]
+name = "date_line_present"

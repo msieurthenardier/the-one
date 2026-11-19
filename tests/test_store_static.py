@@ -300,7 +300,11 @@ def test_mcp_list_stale_callback_follows_the_non_save_invalidations() -> None:
 
 def test_oauth_and_provider_mutations_invalidate_providers() -> None:
     src = _src("areas/studio/provider-editor.js")
-    assert src.count("App.store.invalidate('providers')") >= 4  # code, reset, save, delete
+    assert src.count("App.store.invalidate('providers')") >= 3  # code, reset, save
+    # delete moved to provider-delete.js (M36 F1 HAT): it also invalidates agents and sessions
+    delete_src = _src("areas/studio/provider-delete.js")
+    for name in ("providers", "agents", "sessions"):
+        assert f"App.store.invalidate('{name}')" in delete_src
 
 
 def test_cross_collection_mutations_invalidate_agents() -> None:

@@ -34,6 +34,22 @@
      echo beside it. */
   .area-admin .knowledge-interval-row { display: flex; align-items: center; gap: var(--space-3); }
   .area-admin .knowledge-interval-echo { font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
+  /* GleepGlorp page (M36 F1 L03): the retention field's short input with its "days" unit. */
+  .area-admin .gleepglorp-retention-row { display: flex; align-items: center; gap: var(--space-3); }
+  .area-admin .gleepglorp-days { font-size: var(--font-size-body-sm); color: var(--fg-secondary); }
+  /* GleepGlorp page (M36 F1 L06): the web-search hint under its switch and the Memory section. */
+  .area-admin .gleepglorp-web-hint,
+  .area-admin .gleepglorp-memory-off,
+  .area-admin .gleepglorp-memory-empty {
+    margin: 0;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    line-height: var(--line-height-normal);
+  }
+  .area-admin .gleepglorp-memory-error { margin: 0; font-size: var(--font-size-body-sm); color: var(--status-danger); }
+  /* The empty live region still takes a stack gap: cancel it so the three switches are
+     evenly spaced. */
+  .area-admin .gleepglorp-web-hint:empty { margin-top: calc(-1 * var(--space-3)); }
   /* Prompts page (M31 F4 L08b): the layers are App.ui.section stacks and every text an
      App.ui.codeBlock, so the rhythm and the block look are the library's. Only the
      page's own parts are styled here: the variant sub-heading (a plain semibold line,

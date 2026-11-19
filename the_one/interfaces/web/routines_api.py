@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, StrictBool
 
 from the_one import time_zones
-from the_one.naming import NameRuleError, name_rule_detail
+from the_one.naming import NameRuleError, is_reserved_agent_name, name_rule_detail
 from the_one.routines import limits as routine_limits
 from the_one.routines import recurrence, recurrence_text
 from the_one.routines import runner as routine_runner
@@ -58,8 +58,6 @@ router = APIRouter()
 # Bodies are parsed by hand so a 422 never echoes submitted text. Nothing here
 # runs a routine: the runner, Run now and the scheduler poke come in later legs.
 
-_DEFAULT_AGENT = "default"
-
 
 def _routine_422(field: str, message: str) -> HTTPException:
     return HTTPException(
@@ -69,7 +67,7 @@ def _routine_422(field: str, message: str) -> HTTPException:
 
 
 async def _routines_agent_or_404(name: str) -> None:
-    if name == _DEFAULT_AGENT:
+    if is_reserved_agent_name(name):
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     await _api._load_agent_or_404(name)
 
@@ -154,7 +152,7 @@ async def list_agent_routines(name: str) -> dict[str, Any]:
 
 @router.post("/agents/{name}/routines", status_code=201)
 async def create_agent_routine(name: str, request: Request) -> dict[str, Any]:
-    if name == _DEFAULT_AGENT:
+    if is_reserved_agent_name(name):
         raise HTTPException(status_code=422, detail="Routines need a named agent.")
     data = await _routine_body(request)
     await _api._load_agent_or_404(name)
@@ -244,7 +242,7 @@ class _RoutinesSwitchesBody(BaseModel):
 
 
 async def _routines_switch_agent(name: str) -> "AgentConfig":
-    if name == _DEFAULT_AGENT:
+    if is_reserved_agent_name(name):
         raise HTTPException(status_code=422, detail=routine_service.MSG_NAMED_AGENT)
     _store, config = await _api._load_agent_or_404(name)
     return config

@@ -53,6 +53,27 @@ def check_name(value: object) -> str:
     return stripped
 
 
+GLEEPGLORP_AGENT_NAME = "GleepGlorp"
+RESERVED_AGENT_NAMES = frozenset({"default", "gleepglorp"})  # casefolded
+
+
+def is_reserved_agent_name(name: object) -> bool:
+    """True when ``name`` is, in any case, a name no stored agent may hold."""
+    return isinstance(name, str) and name.strip().casefold() in RESERVED_AGENT_NAMES
+
+
+def check_agent_name(value: object) -> str:
+    """:func:`check_name`, then refuse the reserved agent names (any case)."""
+    stripped = check_name(value)
+    if stripped.casefold() == "gleepglorp":
+        raise NameRuleError(
+            f"“{stripped}” is the name of the built-in assistant. Choose another name."
+        )
+    if stripped.casefold() == "default":
+        raise NameRuleError(f"“{stripped}” is a reserved name. Choose another name.")
+    return stripped
+
+
 def name_rule_detail(message: str, loc: str = "name") -> list[dict]:
     """A 422 body shaped like pydantic's, so the client maps it to the field."""
     return [{"type": "name_rule", "loc": [loc], "msg": message}]

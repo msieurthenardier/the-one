@@ -101,7 +101,7 @@ Model providers, knowledge bases, MCP servers, connectors and secrets live here,
 
 ### Settings
 
-Settings holds the defaults every agent starts from under Built-in tools (path allowlist, timeouts, sandbox network, web search engine), and Knowledge indexing for all knowledge bases. Appearance switches between light, dark and auto, Date and time picks the time zone agents and the app use, Prompts shows the built-in prompt layers, and Encryption can rotate the key that protects your stored secrets.
+Settings starts with GleepGlorp, the built-in assistant: choose its model provider and model, turn it on or off and set how long its chats are kept. It also holds the defaults every agent starts from under Built-in tools (path allowlist, timeouts, sandbox network, web search engine), and Knowledge indexing for all knowledge bases. Appearance switches between light, dark and auto, Date and time picks the time zone agents and the app use, Prompts shows the built-in prompt layers, and Encryption can rotate the key that protects your stored secrets.
 
 ### Anywhere
 

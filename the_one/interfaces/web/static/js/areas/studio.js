@@ -424,52 +424,13 @@ App.registerArea({
     }
     self._discardOpen = discardOpen_;
 
-    // ── The item header's breadcrumb link (M25 F3 L4b; DD2 refinement) ──────
-    // Every Agents and Library item header (the agent editor, the knowledge-
-    // base detail and `~new` form, the MCP and connector editors) shows
-    // "Agents" or "Library / {Group}" with its last segment a link to the
-    // destination or section root (`editor-breadcrumb-link`, built by each
-    // editor). With Back retired it is the visible way to close an item. A
-    // plain activation (a click, or Enter on the link) is routed here, ahead
-    // of App.nav's document-level interceptor: an intent go() to the root, so
-    // the router's guard asks once about a dirty editor and the root's hydrate
-    // closes the item (closeOpenItem). Once it has navigated, focus goes to
-    // the closed item's row (DD8); a create form has no row, so focus goes
-    // where Cancel on a create form sends it (the section's first row, else
-    // the list's primary action). The focus waits one task: after a Continue,
-    // nav.js focuses <main> from a setTimeout, and the row must land last.
-    // Modified clicks (new tab, etc.) keep the browser's behaviour.
-    function closingItem_() {
-      var section = self._activeSection;
-      return { section: section, rowId: section === 'agents' ? agentsListMod.selection() : libraryPane.selection() };
-    }
-
-    function focusClosedItem_(closing) {
-      // The user moved on: an Agents close must still be on Agents, a Library
-      // close at the Library root (DD1) with nothing open.
-      if (self._activeSection !== (closing.section === 'agents' ? 'agents' : 'library')) return;
-      if (closing.section === 'agents') {
-        if (!agentsListMod.isOpen() || self._selectedAgent || self._createMode) return;
-        agentsListMod.focusNear(closing.rowId != null ? agentsListMod.indexOf(closing.rowId) : 0);
-        return;
-      }
-      if (!libraryPane.isOpen() || !libraryPane.atRoot()) return;
-      if (closing.rowId != null) libraryPane.focusNear(libraryPane.rowIndex(closing.rowId));
-      else libraryPane.focusGroupStart(closing.section);
-    }
-
-    function onBreadcrumbClick(e) {
-      if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-      var link = e.target && typeof e.target.closest === 'function'
-        ? e.target.closest('a[data-testid="editor-breadcrumb-link"]') : null;
-      if (!link || !content.contains(link)) return;
-      e.preventDefault();
-      var closing = closingItem_();
-      App.router.go(link.getAttribute('href'), { opener: link }).then(function (navigated) {
-        if (navigated) setTimeout(function () { focusClosedItem_(closing); }, 0);
-      });
-    }
-    content.addEventListener('click', onBreadcrumbClick);
+    // The item header's breadcrumb link (M25 F3 L4b), in studio/studio-breadcrumb.js.
+    App.studio.breadcrumb.create({
+      self: self,
+      content: content,
+      libraryPane: libraryPane,
+      agentsList: function () { return agentsListMod; }
+    });
 
     function setActiveSection(section, options) {
       options = options || {};
@@ -592,66 +553,19 @@ App.registerArea({
     }
     self._writeUrl = writeUrl_;
 
-    // Studio keeps its own copies (self._agents / self._allProviders), so a
-    // store load that Studio did not initiate (Chats activation, a Library KB
-    // rename that invalidated 'agents') would otherwise leave them stale.
-    // Studio's own loadAll assigns directly, so notifications are ignored
-    // while one is in flight.  Detail-shaped objects are never written back
-    // to the store: this only reads the notified (list-shaped) copy.
-    // The Agents list re-renders on every notification (M25 F3 L3): it sits
-    // beside the editor, so an open agent or create form no longer hides it.
-    App.store.subscribe('agents', function (list) {
-      if (agentData.loadAllDepth() > 0 || !self._agentsLoaded) return;
-      self._agents = list;
-      agentsListMod.render();
-      // The open editor follows the refreshed NOTICES only (sortie 07 L05); the selected
-      // agent's row in the fresh list, never its other fields, so an unsaved edit is kept.
-      var sel = self._selectedAgent && self._selectedAgent.name;
-      if (sel && controller) {
-        for (var ai = 0; ai < list.length; ai++) {
-          if (list[ai].name === sel) { controller.setNotices(sel, list[ai].notices || []); break; }
-        }
-      }
+    // The store subscriptions that keep the agent and Library caches current
+    // (studio/studio-subscriptions.js), registered once for the page's lifetime.
+    App.studio.subscriptions.create({
+      self: self,
+      state: state,
+      agentData: agentData,
+      libraryPane: libraryPane,
+      providersSection: providersSection,
+      mcpGlue: mcpGlue,
+      connectorGlue: connectorGlue,
+      agentsList: function () { return agentsListMod; },
+      controller: function () { return controller; }
     });
-    App.store.subscribe('providers', function (list) {
-      if (agentData.loadAllDepth() > 0 || !self._agentsLoaded) return;
-      self._allProviders = list;
-      agentsListMod.render(); // the provider dots and names
-    });
-    // The Library list's five subscriptions (M25 F3 L4a; providers, sortie 02), registered once for
-    // the page's lifetime: they always feed the section caches and re-attempt
-    // a pending MCP / connector consume (an intent whose item was not cached),
-    // and they render the list only while the Library pane exists. A bare
-    // notification never scrolls the list.
-    App.store.subscribe('providers', function (list) {
-      state.providersCache = list;
-      if (self._activeSection === 'providers' && providersSection.pendingMode() === 'edit') {
-        providersSection.consume(true);
-      }
-      libraryPane.render();
-    });
-    App.store.subscribe('knowledge-bases', function (list) {
-      state.knowledgeBases = list;
-      libraryPane.render();
-    });
-    App.store.subscribe('mcp-sources', function (list) {
-      state.mcpSources = list;
-      if (self._activeSection === 'mcp-sources' && self._pendingMcpSourceFormMode === 'edit') {
-        mcpGlue.tryConsumePending(true);
-      }
-      libraryPane.render();
-    });
-    App.store.subscribe('connectors', function (list) {
-      state.connectors = list;
-      if (self._activeSection === 'connectors' && state.pendingConnectorFormMode === 'edit') {
-        connectorGlue.tryConsumePending(true);
-      }
-      libraryPane.render();
-    });
-    App.store.subscribe('agents', function () {
-      libraryPane.render(); // the "{n} agents" counts
-    });
-
 
     self._refresh = function () {
       agentData.loadAll(true).then(function () {

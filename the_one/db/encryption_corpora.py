@@ -1,4 +1,6 @@
-"""The eight encrypted corpora, gathered decrypted (M31 F4 L08b; secret values: sortie 10).
+"""The nine encrypted (table, column) pairs, gathered decrypted.
+
+(M31 F4 L08b; secret values: sortie 10.)
 
 One gather shared by the key-rotation route (``POST /api/encryption/rotate``,
 which then re-encrypts and writes every corpus under a new key) and the
@@ -9,8 +11,8 @@ The corpora are the ones the rotate route's docstring lists: provider
 ``api_key``, provider ``secrets``, MCP source ``secrets``, connector
 ``secrets``, agent ``tool_overrides`` / ``mcp_overrides``, tool config
 ``secrets``, external-credential ``secret`` and Library secret values
-(``secret_values.value``, the eighth; nine (table, column) pairs in all, since providers
-hold two).
+(``secret_values.value``, the ninth (table, column) pair; an agent's two override
+columns share one gathered list, so ``Corpora`` holds eight lists).
 
 ``strict=True`` is the rotation's decrypt policy: the provider ``api_key`` and
 the external-credential ``secret`` decrypt strictly (an ``InvalidToken`` aborts
@@ -87,7 +89,7 @@ async def _rows(
 async def gather_corpora(
     conn: aiosqlite.Connection, encryptor: Encryptor, *, strict: bool
 ) -> Corpora:
-    """Decrypt the eight corpora. See the module docstring for ``strict``."""
+    """Decrypt the nine encrypted columns. See the module docstring for ``strict``."""
     c = Corpora()
     c.api_keys = await _rows(
         conn,

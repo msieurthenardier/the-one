@@ -2664,7 +2664,8 @@ class TestProviderDeletionProtection:
 
         resp = await client.delete(f"/api/providers/{pid}")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        # The response carries `cleared` since the M36 F1 delete override (empty here).
+        assert resp.json() == {"status": "ok", "cleared": []}
 
         # Verify it's actually gone
         resp = await client.get(f"/api/providers/{pid}")

@@ -21,6 +21,7 @@
   window.App = window.App || {};
 
   var PAGES = [
+    { section: 'gleepglorp', label: 'GleepGlorp', group: 'Assistant' },
     { section: 'appearance', label: 'Appearance', group: 'General' },
     { section: 'date-and-time', label: 'Date and time', group: 'General' },
     { section: 'prompts', label: 'Prompts', group: 'General' },

@@ -1,0 +1,47 @@
+id = "whats-configured"
+class = "improve"
+description = "What is set up in the app? GleepGlorp reads the configuration and names the seeded agents and what they do."
+
+[agent]
+builder = "gleepglorp"
+skip_empty_final_reply = true
+
+[[app.agents]]
+name = "{agent}"
+description = "{desc}"
+system_prompt = "You {desc}. Keep answers short."
+
+[[app.agents]]
+name = "{other}"
+description = "{other_desc}"
+system_prompt = "You {other_desc}."
+
+[variants]
+phrasings = [
+  "What does my {agent} agent do?",
+  "Tell me about the {agent} agent I set up.",
+  "I forgot what {agent} is for. Can you check?",
+  "Which agents do I have, and what is {agent} for?",
+]
+facts = [
+  {agent = "Trip Planner", desc = "plan holidays and build day-by-day itineraries", pat = '(?i)holiday|itinerar', other = "Ledger Keeper", other_desc = "reconcile monthly bank statements"},
+  {agent = "Ledger Keeper", desc = "reconcile monthly bank statements", pat = '(?i)reconcil|bank statement', other = "Recipe Buddy", other_desc = "suggest dinners from what is in the pantry"},
+  {agent = "Recipe Buddy", desc = "suggest dinners from what is in the pantry", pat = '(?i)dinner|pantry', other = "Trip Planner", other_desc = "plan holidays and build itineraries"},
+  {agent = "Garden Helper", desc = "track watering schedules for the allotment", pat = '(?i)watering|allotment', other = "Ledger Keeper", other_desc = "reconcile monthly bank statements"},
+  {agent = "Code Reviewer", desc = "review pull requests for style problems", pat = '(?i)pull request|style|review', other = "Garden Helper", other_desc = "track watering schedules"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+[[checks]]
+name = "tool_called"
+pattern = 'read_app_config'
+cell = "configured-read"
+class = "improve"
+
+[[checks]]
+name = "reply_matches"
+pattern = '{pat}'
+cell = "configured-answer"
+class = "improve"

@@ -240,6 +240,7 @@ App.registerArea({
       renderChatsList: renderChatsList,
       applyComposerState: applyComposerState,
       setSessionHealth: setSessionHealth,
+      setupBlocked: setupBlocked,
       refreshAgentsAndSetup: refreshAgentsAndSetup,
       showChrome: showChrome,
       showWelcome: showWelcome,
@@ -313,8 +314,16 @@ App.registerArea({
         pane.renderNewState(null);
       }
       chromeEl.classList.toggle('chat-chrome--new', pending);
-      composer.setPlaceholder(composerAgent ? 'Message ' + String(composerAgent) + '…' : 'Message…');
-      composer.setModel(composerAgent ? App.chat.chatPane.agentInfo(composerAgent, agents, providers).model : '');
+      var composerInfo = composerAgent ? App.chat.chatPane.agentInfo(composerAgent, agents, providers) : null;
+      var placeholder = composerAgent ? 'Message ' + String(composerAgent) + '…' : 'Message…';
+      if (pending && !state.validating && composerInfo && composerInfo.gleepglorp
+          && composerInfo.state && composerInfo.state !== 'ready') {
+        // M36 F1 HAT: a blocked pending GleepGlorp chat names its next step.
+        placeholder = composerInfo.state === 'off' ? 'GleepGlorp is turned off…'
+          : (!composerInfo.hasProviders ? 'Add a model provider first…' : 'Choose a model first…');
+      }
+      composer.setPlaceholder(placeholder);
+      composer.setModel(composerInfo ? composerInfo.model : '');
       composer.slots.telemetry.hidden = name !== 'joined';
     }
 
@@ -418,8 +427,24 @@ App.registerArea({
     // The ONE blocked computation (M31 F6 L05a): a health banner is up, or a pending chat whose
     // setup is incomplete or whose cold load is still validating its agent.
     function computeBlocked() {
-      return state.bannerActive ||
-        (chatState.state().name === 'pending' && (state.setupIncomplete || state.validating));
+      var st = chatState.state();
+      if (state.bannerActive) return true;
+      if (st.name !== 'pending') return false;
+      // M36 F1 L04: a pending GleepGlorp chat is blocked by its own state (not ready), never by
+      // the app's setup (GleepGlorp exists to help with it).
+      if (st.agent === App.chat.GLEEPGLORP) return !state.validating && !gleepglorpReady();
+      return state.setupIncomplete || state.validating;
+    }
+
+    function gleepglorpReady() {
+      var s = App.chat.gleepglorpSettings();
+      return !!(s && s.state === 'ready');
+    }
+
+    // The setup gate (M36 F1 L04): the Chats list's New chat, the picker and a pick are inert
+    // while setup is incomplete, unless GleepGlorp is on (it offers help with the setup).
+    function setupBlocked() {
+      return state.setupIncomplete && !App.chat.gleepglorpEnabled();
     }
 
     // The composer's state, from the session state: blocked (the input and Attach off, the box
@@ -438,7 +463,9 @@ App.registerArea({
     function refreshAgentsAndSetup() {
       return Promise.all([
         App.store.get('providers', { force: true }),
-        App.store.get('agents', { force: true })
+        App.store.get('agents', { force: true }),
+        // GleepGlorp's settings feed the setup gate; a failed read keeps the last value.
+        App.gleepglorp.get({ force: true }).catch(function () { return null; })
       ])
         .then(function (results) {
           state.setupState.hasProviders = results[0].length > 0;
@@ -447,7 +474,7 @@ App.registerArea({
           // M25 F4 L4a (AC2): New chat is natively disabled while setup is
           // incomplete (no provider or no agent); the pane's guidance says
           // why.
-          chatsList.setNewDisabled(state.setupIncomplete);
+          chatsList.setNewDisabled(setupBlocked());
           var stName = chatState.state().name;
           // A shown welcome follows the setup state (the empty state <->
           // the guidance). M25 F4 L4b (DD3): the welcome is SHOWN only by
@@ -469,8 +496,26 @@ App.registerArea({
       else
       if (status === 'agent_deleted') msg = 'This agent has been deleted. Chat history is preserved but new messages cannot be sent.';
       else if (status === 'provider_missing') msg = "This agent's provider is missing. Add a model provider in Library to continue this conversation.";
+      // M36 F1 L04: a GleepGlorp status gets its own sentence and an "Open GleepGlorp settings"
+      // button (never the agent texts above, never the deleted-agent notice).
+      var ggState = App.chat.GLEEPGLORP_STATUSES[status];
+      if (ggState) msg = App.chat.gleepglorpBanner(ggState);
       state.bannerActive = !!msg;
       healthBanner.set(msg || '');
+      healthBanner.setChildren([]);
+      if (ggState) {
+        healthBanner.setChildren([
+          App.ui.button({
+            variant: 'secondary',
+            size: 'sm',
+            label: 'Open GleepGlorp settings',
+            testid: 'chat-health-banner-action',
+            onClick: function () {
+              App.router.go(App.chat.agentKind(App.chat.GLEEPGLORP).settingsHref);
+            }
+          })
+        ]);
+      }
       applyComposerState();
     }
 
@@ -550,9 +595,17 @@ App.registerArea({
     // picker hands a pick to requestPick (the route and pickIntent stay
     // in session-flow.js); with setup incomplete an open is an inert no-op.
     App.chat.registerPickerHost({
-      setupIncomplete: function () { return state.setupIncomplete; },
+      setupIncomplete: setupBlocked,
       onPick: function (agent, opts) { ctx.sessionFlow.requestPick(agent, opts); },
       chatWith: function (agent, opts) { return ctx.sessionFlow.goPick(agent, opts); }
+    });
+    // M36 F1 L04: GleepGlorp's settings (loaded now, current through every Save and push):
+    // the setup gate, the pending chat's state and composer follow them.
+    App.gleepglorp.get().catch(function () { /* the next refresh retries */ });
+    App.gleepglorp.subscribe(function () {
+      chatsList.setNewDisabled(setupBlocked());
+      applyComposerState();
+      renderPane();
     });
     self._agentDrawer = agentDrawer;
   },

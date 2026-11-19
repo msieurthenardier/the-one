@@ -65,7 +65,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
 from browser import _nav
+from browser._credential_registry import auth_headers_for
 from playwright.sync_api import Locator, Page, expect
 
 # The chat pane (leg 4b): the empty and guidance state, the header and the
@@ -322,6 +324,24 @@ def chats_new_button(page: Page) -> Locator:
     header block): it opens the agent picker; disabled while setup is
     incomplete."""
     return page.locator(_CHATS_NEW_BTN)
+
+
+def gleepglorp_off(base_url: str) -> None:
+    """Turn GleepGlorp off (M36 F1 L04), before the page loads. It is on by default and adds a
+    "Built in" picker group, a Jump to candidate and the setup-gate exception; a test of the
+    agent-only picker or of the setup-incomplete gate calls this first."""
+    body = {
+        "enabled": False,
+        "provider_config_id": None,
+        "model": None,
+        "web_access": True,
+        "memory": True,
+        "retention_days": 30,
+    }
+    r = httpx.put(
+        f"{base_url}/api/gleepglorp", json=body, headers=auth_headers_for(base_url), timeout=5.0
+    )
+    assert r.status_code == 200, r.text
 
 
 def picker(page: Page) -> Locator:

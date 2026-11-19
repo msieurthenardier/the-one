@@ -1119,7 +1119,7 @@ with the unsandboxed Windows posture.
   key-file replace — self-healing on next process start via a startup
   reconcile, rather than leaving any credential stranded on a key the
   process does not hold. See `the_one/agents.md` "Encryption-rotation
-  invariant (eight corpora)" for the full handoff contract.
+  invariant (nine encrypted columns)" for the full handoff contract.
   `GET /api/encryption/status` (read-only, behind the same credential gate) returns
   the time of the last rotation, a count of items that hold a stored secret and a
   flag for a staged-but-unpromoted key file: counts and a timestamp, no secret
@@ -1139,7 +1139,7 @@ with the unsandboxed Windows posture.
   its secret encryption persisted independently throughout, and the
   reset connector contract — Flight 2 — has a real masking/rotation
   surface again: see "Connector Channel Contract" above and
-  `the_one/agents.md` "Encryption-rotation invariant (eight corpora)".)
+  `the_one/agents.md` "Encryption-rotation invariant (nine encrypted columns)".)
   Built-in tool secrets (schema v32 `tool_configs.secrets`) are
   marker-driven — any tool Config field tagged `secret: true` is stored
   encrypted and masked over the API. `web_search`'s keyed-engine API keys
@@ -1195,7 +1195,7 @@ with the unsandboxed Windows posture.
   governance invariant.
 - **Library secrets** (sortie 10): named key/value pairs the operator
   stores once and grants to agents. Each value is Fernet ciphertext in
-  `secret_values.value`, the eighth corpus: it is re-encrypted by
+  `secret_values.value`, the ninth encrypted column: it is re-encrypted by
   `POST /api/encryption/rotate` in the same transaction as the others and is
   counted by `GET /api/encryption/status`. Values are **write-only**: no
   route returns a stored value or any fragment of it (every value is the
@@ -1253,6 +1253,68 @@ with the unsandboxed Windows posture.
 - `.env` is gitignored.
 - No secrets land in any committed file (e.g. `.env.example`, which carries
   placeholders only).
+
+## GleepGlorp's read surface (Mission 36)
+
+GleepGlorp, the built-in assistant, can look at the app's configuration through one read-only
+tool, `read_app_config` (`the_one/gleepglorp/read_tool.py`). The mission's criterion is that a
+secret never passes through GleepGlorp: not into its tool results, so not into its chats, its
+provider's request or any log it writes.
+
+- **What it reads.** Ten kinds through whitelist views (`the_one/gleepglorp/views.py`): an
+  overview, agents, MCP servers, model providers, knowledge bases, connectors, an agent's
+  routines, Library secrets (names, descriptions, key names, allowed tools and grants only),
+  built-in tools (their own non-secret settings) and the time-zone and knowledge-indexing
+  settings. A view builds its output field by field and every dict passes a runtime check
+  against the kind's declared keys, so a field is shown only if it is listed. The API's response
+  helpers are not used: they pass MCP `config.env` and `config.headers` values, an agent's
+  `tool_overrides`, a provider's free-form `config` and base URL, and secret tails.
+- **What it never reads.** A secret value (a Library secret's value, an API key, an OAuth or
+  plan token, a connector token, a tool-config secret, an agent override value, a per-agent MCP
+  credential, an external credential); a tail of one; a header or environment-variable value
+  (only the names); an MCP server's `server_info`, `instructions`, `meta` or `capabilities`; a
+  note's text; a chat; a file; a log. It never writes and never fetches over the network. The
+  connector and tool-config views select only their plain columns, so their `secrets` columns
+  are never loaded. Where a decrypted store is loaded (providers, MCP sources, agents) only a
+  boolean (OAuth active, signed in) or a name leaves the view.
+- **How it is proved.** `tests/test_gleepglorp_views.py` seeds a distinct value in every secret
+  slot (all nine encrypted `(table, column)` pairs, the six MCP OAuth keys, `config.env` and
+  `config.headers` values, base URLs with a password, a query and a path token, the MCP cache's
+  server-written fields) and asserts that neither a value nor its last four characters is in any
+  output of any kind, with and without every valid name and on the unknown-name path; a
+  structural test pins the emitted keys, and a read-only test proves no row, table or schema
+  changes. The same parity runs through the tool.
+- **Residuals (documented, asserted as shown).** A token placed in an MCP server's command
+  argument or in its address path is shown as written (the operator put it where the app treats
+  it as configuration, not as a secret); so is any free text the operator wrote (a system prompt,
+  description, rule or routine prompt), and a knowledge-base folder path and an MCP working
+  directory. All of it goes to GleepGlorp's model provider as tool results. Server-written MCP
+  tool names and descriptions are capped (200 characters) and are untrusted text. `read_app_config`
+  stays untrusted in the taint rule. An operator who keeps a credential in such a field should use a
+  Library secret or the server's credential fields instead.
+- **A row that cannot be decrypted** (a changed key) reads as unreadable and never fails the
+  tool.
+
+### GleepGlorp's notes and web tools (M36 F1 L06)
+
+- **Notes are flagged like an agent's.** With the Memory switch on GleepGlorp has the three
+  notes tools, backed by its own table (`gleepglorp_notes`). Each write records its origin and
+  whether content not from the operator was in the conversation the model had seen
+  (`compute_taint`, the same rule as an agent's), and a flagged note shows "(unverified)" in
+  the prompt and a "Check this" flag in Settings. **Most of GleepGlorp's notes will be
+  flagged**, because `read_app_config` stays untrusted: agent-written prompts and descriptions
+  (the self-configuration surface) and server-written MCP tool descriptions reach GleepGlorp
+  through it, so any note saved after a read is marked. This is the fail-closed default. Flight 2
+  revisits the granularity (which kinds of read are safe enough to trust). The notes layer's
+  heading tells the model a note is reference, not an instruction, and never to save a secret.
+  The operator can delete one note or clear all of them from Settings > GleepGlorp at any time,
+  with Memory on or off; turning Memory off keeps the notes but takes them out of the prompt
+  and refuses the agent's writes.
+- **Web tools.** With Web access on GleepGlorp has `fetch_url`, and `web_search` when the
+  configured engine can run. They are the same tools an agent has, under the operator's
+  `WebConfig` and `WebSearchConfig` (the SSRF guard, size limits and the app-wide switches); a
+  page or a search result is untrusted content, so a note saved after one is flagged. GleepGlorp
+  can read a page the person gives it; there is no tool that writes to a remote site.
 
 ## What This Model Excludes
 

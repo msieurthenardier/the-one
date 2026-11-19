@@ -626,6 +626,27 @@ def test_section_description_testid(engine_page: Page) -> None:
     assert out == ["sec-desc", None]
 
 
+def test_section_action_sits_right_after_the_rule(engine_page: Page) -> None:
+    page = engine_page
+    load_harness(page)
+    out = page.evaluate(
+        """() => {
+          const b = document.createElement('button'); b.textContent = 'Go'; b.id = 'act';
+          const s = App.ui.section({title: 'T', titleTag: 'h2', action: b, layout: 'stack'});
+          document.getElementById('harness-root').appendChild(s.el);
+          const t = s.el.querySelector('h2').getBoundingClientRect();
+          const a = b.getBoundingClientRect();
+          const row = s.el.querySelector('.ui-section-title-row').getBoundingClientRect();
+          let bad = '';
+          try { App.ui.section({action: document.createElement('i')}); } catch (e) { bad = e.message; }
+          return {inRow: !!s.el.querySelector('.ui-section-title-row > .ui-section-action > #act'),
+                  right: Math.abs(a.right - row.right) < 1, afterTitle: a.left > t.right + 20, bad: bad};
+        }"""
+    )
+    assert out["inRow"] and out["right"] and out["afterTitle"]
+    assert "action" in out["bad"]
+
+
 # ── section layout: 'stack' (M31 F4 L03b) ──────────────────────────────────
 
 SECTION_RHYTHM_JS = """([ancestor, layout, withDesc]) => {

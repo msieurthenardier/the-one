@@ -58,6 +58,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print the planned runs and LLM call count; build no agent",
     )
+    run.add_argument(
+        "--measure-dir",
+        type=Path,
+        help="a directory of prompt configurations (evals/gleepglorp/measure): measure the "
+        "prompt offline before the runs and write measure.json into the run directory",
+    )
+    run.add_argument(
+        "--prompt-file",
+        type=Path,
+        help="a candidate GleepGlorp prompt (evals/gleepglorp/prompts/<name>.toml) used "
+        "instead of the shipped one; GleepGlorp scenarios only",
+    )
 
     mp = sub.add_parser(
         "measure-prompt",
@@ -75,6 +87,18 @@ def build_parser() -> argparse.ArgumentParser:
     mp.add_argument("--json", dest="json_out", type=Path, help="also write the measurement here")
     mp.add_argument(
         "--run-dir", type=Path, help="scratch directory (default: evals/runs/measure-<pid>)"
+    )
+    mp.add_argument(
+        "--measure-dir",
+        type=Path,
+        help="a directory of prompt configurations to measure instead of evals/measure "
+        "(evals/gleepglorp/measure measures the GleepGlorp prompt)",
+    )
+    mp.add_argument(
+        "--prompt-file",
+        type=Path,
+        help="measure a candidate GleepGlorp prompt (evals/gleepglorp/prompts/<name>.toml) "
+        "instead of the shipped one; needs --measure-dir evals/gleepglorp/measure",
     )
 
     cp = sub.add_parser(
@@ -144,6 +168,7 @@ def _err(message: str) -> int:
 def _cmd_measure(args: argparse.Namespace) -> int:
     from evals.env import EvalRefusalError
     from evals.models import PresetError
+    from evals.prompt_file import PromptFileError
     from evals.scenario import ScenarioError
 
     opts = tokens.MeasureOptions(
@@ -153,13 +178,15 @@ def _cmd_measure(args: argparse.Namespace) -> int:
         token_file=args.token_file,
         json_out=args.json_out,
         run_dir=args.run_dir,
+        measure_dir=args.measure_dir,
+        prompt_file=args.prompt_file,
     )
     try:
         print("building the agents (no model call)...", file=sys.stderr, flush=True)
         doc = asyncio.run(tokens.measure_prompt(opts))
     except tokens.TiktokenMissingError as exc:
         return _err(str(exc))
-    except (EvalRefusalError, PresetError, ScenarioError) as exc:
+    except (EvalRefusalError, PresetError, ScenarioError, PromptFileError) as exc:
         return _err(str(exc))
     print(tokens.render_tables(doc), end="")
     return 0
@@ -278,6 +305,8 @@ def _dispatch(args: argparse.Namespace) -> int:
         token_file=args.token_file,
         models_file=args.models_file,
         dry_run=args.dry_run,
+        measure_dir=args.measure_dir,
+        prompt_file=args.prompt_file,
     )
     return asyncio.run(runner.run_invocation(opts))
 

@@ -559,6 +559,28 @@ async def test_directory_upsert_survives_a_later_agent_step_failure(
     assert entry.display_name == "Alice"
 
 
+@pytest.mark.parametrize("reserved", ["default", "Default", "GleepGlorp"])
+async def test_inbound_bound_to_a_reserved_agent_is_dropped_with_no_chat_row(
+    conn_repo, chat_repo, caplog, reserved
+) -> None:
+    """Mission 36 F1 L02: a stored reserved binding drops the message before resolve_session."""
+    connector = _connector({"default_agent": reserved, "allowlist": {"peers": ["peer-1"]}})
+    await conn_repo.create(connector)
+    registry.register_for_test("stub", StubPlugin())
+    mgr = ConnectorManager()
+    set_factory(AgentFactory(store=SQLiteAgentStore(conn_repo.conn)))
+
+    with caplog.at_level("WARNING", logger="the_one.connectors.inbound"):
+        await dispatch_inbound(
+            "conn-1",
+            _envelope(peer_id="peer-1", peer_name="Alice", is_dm=True, text="hello"),
+            manager=mgr,
+        )
+
+    assert await chat_repo.list() == []
+    assert len([r for r in caplog.records if "reserved agent name" in r.getMessage()]) == 1
+
+
 async def test_connector_session_system_message_carries_enabled_rules(
     conn_repo, chat_repo, frozen_clock
 ) -> None:

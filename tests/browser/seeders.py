@@ -536,6 +536,53 @@ def seed_note(
     return note_id
 
 
+def seed_gleepglorp_note(
+    data_dir,
+    text: str,
+    *,
+    untrusted: bool = False,
+    sources: list[str] | None = None,
+    origin_kind: str = "other",
+    session_id: str | None = None,
+    label: str | None = None,
+    created_at: str = "2026-01-01T10:00:00+00:00",
+) -> str:
+    """INSERT one ``gleepglorp_notes`` row by sync sqlite3 (M36 F1 L06).
+
+    Only GleepGlorp's own tools write these, so a browser test seeds them directly. The
+    number is the counter row's ``next_number``, bumped here.
+    """
+    import sqlite3
+    import uuid
+
+    note_id = uuid.uuid4().hex
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        (number,) = conn.execute("SELECT next_number FROM gleepglorp_notes_counter").fetchone()
+        conn.execute(
+            "INSERT INTO gleepglorp_notes (id, number, text, untrusted, untrusted_sources,"
+            " origin_kind, origin_session_id, origin_label, created_at, updated_at, updated_by)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'agent')",
+            (
+                note_id,
+                number,
+                text,
+                1 if untrusted else 0,
+                json.dumps(sources or []),
+                origin_kind,
+                session_id,
+                label,
+                created_at,
+                created_at,
+            ),
+        )
+        conn.execute("UPDATE gleepglorp_notes_counter SET next_number = ?", (number + 1,))
+        conn.commit()
+    finally:
+        conn.close()
+    return note_id
+
+
 def canonical_schedule(
     time: str = "09:00",
     *,

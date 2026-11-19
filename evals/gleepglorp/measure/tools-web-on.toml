@@ -1,0 +1,16 @@
+# GleepGlorp, tool-capable, web access on (memory off, so the notes layer is not counted).
+# The harness disables web_search (no engine in the scratch app), so the starting tools are
+# current_time, read_app_config, get_app_guide and fetch_url. Defined once here.
+id = "measure-gg-tools-web-on"
+class = "hold"
+description = "GleepGlorp: tool-capable prompt, web access on."
+
+[agent]
+builder = "gleepglorp"
+web_access = true
+
+[[conversations]]
+turns = ["Hello."]
+
+[[checks]]
+name = "date_line_present"

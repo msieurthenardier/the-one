@@ -9,6 +9,7 @@
     'anthropic',
     'anthropic-plan',
     'anthropic-plan-token',
+    'builtin',
     'local',
     'mock',
     'ollama',

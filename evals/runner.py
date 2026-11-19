@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from evals import outcomes as oc
+from evals import tokens
 from evals.checks import CheckDecl, CheckResult, evaluate_all, safety_failures
 from evals.env import EvalEnv, EvalRefusalError, StartupOptions, shutdown, startup
 from evals.fixtures import FixtureServer, KBFixtures
@@ -54,6 +55,15 @@ class RunOptions:
     token_file: Path | None = None
     models_file: Path | None = None
     dry_run: bool = False
+    # A directory of prompt configurations (``evals/gleepglorp/measure``). When set, the prompt is
+    # measured offline (scripted provider, no model call) before the runs and written to the run
+    # directory's ``measure.json``, so the set's runs fingerprint that prompt (``compare
+    # --same-prompt`` refuses a changed one) and ``baseline`` needs no separate measure-prompt step.
+    measure_dir: Path | None = None
+    measure_counter: Any = None  # a test seam: the token counter (default: tiktoken)
+    # A candidate GleepGlorp prompt (``evals/gleepglorp/prompts/<name>.toml``) used instead of
+    # the shipped one for this invocation (GleepGlorp builder scenarios only).
+    prompt_file: Path | None = None
 
 
 @dataclass
@@ -280,7 +290,7 @@ async def execute_run(
         attempt = await harness.run_once(spec)
         verdict = decide(attempt, inst.checks)
         if verdict.transient and waits:
-            await harness.discard_agent(spec.agent_name)
+            await harness.discard_agent(harness.agent_for(spec))
             await hooks.sleep(waits.pop(0))
             retries += 1
             continue
@@ -311,9 +321,23 @@ async def run_invocation(
     opts: RunOptions, hooks: Hooks | None = None, out: Callable[[str], None] = print
 ) -> int:
     """Return the process exit code: 0 ok, 1 a model stopped or the run aborted, 2 refused."""
-    hooks = hooks or Hooks()
+    from evals import prompt_file as pf
+
+    try:
+        with pf.applied(opts.prompt_file):
+            return await _run_invocation(opts, hooks or Hooks(), out)
+    except pf.PromptFileError as exc:
+        print(str(exc), flush=True)
+        return 2
+
+
+async def _run_invocation(opts: RunOptions, hooks: Hooks, out: Callable[[str], None]) -> int:
+    from evals import prompt_file as pf
+
     try:
         plan = build_plan(opts)
+        if opts.prompt_file is not None:
+            pf.require_builder_scenarios(plan.scenarios)
     except (ScenarioError, PresetError) as exc:
         print(str(exc), flush=True)
         return 2
@@ -327,6 +351,17 @@ async def run_invocation(
         print(f"--resume: {opts.resume} is not a directory", flush=True)
         return 2
     run_dir = opts.resume or opts.run_dir or default_run_dir()
+    measure_doc: dict[str, Any] | None = None
+    if opts.measure_dir is not None:
+        try:
+            measure_doc = await _measure_for_run(opts, hooks)
+            _check_resume_prompt(run_dir, measure_doc, resume=bool(opts.resume))
+        except (EvalRefusalError, ScenarioError, PresetError) as exc:
+            print(str(exc), flush=True)
+            return 2
+        except tokens.TiktokenMissingError as exc:
+            print(str(exc), flush=True)
+            return 2
     try:
         env = await startup(
             StartupOptions(
@@ -341,6 +376,10 @@ async def run_invocation(
         return 2
     try:
         write_fingerprints(env.run_dir, opts, plan, resume=bool(opts.resume))
+        if opts.prompt_file is not None:
+            _record_prompt_file(env.run_dir, opts.prompt_file, resume=bool(opts.resume))
+        if measure_doc is not None:
+            _write_measure(env.run_dir, measure_doc)
     except EvalRefusalError as exc:
         await shutdown(env)
         print(str(exc), flush=True)
@@ -350,6 +389,60 @@ async def run_invocation(
     except EvalRefusalError as exc:  # e.g. the fixture hostname self-test (after cleanup)
         print(str(exc), flush=True)
         return 2
+
+
+async def _measure_for_run(opts: RunOptions, hooks: Hooks) -> dict[str, Any]:
+    """The offline prompt measurement of ``opts.measure_dir`` (before any run, so a missing
+    counter refuses before quota is spent). Its own scratch environment, torn down afterwards."""
+    return await tokens.measure_prompt(  # runs under the invocation's prompt override
+        tokens.MeasureOptions(
+            measure_dir=opts.measure_dir, counter=opts.measure_counter, environ=hooks.environ
+        )
+    )
+
+
+def _check_resume_prompt(run_dir: Path, doc: dict[str, Any], *, resume: bool) -> None:
+    """A resumed run must measure the same prompt it started with."""
+    import json
+
+    path = run_dir / "measure.json"
+    if not resume or not path.is_file():
+        return
+    try:
+        old = json.loads(path.read_text(encoding="utf-8"))["fingerprints"]["prompt"]
+    except (OSError, ValueError, KeyError):
+        return
+    if old != doc["fingerprints"]["prompt"]:
+        raise EvalRefusalError("--resume: the measured prompt changed since this run started")
+
+
+def _record_prompt_file(run_dir: Path, path: Path, *, resume: bool) -> None:
+    """Record the candidate prompt's name and hash in ``prompt-file.json``; a resume with a
+    changed candidate is refused."""
+    import json
+
+    from evals import prompt_file as pf
+
+    doc = {"name": Path(path).stem, "sha256": pf.digest(path)}
+    target = run_dir / "prompt-file.json"
+    if resume and target.is_file():
+        try:
+            old = json.loads(target.read_text(encoding="utf-8"))
+        except ValueError:
+            old = {}
+        if old.get("sha256") not in (None, doc["sha256"]):
+            raise EvalRefusalError(
+                "--resume: the candidate prompt file changed since this run started"
+            )
+    target.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _write_measure(run_dir: Path, doc: dict[str, Any]) -> None:
+    import json
+
+    (run_dir / "measure.json").write_text(
+        json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def write_fingerprints(run_dir: Path, opts: RunOptions, plan: Plan, *, resume: bool) -> dict:

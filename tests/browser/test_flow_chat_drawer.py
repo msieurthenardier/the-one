@@ -517,7 +517,7 @@ def test_clear_agent_filter_is_a_safe_no_op_before_studio_exists(
 # ── Default, deleted and loading agents (AC11) ──────────────────────────────
 
 
-def test_deleted_and_default_agents_show_no_settings_link(
+def test_deleted_and_unknown_agents_show_no_settings_link(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     base = app_with_agent.base_url
@@ -537,8 +537,9 @@ def test_deleted_and_default_agents_show_no_settings_link(
     expect(drawer.locator(".chat-drawer-head .badge")).to_be_hidden()
     assert _facts(page) == {"Chats": "1"}
     _chats.open_chat(page, default)
-    expect(drawer.locator("h2")).to_have_text("Default agent")
-    expect(page.locator(NOTE)).to_have_text("The default agent")
+    # A null agent (impossible after schema v53) reads "Unknown agent", with no settings link.
+    expect(drawer.locator("h2")).to_have_text("Unknown agent")
+    expect(page.locator(NOTE)).to_have_text("This agent no longer exists")
     expect(page.locator(SETTINGS)).to_be_hidden()
     assert (
         drawer.locator(".ui-drawer-footer").evaluate("f => getComputedStyle(f).display") == "none"

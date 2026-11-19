@@ -39,7 +39,7 @@ from evals.report import (
     exposure_counts,
 )
 from evals.stats import fisher_one_sided_worse, worse_than_baseline
-from evals.tokens import CONFIGS, CONNECTOR_VARIANTS
+from evals.tokens import CONFIGS, CONNECTOR_VARIANTS, EXTRA_CONFIGS
 
 SCHEMA = 2  # new documents built from a schema-2 measurement (tools_full, prompt_text, exposure)
 SUPPORTED_SCHEMAS = (1, 2)
@@ -96,7 +96,10 @@ def _size_targets_v2(configs: dict[str, Any], size_ratio: float) -> dict[str, An
     would-be starting set with every tool up front), at ratio 1.0 whatever ``size_ratio`` is.
     """
     out: dict[str, Any] = {}
-    for config in (*CONFIGS, *CONNECTOR_VARIANTS):
+    # The known configurations first, then any a measure directory of its own adds (the
+    # GleepGlorp set's); the extra measured-only ones (``routines-on``) carry no target.
+    known = (*CONFIGS, *CONNECTOR_VARIANTS)
+    for config in (*known, *(c for c in configs if c not in (*known, *EXTRA_CONFIGS))):
         if config not in configs:
             continue
         totals = configs[config]["totals"]

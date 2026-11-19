@@ -78,6 +78,14 @@ async def run_purge_sweep(conn: aiosqlite.Connection) -> dict:
         runs_deleted += await run_repo.delete_finished_older_than(name, cutoff)
         routines_deleted += await routine_repo.delete_done_older_than(name, cutoff)
         proposals_deleted += await proposal_repo.delete_resolved_older_than(name, cutoff)
+    # GleepGlorp (M36 F1 L03): it has no agents row, so its window comes from its
+    # settings; it applies even while GleepGlorp is off. It has no routines.
+    from the_one.gleepglorp.settings import load_settings
+    from the_one.naming import GLEEPGLORP_AGENT_NAME
+
+    gg_days = (await load_settings(conn)).retention_days
+    gg_cutoff = (now - timedelta(days=gg_days)).isoformat()
+    all_ids.extend(await chat_repo.delete_older_than(GLEEPGLORP_AGENT_NAME, gg_cutoff))
     last_purge_at = now.isoformat()
     await meta.set(LAST_PURGE_KEY, last_purge_at)
     return {

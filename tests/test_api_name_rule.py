@@ -27,6 +27,7 @@ PREFIXES = (
     "/api/knowledge-bases",
     "/api/mcp-sources",
     "/api/secrets",
+    "/api/gleepglorp",
 )
 
 CHECKED = {
@@ -50,6 +51,7 @@ _ITEM = "acts on a knowledge base item; the knowledge base name is untouched"
 _PROVIDER_ACTION = "acts on the provider in the path; its name is untouched"
 
 EXEMPT = {
+    ("PUT", "/api/gleepglorp"): "GleepGlorp's settings (a provider id, a model id); no name is set",
     ("PUT", "/api/agents/{name}"): "the name is forced from the path of an existing row",
     (
         "PUT",
@@ -330,6 +332,30 @@ class TestAgentCreateAndRename:
         assert resp.status_code == 404
         assert isinstance(resp.json()["detail"], str)
         assert (await client.get("/api/agents/alpha")).status_code == 200
+
+    @pytest.mark.parametrize("reserved", ["default", "Default", "GleepGlorp", "gleepglorp"])
+    async def test_reserved_agent_names_are_refused_on_create_and_rename(
+        self, client, reserved
+    ) -> None:
+        resp = await client.post("/api/agents", json={"name": reserved})
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert detail[0]["loc"] == ["name"] and detail[0]["type"] == "name_rule"
+        assert "Choose another name." in detail[0]["msg"]
+        await client.post("/api/agents", json={"name": "alpha"})
+        resp = await client.post("/api/agents/alpha/rename", json={"new_name": reserved})
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"][0]["loc"] == ["name"]
+        assert (await client.get("/api/agents/alpha")).status_code == 200
+
+    @pytest.mark.parametrize("fine", ["gleep-glorp", "GleepGlorpX"])
+    async def test_near_reserved_agent_names_are_allowed(self, client, fine) -> None:
+        resp = await client.post("/api/agents", json={"name": fine})
+        assert resp.status_code == 201, resp.text
+
+    async def test_other_routes_still_accept_default(self, client) -> None:
+        resp = await client.post("/api/mcp-sources", json={**_MCP, "name": "default"})
+        assert resp.status_code == 201, resp.text
 
     async def test_rename_trims(self, client) -> None:
         await client.post("/api/agents", json={"name": "alpha"})

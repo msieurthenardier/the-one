@@ -63,6 +63,7 @@
     var isEdit = !isCreate;
     var type = isCreate ? '' : provider.type;
     var h = { modelsCtl: null, fieldEls: [] };
+    var deleter = null;
     slot.mount(function () {}, h);
 
     function typeDefaults(t) {
@@ -246,9 +247,12 @@
         title: 'Danger zone',
         action: {
           label: 'Delete provider', testid: 'delete-provider-btn', dataset: { name: provider.name || '' },
-          beforeArm: beforeDeleteArm, onConfirm: doDelete
-        },
-        notice: { testid: 'delete-blocked-message' }
+          beforeArm: function (proceed) { deleter.beforeArm(proceed); },
+          onConfirm: function (revert) { deleter.doDelete(revert); }
+        }
+      });
+      deleter = App.studio.providerDelete.create({
+        provider: provider, danger: h.danger, callbacks: callbacks
       });
       sections.push(h.danger.el);
     }
@@ -445,45 +449,8 @@
     }
 
     // ── Delete (edit only) ──────────────────────────────────────────
-    // Agent-usage pre-gate on the first click: a provider that agents use is
-    // blocked (a sibling banner, not inside the button), else the zone arms.
-    var deleteBlockTimer = null;
-    function beforeDeleteArm(proceed) {
-      fetch('/api/providers/' + encodeURIComponent(provider.id) + '/agents')
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          var agents = data.agents || [];
-          if (agents.length > 0) {
-            h.danger.setNotice('Used by: ' + agents.join(', '));
-            h.danger.setDisabled(true);
-            if (deleteBlockTimer) clearTimeout(deleteBlockTimer);
-            deleteBlockTimer = setTimeout(function () {
-              h.danger.setDisabled(false);
-              h.danger.setNotice(null);
-            }, 3000);
-          } else {
-            proceed();
-          }
-        })
-        .catch(function () {
-          // Network failure on the agent-usage check: fail open and arm anyway.
-          proceed();
-        });
-    }
-
-    function doDelete(revertFn) {
-      fetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' })
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
-          App.store.invalidate('providers');
-          App.ui.flash('Provider deleted');
-          if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
-        })
-        .catch(function (err) {
-          revertFn();
-          App.ui.flash(err.message, { error: true });
-        });
-    }
+    // The flow (agent-usage gate, the "Delete anyway" checkbox, ?force=true) is
+    // areas/studio/provider-delete.js; the danger zone above calls its two functions.
   }
 
   // ── Claude Plan (Token) expiry line (sortie 03 DD6) ───────────────────

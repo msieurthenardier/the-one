@@ -476,6 +476,22 @@ def test_usage_agent_counts(app_with_agent: SeededApp, page: Page) -> None:
     }  # fmt: skip
 
 
+def test_usage_provider_agents_counts_gleepglorp(app_with_agent: SeededApp, page: Page) -> None:
+    """M36 F1 L03: GleepGlorp has no agents row; its settings are an optional third argument."""
+    _ready(page, app_with_agent.base_url)
+    got = page.evaluate(
+        """(agents) => {
+          const u = App.usage;
+          const gg = {provider_config_id: 'p1'};
+          return [u.providerAgents(agents, 'p1', gg), u.providerAgents(agents, 'p2', gg),
+                  u.providerAgents([], 'p1', gg), u.providerAgents(agents, 'p1', null),
+                  u.providerAgents(agents, 'p1', {provider_config_id: null})];
+        }""",
+        AGENTS,
+    )
+    assert got == [3, 1, 1, 2, 2]
+
+
 def test_usage_connector_agents_are_distinct(app_with_agent: SeededApp, page: Page) -> None:
     _ready(page, app_with_agent.base_url)
     got = page.evaluate(

@@ -79,11 +79,9 @@
 // agent, and App.store.get for `knowledge-bases` and `mcp-sources` once per
 // open (cached, so usually no request). Responses from an earlier open are
 // dropped.
-// Three explicit non-agent states, each with no settings link:
-//   default   a null agent, or "default" not in the `agents` store: "Default
-//             agent", "The default agent"
-//   deleted   a name not in the LOADED `agents` store: the name, "This agent
-//             no longer exists"
+// Non-agent states (App.chat.agentKind): gleepglorp (M36 L04: "Built in" badge, its settings
+// facts, no per-agent fetches, footer to #settings/gleepglorp); deleted (a null agent, "Unknown
+// agent", or a name not in the LOADED `agents` store: "This agent no longer exists", no link)
 //   loading   the `agents` store not loaded yet, or the header's agent line
 //             still blank: a neutral "Loading…", never "deleted"
 //
@@ -102,9 +100,6 @@
 
   var STORAGE_KEY = 'chat-drawer-open';
   var PUSH_QUERY = '(min-width: 1280px)';
-  // AgentConfig's UNGATED_TOOL_PREFIXES: exempt from the enabled_tools
-  // whitelist (it gates built-ins only); disabled_tools is universal.
-  var UNGATED_PREFIXES = (window.App.toolCategories && window.App.toolCategories.ungatedPrefixes) || [];
   var STORES = ['agents', 'providers', 'knowledge-bases', 'mcp-sources', 'secrets', 'sessions'];
 
   function el(tag, attrs, children) {
@@ -138,43 +133,9 @@
     }
   }
 
-  function isToolEnabled(agent, name) {
-    var ungated = false;
-    for (var i = 0; i < UNGATED_PREFIXES.length; i++) {
-      if (String(name).indexOf(UNGATED_PREFIXES[i]) === 0) ungated = true;
-    }
-    var exempt = (window.App.toolCategories && window.App.toolCategories.whitelistExempt) || [];
-    if (exempt.indexOf(name) !== -1) ungated = true;
-    var whitelist = agent ? agent.enabled_tools : null;
-    if (!ungated && whitelist !== null && whitelist !== undefined && arr(whitelist).indexOf(name) === -1) {
-      return false;
-    }
-    if (arr(agent && agent.disabled_tools).indexOf(name) !== -1) return false;
-    return true;
-  }
-
-  // The built-in categories the agent can use: per category, the tools that
-  // are globally enabled (a /api/tools/configs row with enabled: false turns
-  // one off; a missing row is enabled) AND enabled for the agent.
-  function builtinGroups(agent, configs) {
-    var off = {};
-    var rows = arr(configs);
-    for (var i = 0; i < rows.length; i++) {
-      if (rows[i] && rows[i].enabled === false) off[rows[i].name] = true;
-    }
-    var by = App.toolCategories.byCategory;
-    var labels = Object.keys(by);
-    var out = [];
-    for (var c = 0; c < labels.length; c++) {
-      var names = by[labels[c]];
-      var n = 0;
-      for (var t = 0; t < names.length; t++) {
-        if (!off[names[t]] && isToolEnabled(agent, names[t])) n += 1;
-      }
-      if (n) out.push({ label: labels[c], enabled: n, total: names.length });
-    }
-    return out;
-  }
+  // isToolEnabled and builtinGroups live in agent-drawer-groups.js (squawk 0386); re-exported below.
+  var isToolEnabled = App.chat.drawerGroups.isToolEnabled;
+  var builtinGroups = App.chat.drawerGroups.builtinGroups;
 
   function findBy(list, key, value) {
     var rows = arr(list);
@@ -191,6 +152,7 @@
     var applying = false;
     var openGen = 0;
     var current = null; // the agent name the settings link opens
+    var ggView = false; // the view is GleepGlorp: the link opens its settings
     var configs = { gen: -1, status: 'idle', value: null };
     var selfConf = { gen: -1, agent: null, status: 'idle', value: null };
     var rulesState = { gen: -1, agent: null, status: 'idle', value: null };
@@ -257,11 +219,11 @@
     toggle.hidden = true;
 
     function openSettings() {
-      var name = current;
-      if (!name) return;
-      App.router.go(App.router.href({ destination: 'agents', id: name }), { opener: settingsBtn })
+      if (!current && !ggView) return;
+      var href = App.chat.agentKind(ggView ? App.chat.GLEEPGLORP : current).settingsHref;
+      App.router.go(href, { opener: settingsBtn })
         .then(function (navigated) {
-          if (navigated && App.studio && typeof App.studio.clearAgentFilter === 'function') {
+          if (navigated && !ggView && App.studio && typeof App.studio.clearAgentFilter === 'function') {
             App.studio.clearAgentFilter();
           }
         });
@@ -272,24 +234,19 @@
       if (!view) return { kind: 'none' };
       if (view.loading) return { kind: 'loading' };
       var name = view.agent;
-      if (!name) return { kind: 'default' };
-      var peek = App.store.peek('agents');
-      var row = findBy(peek.value, 'name', name);
-      if (row) return { kind: 'agent', name: name, row: row };
-      if (name === 'default') return { kind: 'default' };
-      if (!peek.loaded) return { kind: 'loading' };
-      return { kind: 'deleted', name: name };
+      if (!name) return { kind: 'deleted', name: 'Unknown agent' };
+      var kind = App.chat.agentKind(name).kind;
+      if (kind === 'gleepglorp') return { kind: 'gleepglorp' };
+      if (kind === 'agent') return { kind: 'agent', name: name, row: findBy(App.store.peek('agents').value, 'name', name) };
+      return kind === 'loading' ? { kind: 'loading' } : { kind: 'deleted', name: name };
     }
 
     // The `sessions` rows of this agent, connector sessions included (DD4).
-    // A null name counts the default agent's rows (no agent, or "default").
     function chatsCount(name) {
       var rows = arr(App.store.peek('sessions').value);
       var n = 0;
       for (var i = 0; i < rows.length; i++) {
-        if (!rows[i]) continue;
-        var a = rows[i].agent_name || null;
-        if (name ? a === name : (a === null || a === 'default')) n += 1;
+        if (rows[i] && rows[i].agent_name === name) n += 1;
       }
       return n;
     }
@@ -310,75 +267,8 @@
       return p;
     }
 
-    // One "What it can use" group: a label and a list of {name, meta}
-    // items, or "None", "Loading…" or "Couldn't load".
-    function group(id, label, items, status) {
-      var box = el('div', { className: 'chat-drawer-group', dataset: { group: id } }, [
-        el('h4', { className: 'chat-drawer-group-label', text: label })
-      ]);
-      if (status === 'loading' || status === 'error') {
-        box.appendChild(el('p', {
-          className: 'chat-drawer-none',
-          text: status === 'loading' ? 'Loading…' : 'Couldn\'t load'
-        }));
-        return box;
-      }
-      if (!items.length) {
-        box.appendChild(el('p', { className: 'chat-drawer-none', text: 'None' }));
-        return box;
-      }
-      var ul = el('ul', { className: 'chat-drawer-list' });
-      for (var i = 0; i < items.length; i++) {
-        ul.appendChild(el('li', null, [
-          el('span', { className: 'chat-drawer-item-name', text: items[i].name }),
-          items[i].meta ? el('span', { className: 'chat-drawer-item-meta', text: items[i].meta }) : null
-        ]));
-      }
-      box.appendChild(ul);
-      return box;
-    }
-
-    // M27 F1 L2 (DD7): the Rules group. Not built by group(): it lists the
-    // ENABLED rules in order (each text clamped to two lines by CSS, the full
-    // text in `title`), "{n} off" for the disabled ones, "No rules" when none
-    // are enabled, and an "Edit rules" link to the editor's tab. The rules are
-    // shown as SAVED (what the next build of the agent uses).
-    function rulesGroup(agentName) {
-      var box = el('div', { className: 'chat-drawer-group', dataset: { group: 'rules' } }, [
-        el('h4', { className: 'chat-drawer-group-label', text: 'Rules' })
-      ]);
-      if (rulesState.status === 'ok') {
-        var all = arr(rulesState.value);
-        var on = [];
-        for (var i = 0; i < all.length; i++) if (all[i] && all[i].enabled) on.push(all[i]);
-        var off = all.length - on.length;
-        if (!on.length) {
-          box.appendChild(el('p', { className: 'chat-drawer-none', text: 'No rules' }));
-        } else {
-          var ol = el('ul', { className: 'chat-drawer-rules' });
-          ol.setAttribute('role', 'list');
-          ol.setAttribute('data-testid', 'chat-drawer-rules');
-          for (var j = 0; j < on.length; j++) {
-            var li = el('li', null, [el('span', { className: 'chat-drawer-rule-text', text: String(on[j].text) })]);
-            li.setAttribute('title', String(on[j].text));
-            li.setAttribute('data-testid', 'chat-drawer-rule');
-            ol.appendChild(li);
-          }
-          box.appendChild(ol);
-        }
-        if (off > 0) {
-          var offEl = el('p', { className: 'chat-drawer-rules-off', text: off + ' off' });
-          offEl.setAttribute('data-testid', 'chat-drawer-rules-off');
-          box.appendChild(offEl);
-        }
-        return box;
-      }
-      box.appendChild(el('p', {
-        className: 'chat-drawer-none',
-        text: rulesState.status === 'error' ? 'Couldn\'t load' : 'Loading…'
-      }));
-      return box;
-    }
+    // The group builders (group, rulesGroup, notesGroup) live in agent-drawer-groups.js.
+    var group = App.chat.drawerGroups.group;
 
     // The Routine fact's value, only for the metadata of the session the view shows.
     function routineFact() {
@@ -423,57 +313,6 @@
       var changed = JSON.stringify(next) !== JSON.stringify(sessionMeta);
       sessionMeta = next;
       if (changed) render();
-    }
-
-    // M27 F2 L3 (DD10) / F3 L2: the Notes group, sibling after Rules, READ-ONLY
-    // (notes are managed in the agent's Rules and notes tab, via Open agent
-    // settings). Note text is attacker-influenced, so every field goes through
-    // textContent (el's `text`) and `title`, never an HTML sink. Off: "Off" and
-    // "{n} kept". On: the in-use notes, then (when the server knows the open
-    // chat's prompt) a "Pending · used from the next chat" subheading and the
-    // notes that prompt does not carry yet, muted.
-    function notesGroup() {
-      var box = el('div', { className: 'chat-drawer-group', dataset: { group: 'notes' } }, [
-        el('h4', { className: 'chat-drawer-group-label', text: 'Notes' })
-      ]);
-      if (notesState.status !== 'ok') {
-        box.appendChild(el('p', {
-          className: 'chat-drawer-none',
-          text: notesState.status === 'error' ? 'Couldn\'t load' : 'Loading…'
-        }));
-        return box;
-      }
-      var enabled = !!(notesState.value && notesState.value.enabled);
-      var all = arr(notesState.value && notesState.value.notes);
-      if (!enabled) {
-        var offEl = el('p', { className: 'chat-drawer-value', text: 'Off' });
-        offEl.setAttribute('data-testid', 'chat-drawer-notes-off');
-        box.appendChild(offEl);
-        if (all.length) {
-          var kept = el('p', { className: 'chat-drawer-notes-kept', text: all.length + ' kept' });
-          kept.setAttribute('data-testid', 'chat-drawer-notes-kept');
-          box.appendChild(kept);
-        }
-      } else if (!all.length) {
-        var none = el('p', { className: 'chat-drawer-none', text: 'No notes yet' });
-        none.setAttribute('data-testid', 'chat-drawer-notes-empty');
-        box.appendChild(none);
-      } else {
-        var inUse = [];
-        var pending = [];
-        for (var i = 0; i < all.length; i++) (all[i].pending ? pending : inUse).push(all[i]);
-        if (inUse.length) box.appendChild(App.chat.drawerParts.noteList(inUse, false));
-        if (pending.length) {
-          var head = el('p', {
-            className: 'chat-drawer-notes-pending-head',
-            text: 'Pending · used from the next chat'
-          });
-          head.setAttribute('data-testid', 'chat-drawer-notes-pending-head');
-          box.appendChild(head);
-          box.appendChild(App.chat.drawerParts.noteList(pending, true));
-        }
-      }
-      return box;
     }
 
     // Read the notes once per open, agent and session (a raw fetch: a 404, no
@@ -532,9 +371,9 @@
       ]);
       box.setAttribute('data-testid', 'chat-drawer-uses');
 
-      box.appendChild(rulesGroup(agent.name));
-      box.appendChild(notesGroup());
-      if (agent.name && agent.name !== 'default') box.appendChild(App.chat.drawerParts.routinesGroup(routinesState));
+      box.appendChild(App.chat.drawerGroups.rulesGroup(rulesState));
+      box.appendChild(App.chat.drawerGroups.notesGroup(notesState));
+      box.appendChild(App.chat.drawerParts.routinesGroup(routinesState));
 
       var kbStatus = storeStatus('knowledge-bases');
       var kbs = [];
@@ -596,6 +435,7 @@
       var providers = App.store.peek('providers').value;
       content.textContent = '';
       current = null;
+      ggView = info.kind === 'gleepglorp';
       var name = '';
       var type = null;
       if (info.kind === 'agent') {
@@ -619,10 +459,10 @@
         var needsEl = App.chat.drawerParts.noticesGroup(info.name, info.row.notices);
         if (needsEl) content.appendChild(needsEl);
         content.appendChild(uses(info.row));
-      } else if (info.kind === 'default') {
-        name = 'Default agent';
-        content.appendChild(note('The default agent'));
-        content.appendChild(facts([['Chats', String(chatsCount(null))]]));
+      } else if (info.kind === 'gleepglorp') {
+        name = App.chat.GLEEPGLORP;
+        type = 'builtin';
+        App.chat.drawerParts.gleepglorpBody(App.chat.gleepglorpSettings(), providers).forEach(function (n) { content.appendChild(n); });
       } else if (info.kind === 'deleted') {
         name = info.name;
         content.appendChild(note('This agent no longer exists'));
@@ -633,8 +473,9 @@
       nameEl.textContent = name;
       nameEl.hidden = !name;
       var kind = type && App.ui.badge.KINDS.indexOf(type) !== -1 ? type : 'unknown';
-      badge.set({ kind: kind, text: type || '' });
-      footerEl.hidden = info.kind !== 'agent';
+      badge.set({ kind: kind, text: ggView ? 'Built in' : (type || '') });
+      footerEl.hidden = info.kind !== 'agent' && !ggView;
+      settingsBtn.lastChild.nodeValue = ggView ? 'Open GleepGlorp settings' : 'Open agent settings';
     }
 
     // The per-open fetches (only while open, for a known agent).
@@ -713,9 +554,9 @@
     function renderKey() {
       var want = active && !!view && !!state.open[state.mode];
       var info = want ? describe() : { kind: 'none' };
-      var n = info.kind === 'default' ? chatsCount(null) : null;
-      if (info.kind === 'agent' || info.kind === 'deleted') n = chatsCount(info.name);
-      return JSON.stringify([view, state.mode, want, n]);
+      var n = info.kind === 'agent' || info.kind === 'deleted' ? chatsCount(info.name) : null;
+      // A GleepGlorp view re-renders on a settings push.
+      return JSON.stringify([view, state.mode, want, n, info.kind === 'gleepglorp' ? App.chat.gleepglorpSettings() : null]);
     }
 
     function render() {
@@ -756,6 +597,8 @@
       }));
     }
     for (var s = 0; s < STORES.length; s++) subscribeStore(STORES[s]);
+    // GleepGlorp's settings are a module of their own, not an App.store collection (M36 L04).
+    unsubs.push(App.gleepglorp.subscribe(function () { if (renderKey() !== lastKey) render(); }));
 
     function destroy() {
       for (var i = 0; i < unsubs.length; i++) unsubs[i]();

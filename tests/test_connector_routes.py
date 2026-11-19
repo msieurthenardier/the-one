@@ -181,6 +181,41 @@ async def test_update_rejects_bad_config(client: AsyncClient, stub_gate) -> None
     assert resp.status_code == 422
 
 
+async def test_create_refuses_reserved_agent_bindings(client: AsyncClient, stub_gate) -> None:
+    """Mission 36 F1 L02: default / GleepGlorp (any case) cannot be bound."""
+    for reserved in ("default", "Default", "GleepGlorp", "gleepglorp"):
+        resp = await client.post(
+            "/api/connectors", json=_stub_payload(config={"default_agent": reserved})
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"][0]["loc"] == ["config", "default_agent"]
+        resp = await client.post(
+            "/api/connectors",
+            json=_stub_payload(config={"default_agent": "bot-1", "channel_map": {"c1": reserved}}),
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"][0]["loc"] == ["config", "channel_map", "c1"]
+    assert (await client.get("/api/connectors")).json() == []
+
+
+async def test_update_revalidates_every_binding(client: AsyncClient, stub_gate) -> None:
+    create = await client.post("/api/connectors", json=_stub_payload())
+    connector_id = create.json()["id"]
+    resp = await client.put(
+        f"/api/connectors/{connector_id}",
+        json=_stub_payload(config={"default_agent": "bot-1", "channel_map": {"c1": "Default"}}),
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"][0]["loc"] == ["config", "channel_map", "c1"]
+    resp = await client.put(
+        f"/api/connectors/{connector_id}",
+        json=_stub_payload(config={"default_agent": "GleepGlorp"}),
+    )
+    assert resp.status_code == 422
+    stored = (await client.get(f"/api/connectors/{connector_id}")).json()
+    assert stored["config"]["default_agent"] == "bot-1"
+
+
 async def test_update_restarts_listener(client: AsyncClient, connected_manager) -> None:
     """Old listener stopped, new one started; no stale-credential listener
     survives a save (Edge Cases / AC — PUT restarting semantics)."""

@@ -48,6 +48,7 @@ from the_one.connectors.delivery import (  # noqa: F401  (STEP_LIMIT_LINE re-exp
 from the_one.db.codec import decode_messages, encode_messages
 from the_one.db.models import ChatSession, Connector, now_iso
 from the_one.llm.base import Message, Role, tag_post_step_visibility
+from the_one.naming import is_reserved_agent_name
 from the_one.sessions import broadcast_to_session, track_turn
 
 if TYPE_CHECKING:
@@ -401,6 +402,14 @@ async def dispatch_inbound(
     agent_name = _resolve_agent_name(connector, envelope)
     if not agent_name:
         logger.warning("dispatch_inbound: connector %s has no default_agent", connector_id)
+        return
+
+    if is_reserved_agent_name(agent_name):
+        logger.warning(
+            "dispatch_inbound: connector %s is bound to the reserved agent name %r; dropping",
+            connector_id,
+            agent_name,
+        )
         return
 
     factory = get_factory()

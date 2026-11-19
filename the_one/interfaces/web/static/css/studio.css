@@ -1012,7 +1012,8 @@
 }
 .area-studio .rules-row-toggle-wrap { flex: none; padding-top: 4px; }
 .area-studio .rules-row-body { flex: 1 1 auto; min-width: 0; }
-.area-studio .rules-row-text {
+.area-studio .rules-row-text,
+.area-admin .rules-row-text {
   margin: 0;
   padding-top: 4px;
   color: var(--fg);
@@ -1021,7 +1022,8 @@
   overflow-wrap: anywhere;
 }
 .area-studio .rules-row--off .rules-row-text { color: var(--fg-muted); }
-.area-studio .rules-row-actions {
+.area-studio .rules-row-actions,
+.area-admin .rules-row-actions {
   flex: none;
   display: flex;
   flex-wrap: wrap;
@@ -1056,38 +1058,46 @@
   color: var(--fg-secondary);
   line-height: var(--line-height-normal);
 }
-.area-studio .notes-bar {
+/* Notes header end (M36 F1 HAT, board option A): the usage text, then Clear all, on the
+   section title's line (agent tab and GleepGlorp alike). */
+.area-studio .notes-header-action,
+.area-admin .notes-header-action {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
-  margin: 0 0 var(--space-2);
 }
-.area-studio .notes-usage {
-  margin: 0;
+.area-studio .notes-usage,
+.area-admin .notes-usage {
   font-size: var(--font-size-caption);
-  color: var(--fg-muted);
+  color: var(--fg-tertiary);
   font-variant-numeric: tabular-nums;
 }
-.area-studio .notes-row-number {
-  flex: none;
-  min-width: 28px;
-  padding-top: 4px;
-  color: var(--fg-muted);
-  font-size: var(--font-size-body-sm);
-  font-variant-numeric: tabular-nums;
-}
-.area-studio .notes-row {
+/* Quiet rows: no box, hairlines between and below the last, text at body size. */
+.area-studio .notes-row,
+.area-admin .notes-row {
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  padding: var(--space-3) 0;
+  padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
 }
-.area-studio .notes-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; }
-.area-studio .notes-list .notes-row:first-child { border-top: 1px solid var(--border); }
-.area-studio .notes-row-body { flex: 1 1 auto; min-width: 0; }
-.area-studio .notes-row-meta {
+.area-studio .notes-row .rules-row-text,
+.area-admin .notes-row .rules-row-text {
+  padding-top: 6px;
+  font-size: var(--font-size-body);
+}
+.area-studio .notes-row-actions,
+.area-admin .notes-row-actions { flex-wrap: nowrap; gap: 2px; }
+.area-studio .notes-row-actions .btn:not(.notes-row-icon-delete),
+.area-admin .notes-row-actions .btn:not(.notes-row-icon-delete) { color: var(--fg-tertiary); }
+.area-studio .notes-list,
+.area-admin .notes-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; }
+.area-studio .notes-list .notes-row:first-child,
+.area-admin .notes-list .notes-row:first-child { border-top: 1px solid var(--border); }
+.area-studio .notes-row-body,
+.area-admin .notes-row-body { flex: 1 1 auto; min-width: 0; }
+.area-studio .notes-row-meta,
+.area-admin .notes-row-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1096,9 +1106,12 @@
   font-size: var(--font-size-caption);
   color: var(--fg-muted);
 }
-.area-studio .notes-row-origin { display: inline-flex; align-items: center; gap: var(--space-1); }
-.area-studio .notes-row-origin-link { text-decoration: underline; }
-.area-studio .notes-row-edited { color: var(--fg-secondary); }
+.area-studio .notes-row-origin,
+.area-admin .notes-row-origin { display: inline-flex; align-items: center; gap: var(--space-1); }
+.area-studio .notes-row-origin-link,
+.area-admin .notes-row-origin-link { text-decoration: underline; }
+.area-studio .notes-row-edited,
+.area-admin .notes-row-edited { color: var(--fg-secondary); }
 
 @layer areas {
   /* === Provider editor and model list in Library (sortie 02, DD7) === */
@@ -1106,6 +1119,15 @@
      when Settings hosted providers). The `admin-pf-*` / `plan-*` class names
      are accepted naming debt. The capability chips are App.ui.chip, the pull progress App.ui.progress. */
   .area-studio .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  /* Provider delete, in use (M36 F1 HAT): one neutral box in the Danger zone, not a banner.
+     Explanation, the checkbox, then the Delete button; the danger colour is the button's. */
+  .area-studio .provider-delete-box {
+    display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3);
+    width: fit-content; max-width: 100%; box-sizing: border-box;
+    padding: var(--space-4);
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+  }
+  .area-studio .provider-delete-text { margin: 0; color: var(--fg); line-height: 1.5; }
   /* The model list's scroll region; the rows are App.ui.modelList. */
   .area-studio .provider-models-region { max-height: 240px; overflow-y: auto; border-radius: var(--radius-sm); }
   .area-studio .admin-pf-models-help { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); }

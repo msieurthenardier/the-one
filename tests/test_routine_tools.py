@@ -74,6 +74,8 @@ async def test_provider_returns_four_tools_only_when_on_and_not_default() -> Non
     tools = await RoutineToolProvider().get_tools_for_agent(on, agent_name=NAME)
     assert [t.name for t in tools] == ROUTINE_TOOLS
     assert await RoutineToolProvider().get_tools_for_agent(on, agent_name="default") == []
+    for reserved in ("Default", "GleepGlorp", "gleepglorp"):
+        assert await RoutineToolProvider().get_tools_for_agent(on, agent_name=reserved) == []
     off = AgentConfig(name=NAME)
     assert await RoutineToolProvider().get_tools_for_agent(off, agent_name=NAME) == []
     # fresh instances, sharing nothing

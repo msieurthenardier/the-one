@@ -23,7 +23,13 @@ from the_one.db._write_lock import write_transaction
 from the_one.db.models import now_iso
 from the_one.knowledge.kb_rename import carry_kb_rename
 from the_one.mcp.rename_references import carry_mcp_rename
-from the_one.naming import NameRuleError, check_name, repair_name
+from the_one.naming import (
+    RESERVED_AGENT_NAMES,
+    NameRuleError,
+    check_name,
+    is_reserved_agent_name,
+    repair_name,
+)
 from the_one.self_configuration.constants import OWNER_MARKER_KEY
 from the_one.self_configuration.manage import cascade_rename
 
@@ -59,9 +65,9 @@ async def _rows(conn, sql: str) -> list:
 async def _repair_agents(conn, agent_store, mcp_repo) -> list[tuple[str, str, str]]:
     done: list[tuple[str, str, str]] = []
     names = [r["name"] for r in await _rows(conn, "SELECT name FROM agents")]
-    taken = set(names)
+    taken = set(names) | set(RESERVED_AGENT_NAMES)
     for old in names:
-        if not _is_bad(old):
+        if not (_is_bad(old) or is_reserved_agent_name(old)):
             continue
         try:
             new = repair_name(old, kind="agent", taken=taken)

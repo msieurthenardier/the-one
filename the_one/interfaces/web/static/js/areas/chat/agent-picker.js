@@ -57,13 +57,14 @@
     return Array.isArray(v) ? v : [];
   }
 
-  // The live agents, A-Z, without the synthetic default.
+  // The live agents, A-Z. GleepGlorp has no agents row and is never in this list (it has its
+  // own Built in group); the name check is defensive.
   function liveAgents(agents) {
     var out = [];
     var list = arr(agents);
     for (var i = 0; i < list.length; i++) {
       var a = list[i];
-      if (!a || !a.name || a.name === 'default') continue;
+      if (!a || !a.name || a.name === App.chat.GLEEPGLORP) continue;
       out.push(a);
     }
     out.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
@@ -136,19 +137,41 @@
         dataset: { agent: agent.name }
       };
     }
+    // M36 F1 L04: the Built in group, only while GleepGlorp is enabled. Its meta is its model,
+    // or "Needs a model" until it has one (or its provider is gone).
+    var gg = App.chat.gleepglorpSettings();
+    var builtin = null;
+    if (gg && gg.enabled) {
+      var ready = gg.state === 'ready';
+      builtin = {
+        id: App.chat.GLEEPGLORP,
+        label: App.chat.GLEEPGLORP,
+        description: 'Help setting up the app',
+        meta: ready && gg.model ? String(gg.model) : 'Needs a model',
+        metaMono: ready,
+        dataset: { agent: App.chat.GLEEPGLORP }
+      };
+    }
     var q = String(query || '').trim().toLowerCase();
     if (!q) {
       var groups = [];
+      if (builtin) groups.push({ id: 'builtin', label: 'Built in', items: [builtin] });
       var recent = recentAgents(agents, App.store.peek('sessions').value);
       if (recent.length) groups.push({ id: 'recent', label: 'Recently used', items: recent.map(item) });
-      groups.push({ id: 'all', label: 'All agents', items: agents.map(item) });
+      // With no agents, the Built in group stands alone (an empty "All agents" is not shown).
+      if (agents.length || !builtin) groups.push({ id: 'all', label: 'All agents', items: agents.map(item) });
       return groups;
     }
     var matched = [];
     for (var m = 0; m < agents.length; m++) {
       if (haystack(agents[m], types[agents[m].name]).indexOf(q) !== -1) matched.push(agents[m]);
     }
-    return [{ id: 'matching', label: matched.length + ' matching', items: matched.map(item) }];
+    var items = matched.map(item);
+    // GleepGlorp matches by name and description, and lists first among the matches.
+    if (builtin && (builtin.label + ' ' + builtin.description).toLowerCase().indexOf(q) !== -1) {
+      items.unshift(builtin);
+    }
+    return [{ id: 'matching', label: items.length + ' matching', items: items }];
   }
 
   function emptyText(query) {
@@ -212,6 +235,12 @@
         if (openModal === entry) list.refresh();
       }, function () { /* the empty state stays */ });
     });
+    // The Built in group shows as soon as GleepGlorp's settings load, independent of the agents.
+    if (!App.gleepglorp.peek().loaded) {
+      App.gleepglorp.get().then(function () {
+        if (openModal === entry) list.refresh();
+      }, function () { /* no Built in group */ });
+    }
   }
 
   function openNow(opener, resolve) {

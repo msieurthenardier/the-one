@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, tzinfo
 from typing import Any, Literal
 
-from the_one.naming import check_name
+from the_one.naming import check_name, is_reserved_agent_name
 from the_one.routines import limits as routine_limits
 from the_one.routines import recurrence
 from the_one.routines import runner as routine_runner
@@ -483,7 +483,7 @@ def _hypothetical(
 async def require_routine_tools_on(conn: Any, agent_name: str) -> bool:
     """Call-time gate shared by every agent routine tool (read and write): refuse for the
     ``default`` agent or when the Routines switch is off. Returns the approval flag."""
-    if agent_name == "default":
+    if is_reserved_agent_name(agent_name):
         raise RoutineFieldError("routines", MSG_NAMED_AGENT)
     enabled_switch, requires_approval = await _agent_switches(conn, agent_name)
     if not enabled_switch:

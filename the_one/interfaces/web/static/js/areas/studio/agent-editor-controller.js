@@ -336,7 +336,6 @@
         reorderRules: agentData.reorderRules,
         fetchNotes: agentData.fetchNotes,
         setNotesEnabled: agentData.setNotesEnabled,
-        updateNote: agentData.updateNote,
         deleteNote: agentData.deleteNote,
         clearNotes: agentData.clearNotes,
         // M33 F1 L8 -- Routines tab network calls.

@@ -237,8 +237,13 @@
         // Explicit branch: any group that is not named falls through to the
         // connector count below (sortie 02, DD5).
         if (agents) {
+          // GleepGlorp has no agents row: name it first when its settings use this
+          // provider ("GleepGlorp", or "GleepGlorp, 2 agents"; M36 F1 L03).
+          var gg = window.App.gleepglorp ? App.gleepglorp.peek().value : null;
           var pn = App.usage.providerAgents(agents, row.id);
-          meta.push(plural(pn, 'agent', 'agents'));
+          var ggUses = App.usage.providerAgents([], row.id, gg) === 1;
+          if (ggUses) meta.push(pn ? 'GleepGlorp, ' + plural(pn, 'agent', 'agents') : 'GleepGlorp');
+          else meta.push(plural(pn, 'agent', 'agents'));
         }
       }
       if (group.id === 'mcp') {
@@ -369,6 +374,10 @@
       App.store.get('agents').then(function () {
         if (gen === libraryPaneGen) renderLibraryList();
       }, function () { /* the counts stay off until agents load */ });
+      // GleepGlorp's provider joins the provider rows' meta (M36 F1 L03).
+      App.gleepglorp.get({ force: !!force }).then(function () {
+        if (gen === libraryPaneGen) renderLibraryList();
+      }, function () { /* the meta simply omits GleepGlorp */ });
     }
 
     // After a mutation: the editor invalidated `name`, so this plain get

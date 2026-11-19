@@ -694,22 +694,6 @@ def test_routines_tab_origin_flag_and_the_flag_clearing_edit(env, page: Page) ->
     assert [r for r in _routines(base) if r["name"] == "planted"][0]["untrusted"] is False
 
 
-def test_the_default_agent_has_a_note_and_no_switches(env, page: Page) -> None:
-    base, _ = env
-    r = httpx.post(
-        f"{base}/api/agents",
-        json={"name": "default", "description": "the default configuration"},
-        headers=_headers(base),
-        timeout=5,
-    )
-    assert r.status_code in (200, 201), r.text
-    _nav.goto(page, base, "agents/default/self-configuration")
-    expect(page.locator('[data-testid="self-config-routines-default-agent"]')).to_have_text(
-        "Routines need a named agent.", timeout=8000
-    )
-    expect(_switch(page, ENABLE)).to_have_count(0)
-
-
 def test_a_proposal_made_by_the_real_chain_lands_in_the_queue(
     app_with_data_dir: tuple[str, Path], page: Page
 ) -> None:

@@ -41,22 +41,6 @@
     var queueMod = window.App.studio.selfConfigRoutinesQueue;
     ctx.routinesSeq = 0;
 
-    // The reserved `default` agent has no routines: a note, no switches, no card.
-    if (ctx.agent.name === 'default') {
-      var noteSection = App.ui.section({
-        title: 'Routines', titleTag: 'h3', className: 'self-config-routines-section'
-      });
-      ctx.cardsHost.appendChild(noteSection.el);
-      var body = noteSection.body;
-      body.appendChild(App.ui.emptyState({
-        title: 'Routines need a named agent.', titleTag: 'p', variant: 'plain',
-        testid: 'self-config-routines-default-agent'
-      }));
-      ctx.refetchRoutines = function () { return Promise.resolve(); };
-      ctx.routinesAnnounce = function () {};
-      return;
-    }
-
     // The Routines card (M33 F4 L06): the enable switch, title, "Require approval" switch and
     // the one-line description; the waiting queue and the history are its two expanders.
     var card = window.App.studio.selfConfigCard.create({

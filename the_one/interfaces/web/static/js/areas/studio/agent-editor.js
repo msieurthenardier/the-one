@@ -77,7 +77,6 @@
           reorderRules: cb.reorderRules,
           fetchNotes: cb.fetchNotes,
           setNotesEnabled: cb.setNotesEnabled,
-          updateNote: cb.updateNote,
           deleteNote: cb.deleteNote,
           clearNotes: cb.clearNotes
         });
