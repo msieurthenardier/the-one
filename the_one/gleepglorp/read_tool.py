@@ -27,11 +27,8 @@ class ReadAppConfigTool(Tool):
     name = READ_APP_CONFIG_TOOL_NAME
     summary = "Reads the app's configuration and status, never a secret."
     description = (
-        "Read how this app is set up, read-only. kind is one of: overview (counts, names, "
-        "your own state), agents, mcp_servers, providers, knowledge_bases, connectors, "
-        "routines (needs name: an agent), secrets (names and key names only), "
-        "built_in_tools, settings. Give name to get one item's detail; leave it out to list "
-        "every item. Secret values are never shown."
+        "Read how the app is set up. overview = counts and your own state; routines needs "
+        "name (an agent); secrets shows names only. name gives one item's detail, omit it to list."
     )
     parameters = {
         "type": "object",
@@ -39,7 +36,6 @@ class ReadAppConfigTool(Tool):
             "kind": {"type": "string", "enum": list(views.KINDS)},
             "name": {
                 "type": ["string", "null"],
-                "description": "Item name for its detail; omit to list. routines needs an agent.",
             },
         },
         "required": ["kind"],

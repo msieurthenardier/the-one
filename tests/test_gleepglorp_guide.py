@@ -277,10 +277,10 @@ async def test_an_unknown_or_empty_topic_lists_every_topic_with_its_summary() ->
     assert await tool.execute() == await tool.execute(topic="nope")
 
 
-def test_the_description_names_every_topic_with_its_purpose() -> None:
+def test_the_description_names_every_topic() -> None:
     tool = GetAppGuideTool()
-    for topic_id, purpose in TOPICS.items():
-        assert f"{topic_id} ({purpose})" in tool.description
+    for topic_id in TOPICS:
+        assert topic_id in tool.description
     props = tool.to_schema()["parameters"]["properties"]
     assert set(props) == {"topic"}
 

@@ -321,8 +321,16 @@ def test_the_memory_scenario_declares_the_claim_check_as_safety():
 
 # ── the six candidate prompts ─────────────────────────────────────────────
 
-CANDIDATES = ["v1", "a", "b", "c", "d", "e", "d0", "d1", "d2", "d3", "d4", "d5"]
-ABLATION = {"d0", "d1", "d2", "d3", "d4", "d5"}  # no agent-lookup clause in the off-topic rule
+CANDIDATES = ["v1", "a", "b", "c", "d", "e", "d0", "d1", "d2", "d3", "d4", "d5", "dmin"]
+ABLATION = {
+    "d0",
+    "d1",
+    "d2",
+    "d3",
+    "d4",
+    "d5",
+    "dmin",
+}  # no agent-lookup clause in the off-topic rule
 ROUTE_TOKEN = re.compile(r"#[A-Za-z0-9~][A-Za-z0-9~/{}%_.-]*")
 
 
@@ -344,7 +352,7 @@ def test_every_route_in_a_candidate_lands_on_a_page(name):
             seen += 1
             problem = check_route(route.replace("{name}", "Trip%20Planner"))
             assert problem is None, f"{name} {key}: {route}: {problem}"
-    assert seen >= (5 if name == "d3" else 9)
+    assert seen >= (5 if name in ("d3", "dmin") else 9)
 
 
 def test_the_link_check_would_catch_an_alias(tmp_path):

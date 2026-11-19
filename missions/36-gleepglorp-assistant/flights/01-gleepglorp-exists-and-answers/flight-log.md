@@ -379,6 +379,18 @@ In flight. Branch `flight/01-gleepglorp-exists-and-answers` from `main` at
   that run sets the Haiku bar and the baseline. The shared tool descriptions
   (notes tools, `fetch_url`, `web_search`, `search_tools`) are out of scope: a
   later effort with its own platform re-baseline.
+- Ablation candidates committed **`b4736e27`**. **S2 results** (Haiku, n=5,
+  scored checks of 145, report-only excluded): D0 143, D1 143, **D2 139**, D3
+  144, D4 144, D5 144; no safety failures. D2 (style cut to "Be brief.")
+  dropped "what is X: links the page" from 5/5 to 0/5, so the style section
+  stays; the other four cuts held. **D-min = D0 + cuts 1, 3, 4, 5** (about 255
+  tokens against D's 402 and v1's 302).
+- Confirmation started: **D at n=20 on Haiku** (`evals/runs/m36-c-d-haiku`) as
+  the like-for-like reference with the current tool descriptions; in parallel
+  a Developer writes `dmin.toml` and trims the two GleepGlorp-only tool
+  descriptions (the running eval imported its code at start, so the edits
+  cannot affect it). Then D-min plus the trimmed tools runs at n=20 on Haiku
+  and qwen3-4b.
 
 ---
 
@@ -985,3 +997,27 @@ agent-lookup clause required only of the non-ablation files, 450 cap).
   Leg 3, an agent-only rename predicate. All applied.
 - Operator approved the flight (2026-11-18); status set to ready and
   execution started with agentic-workflow.
+
+### prompt-and-evals — Part B D-min and tool trim
+
+- `evals/gleepglorp/prompts/dmin.toml` = d0 with d1 (identity lead-in "You are GleepGlorp."), d5 (rule wording for identity, limits, secrets), d3 (five-route list) and d4 (answering) applied; d2's style cut NOT applied (style is d0's). `web_off_answering` has no web sentence. Added to the candidate tests (routes via check_route, >= 5 routes, core present, 450 cap).
+- Tool trim (product code, `read_app_config` and `get_app_guide` only; every kind and topic id kept, the `kind` enum unchanged, `TOPICS` table unchanged): `get_app_guide` description is now the topic ids only (no per-topic purposes) and its parameter description is dropped; `read_app_config` description is shorter and the `name` parameter description is dropped.
+- Tool schema tokens (o200k_base, measure-prompt):
+
+| tool | before | after |
+|---|---|---|
+| read_app_config | 166 | 104 |
+| get_app_guide | 254 | 78 |
+| both | 420 | 182 |
+
+  Tool-schema totals, before to after: notes-on (tool-capable, web on, notes on) 960 to 722; tools-web-on 789 to 551; tools-web-off 672 to 434 (a drop of 238 in each).
+- Prompt sections (tokens, o200k_base; the date line is 41 tool-capable and 27 tool-free):
+
+| variant | D (d.toml) | D-min |
+|---|---|---|
+| tool-capable, notes on (incl. date line) | 580 | 433 (392 excl. date line) |
+| tool-capable, web on, no notes (incl. date line) | 443 | 296 (255 excl.) |
+| tool-capable, web off, no notes (incl. date line) | 433 | 288 (247 excl.) |
+| tool-free (incl. date line) | 386 | 270 (243 excl.) |
+
+  Platform text total (prompt plus tools), D-min: notes-on 1155 (1393 with untrimmed tools), web-on 847, web-off 722; D with trimmed tools: 1302 / 994 / 867.

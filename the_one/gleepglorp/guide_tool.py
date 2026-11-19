@@ -85,11 +85,7 @@ def topic_list() -> str:
 
 
 def _description() -> str:
-    topics = "; ".join(f"{i} ({purpose})" for i, purpose in TOPICS.items())
-    return (
-        "Read a help topic about how this app works and how to set it up. Give topic as one "
-        "of the ids below; an unknown or empty topic lists them all. Topics: " + topics + "."
-    )
+    return "Read an app help topic. topic: " + ", ".join(TOPICS) + ". Omit to list them."
 
 
 class GetAppGuideTool(Tool):
@@ -100,12 +96,7 @@ class GetAppGuideTool(Tool):
     description = _description()
     parameters = {
         "type": "object",
-        "properties": {
-            "topic": {
-                "type": ["string", "null"],
-                "description": "A topic id from the list; omit to list the topics.",
-            }
-        },
+        "properties": {"topic": {"type": ["string", "null"]}},
     }
 
     async def execute(self, topic: Any = None, **_extra: Any) -> str:  # type: ignore[override]
