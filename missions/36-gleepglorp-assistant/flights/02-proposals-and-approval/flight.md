@@ -1,6 +1,6 @@
 # Flight: Proposals and approval
 
-**Status**: planning
+**Status**: in-flight
 **Mission**: [GleepGlorp, the In-App Assistant](../../mission.md)
 
 ## Contributing to Criteria
@@ -777,8 +777,11 @@ Architect's re-check (cycle 1).
 - **Batches:**
   - A: Legs 1-3, reviewed and committed.
   - B: Legs 4-5, reviewed and committed.
-  - C: Legs 6-7, with the Accessibility Reviewer, reviewed and committed.
-  - Then Leg 8, Leg 9 under its gate, and the HAT.
+  - C: Legs 6-8, with the Accessibility Reviewer, reviewed and committed.
+  - Then Leg 9, Leg 10 under its gate, and the HAT (Leg 11).
+  - Leg 7 was split into Legs 7 and 8 at its design review. The evals and HAT
+    legs were renumbered 9-11, so "Leg 8", "Leg 9" and "Leg 10" earlier in
+    this spec mean the eval setup, the eval rounds and the HAT.
 - **The quiet-host gate:** taken at the first full gate that starts on a quiet
   host (owed since Flight 1, squawk 0389).
 
@@ -822,7 +825,7 @@ merges in between, but no eval round or behavior test is run on that tree.
 > **Note:** These are tentative suggestions, not commitments. Legs are planned
 > and created one at a time as the flight progresses.
 
-- [ ] `01-agent-and-rule-services`
+- [x] `01-agent-and-rule-services`
   - The agent and rule services: `AgentWriteError`, create, the
     `replace_agent` core holding the PUT's omit rules, and a field-level change
     with `save(precheck=…, on_commit=…)` under the lock (touched fields are
@@ -831,14 +834,14 @@ merges in between, but no eval round or behavior test is run on that tree.
     `proposal=` type hint is generalised.
   - The routes call the services, and Save is unchanged.
   - High-risk (shared write path).
-- [ ] `02-proposal-store-and-tool`
+- [x] `02-proposal-store-and-tool`
   - Schema v54 `gleepglorp_proposals` and its repository.
   - The change shape and its pin test, and the `fields` read kind.
   - `propose_change`: name-to-id resolution, one pending per chat, supersede.
   - Proposals deleted at every chat-delete site, and the purge.
   - The allowlist and no-write tests.
   - High-risk (schema, new write).
-- [ ] `03-proposal-guards`
+- [x] `03-proposal-guards`
   - The secret guard (`secret_leaves`, key-shape constants).
   - The `read_app_config` content marker and the provenance classification.
   - The view changes (operator-typed agent summary, `fields_only` detail).
@@ -866,19 +869,25 @@ merges in between, but no eval round or behavior test is run on that tree.
   - The behavior-test specs, with their testid contract.
 - [ ] `07-editors-follow-approvals`
   - The controller split first.
-  - The agent editor (General, model, Tools, Knowledge, Behavior), the Rules
-    and Routines tabs, the drawer and the store follow `config_changed`, with
-    the option A notes. Unsaved edits are kept.
-- [ ] `08-proposal-evals-setup` (autonomous, reviewed and committed before any
+  - The eager `App.approvals` record.
+  - The store, list and drawer follow `config_changed`.
+  - The General tab fields follow, with a central clean or dirty decision and
+    the option A notes drawn at every mount.
+  - The same-window return path.
+- [ ] `08-tabs-follow-approvals` (split from Leg 7 at its design review,
+      2026-11-19)
+  - The Tools, MCP and Knowledge tiles follow on the same mechanism.
+  - The Rules reload keeps an inline edit's text, and the Routines tab reloads.
+- [ ] `09-proposal-evals-setup` (autonomous, reviewed and committed before any
       quota)
   - The `evals/README.md` method section.
   - Scenarios, and checks with their offline pass and fail tests.
   - The harness approve step and trace.
   - The frozen re-pin (operator-approved), and the one-attempt fairness pass.
-- [ ] `09-proposal-evals-rounds` (operator-gated)
+- [ ] `10-proposal-evals-rounds` (operator-gated)
   - Screen, shorten, confirm, baseline.
   - Ship the prompt and the guide topic.
-- [ ] `10-hat`: the guided HAT with the crew-checked apparatus, and the two
+- [ ] `11-hat`: the guided HAT with the crew-checked apparatus, and the two
       behavior tests.
 
 ---

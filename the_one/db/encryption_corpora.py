@@ -187,4 +187,81 @@ def count_items_with_secrets(c: Corpora) -> int:
     )
 
 
-__all__ = ["Corpora", "count_items_with_secrets", "gather_corpora"]
+# Keys of an OAuth blob that are not secret (a token's type and scopes, the public client id).
+_PUBLIC_BLOB_KEYS = frozenset({"token_type", "scope", "scopes"})
+
+
+def _blob_strings(value: Any, *, parent: str | None = None) -> list[str]:
+    """Every string in a secrets blob, recursively, except the public OAuth keys."""
+    if isinstance(value, str):
+        return [value]
+    out: list[str] = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if k in _PUBLIC_BLOB_KEYS:
+                continue
+            if k == "client_id" and parent == "dcr_credentials":
+                continue
+            out += _blob_strings(v, parent=k if isinstance(k, str) else None)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            out += _blob_strings(v, parent=parent)
+    return out
+
+
+def _override_strings(mcp: dict[str, Any] | None, tool: dict[str, Any] | None) -> list[str]:
+    """The secret strings of one agent's override maps (never tool lists or other keys)."""
+    out: list[str] = []
+    for entry in (mcp or {}).values():
+        if not isinstance(entry, dict):
+            continue
+        plain = entry.get("plain_names")
+        plain_names = {n for n in plain if isinstance(n, str)} if isinstance(plain, list) else set()
+        folded = {n.strip().lower() for n in plain_names}
+        headers = entry.get("headers")
+        for k, v in (headers if isinstance(headers, dict) else {}).items():
+            low = k.strip().lower() if isinstance(k, str) else ""
+            if isinstance(v, str) and (low == "authorization" or low not in folded):
+                out.append(v)
+        env = entry.get("env")
+        for k, v in (env if isinstance(env, dict) else {}).items():
+            if isinstance(v, str) and k not in plain_names:
+                out.append(v)
+        if isinstance(entry.get("bearer_token"), str):
+            out.append(entry["bearer_token"])
+    if tool:
+        from the_one.gleepglorp.view_core import _secret_field_names
+        from the_one.tools.builtins import _TOOL_CLASSES
+
+        for tool_name, fields in tool.items():
+            cls = _TOOL_CLASSES.get(tool_name) if isinstance(tool_name, str) else None
+            config_cls = getattr(cls, "Config", None)
+            if config_cls is None or not isinstance(fields, dict):
+                continue
+            for field_name in _secret_field_names(config_cls):
+                value = fields.get(field_name)
+                if isinstance(value, str):
+                    out.append(value)
+    return out
+
+
+def secret_leaves(c: Corpora, *, min_len: int = 8) -> set[str]:
+    """The stored secret strings of at least ``min_len`` characters, trimmed (M36 F2 L3).
+
+    Chosen per column so a public value (an OAuth ``token_type``, a header the operator
+    marked plain, a tool list) is never a "secret" a proposal can trip on. A shorter value
+    is not searched, so it cannot cause false positives. Nothing here is logged or returned
+    beyond the caller.
+    """
+    found: list[str] = [key for _id, key in c.api_keys]
+    for _id, blob in (*c.provider_secrets, *c.mcps, *c.tool_configs, *c.connectors):
+        found += _blob_strings(blob)
+    found += [value for _id, value in c.secret_values]
+    found += [secret for _ident, secret in c.ext_credentials]
+    for _name, tool, mcp in c.agents:
+        found += _override_strings(mcp, tool)
+    trimmed = (s.strip() for s in found if isinstance(s, str))
+    return {s for s in trimmed if len(s) >= min_len}
+
+
+__all__ = ["Corpora", "count_items_with_secrets", "gather_corpora", "secret_leaves"]

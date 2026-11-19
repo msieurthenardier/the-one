@@ -52,6 +52,7 @@ PARITY_DRIVER = {
     "secrets": _names_of_list_kind,
     "built_in_tools": _names_of_list_kind,
     "settings": _no_names,
+    "fields": _names_of_list_kind,
 }
 
 
@@ -223,7 +224,7 @@ async def test_agent_detail(world) -> None:
     assert d["model"] == "gpt-x" and d["provider"] == "OpenAI main"
     assert d["enabled_tools"] == "all" and d["disabled_tools"] == ["web_fetch"]
     assert d["tools_with_overrides"] == ["shell"]  # the name, never the override value
-    assert d["rules"] == [{"text": "Always answer briefly.", "enabled": True}]
+    assert d["rules"] == [{"number": 1, "text": "Always answer briefly.", "enabled": True}]
     assert sorted(d["mcp_servers"]) == ["Docs server", "self-configuration"]
     assert d["knowledge_bases"] == ["Docs KB"]
     assert d["routines_count"] == 1 and d["notes_count"] == 1
@@ -413,7 +414,7 @@ def test_every_kind_is_classified() -> None:
 
     enum = set(ReadAppConfigTool.parameters["properties"]["kind"]["enum"])
     assert enum == set(KINDS) == set(views.VIEWS) == set(ALLOWED) == set(PARITY_DRIVER)
-    assert len(KINDS) == 10
+    assert len(KINDS) == 11
     for kind in KINDS:
         assert set(ALLOWED[kind]) == {"list", "detail", "nested"}
     # List kinds declare {name, summary} entries; the others have no list entry.

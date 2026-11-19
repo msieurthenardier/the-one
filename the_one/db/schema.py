@@ -15,7 +15,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 53
+CURRENT_VERSION = 54
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -3423,3 +3423,40 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (53,))
         await conn.commit()
         version = 53
+
+    if version < 54:
+        # Mission 36 F2 L2 (DD4) — GleepGlorp's change proposals. No foreign keys: a proposal
+        # belongs to a chat (deleted by hand with it) and names an agent that may not exist
+        # yet. Idempotent.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS gleepglorp_proposals ("
+            "    id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "    session_id TEXT NOT NULL,"
+            "    tool_call_id TEXT,"
+            "    kind TEXT NOT NULL CHECK (kind IN ('agent', 'rule', 'routine')),"
+            "    action TEXT NOT NULL CHECK (action IN ('create', 'change')),"
+            "    agent_name TEXT,"
+            "    target_id TEXT,"
+            "    target_key TEXT NOT NULL,"
+            "    changes TEXT NOT NULL,"
+            "    base TEXT,"
+            "    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN "
+            "('pending', 'applied', 'dismissed', 'withdrawn', 'failed')),"
+            "    result TEXT,"
+            "    untrusted INTEGER NOT NULL DEFAULT 0,"
+            "    untrusted_sources TEXT,"
+            "    created_at TEXT NOT NULL,"
+            "    resolved_at TEXT"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_gleepglorp_proposals_session "
+            "ON gleepglorp_proposals (session_id, status)"
+        )
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_gleepglorp_proposals_agent "
+            "ON gleepglorp_proposals (agent_name)"
+        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (54,))
+        await conn.commit()
+        version = 54

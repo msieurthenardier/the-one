@@ -95,6 +95,7 @@ async def test_the_minimal_allowlist(env, monkeypatch) -> None:
         "current_time",
         "read_app_config",
         "get_app_guide",
+        "propose_change",
     }
     assert env.llm_args["model"] == "small-model"
     assert "current_time" in agent._loaded_tool_names
@@ -103,8 +104,9 @@ async def test_the_minimal_allowlist(env, monkeypatch) -> None:
         "current_time",
         "read_app_config",
         "get_app_guide",
+        "propose_change",
     }
-    assert len(agent._loaded_schemas) == 3
+    assert len(agent._loaded_schemas) == 4
     prompt = agent.system_prompt
     assert prompt.startswith(base_prompt(web=False))  # the helper's default: web access off
     assert "current_time" in prompt  # the tool-wording date line
@@ -118,7 +120,12 @@ async def test_the_allowlist_holds_with_current_time_off_app_wide(env) -> None:
     await _ready(env)
     await ToolConfigRepository(env.conn, env.enc).upsert("current_time", {}, enabled=False)
     agent = await _factory(env).create("GleepGlorp")
-    assert set(agent.tools.tool_names) == {"search_tools", "read_app_config", "get_app_guide"}
+    assert set(agent.tools.tool_names) == {
+        "search_tools",
+        "read_app_config",
+        "get_app_guide",
+        "propose_change",
+    }
     assert "current_time" not in agent.system_prompt
 
 
@@ -132,6 +139,7 @@ async def test_the_allowlist_holds_when_the_factory_has_a_store_of_none(env) -> 
         "current_time",
         "read_app_config",
         "get_app_guide",
+        "propose_change",
     }
 
 
@@ -144,10 +152,12 @@ async def test_no_other_agent_gains_read_app_config(env) -> None:
     agent = await _factory(env).create("plain")
     assert "read_app_config" not in agent.tools.tool_names
     assert "get_app_guide" not in agent.tools.tool_names
+    assert "propose_change" not in agent.tools.tool_names
     from the_one.tools.builtins import _TOOL_CLASSES
 
     assert "read_app_config" not in _TOOL_CLASSES
     assert "get_app_guide" not in _TOOL_CLASSES
+    assert "propose_change" not in _TOOL_CLASSES
 
 
 async def test_create_with_no_name_builds_gleepglorp(env) -> None:
@@ -189,7 +199,7 @@ async def test_only_the_exact_spelling_is_gleepglorp(env) -> None:
             await _factory(env).create(name)
 
 
-_BASE = {"search_tools", "current_time", "read_app_config", "get_app_guide"}
+_BASE = {"search_tools", "current_time", "read_app_config", "get_app_guide", "propose_change"}
 _NOTES = {"save_note", "update_note", "forget_note"}
 
 

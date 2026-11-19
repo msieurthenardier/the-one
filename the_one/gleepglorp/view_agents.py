@@ -15,7 +15,6 @@ from the_one.gleepglorp.view_core import (
     _no_such,
     _scalar_name,
     _surface_owners,
-    cut,
 )
 
 
@@ -32,8 +31,12 @@ async def agents_view(ctx: Ctx, name: str | None = None) -> Any:
     entries = [(n, n) for n in await _agent_names(conn)]
 
     async def summarize(key: str, item_name: str) -> str:
+        # Operator fields only (no description): the list is a trusted read (M36 F2 L3).
         cfg = await store.load(key)
-        return cut(cfg.description, 100) or f"model {cfg.llm_model or 'not set'}"
+        tools = "all" if cfg.enabled_tools is None else str(len(cfg.enabled_tools))
+        return (
+            f"{cfg.llm_model or 'no model'}, {tools} tools, {len(cfg.mcp_source_ids)} MCP servers"
+        )
 
     async def detail(key: str, item_name: str) -> dict[str, Any]:
         cfg = await store.load(key)
@@ -42,16 +45,25 @@ async def agents_view(ctx: Ctx, name: str | None = None) -> Any:
         owners = await _surface_owners(conn)
         rules = await AgentRuleRepository(conn).list_for_agent(key)
         routines = await AgentRoutineRepository(conn).list_for_agent(key)
+        free_text: dict[str, Any] = (
+            {}
+            if ctx.fields_only
+            else {"description": cfg.description, "system_prompt": cfg.system_prompt}
+        )
         return {
             "name": cfg.name,
-            "description": cfg.description,
-            "system_prompt": cfg.system_prompt,
+            **free_text,
             "model": cfg.llm_model or None,
             "provider": await _scalar_name(conn, "llm_providers", cfg.provider_config_id),
             "enabled_tools": "all" if cfg.enabled_tools is None else list(cfg.enabled_tools),
             "disabled_tools": list(cfg.disabled_tools),
             "tools_with_overrides": sorted(cfg.tool_overrides or {}),
-            "rules": [{"text": r.text, "enabled": r.enabled} for r in rules],
+            "rules": [
+                {"number": i, "enabled": r.enabled}
+                if ctx.fields_only
+                else {"number": i, "text": r.text, "enabled": r.enabled}
+                for i, r in enumerate(rules, 1)
+            ],
             "mcp_servers": [mcp_names[i] for i in cfg.mcp_source_ids if i in mcp_names],
             "knowledge_bases": [kb_names[i] for i in cfg.kb_ids if i in kb_names],
             "routines_count": len(routines),

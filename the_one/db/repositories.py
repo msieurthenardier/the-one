@@ -6,7 +6,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from collections.abc import AsyncIterator, Iterable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -267,9 +267,28 @@ class SQLiteAgentStore:
             raise KeyError(f"Agent config not found: {name}")
         return self._row_to_config(row)
 
-    async def save(self, config: AgentConfig) -> None:
+    async def save(
+        self,
+        config: AgentConfig,
+        *,
+        precheck: Callable[[AgentConfig | None], None] | None = None,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> None:
+        """Upsert the row. With no hooks this is the plain full upsert.
+
+        ``precheck(current)`` (sync) runs under the write lock against the row re-read
+        inside the transaction (``None`` when absent), before the upsert; ``on_commit(conn)``
+        is awaited after the upsert inside the same transaction. A raise from either rolls
+        the agent write back (Mission 36 F2 L1, DD3/DD4).
+        """
         now = now_iso()
         async with write_transaction(self.conn):
+            if precheck is not None:
+                try:
+                    current: AgentConfig | None = await self.load(config.name)
+                except KeyError:
+                    current = None
+                precheck(current)
             await self.conn.execute(
                 """\
                 INSERT INTO agents (
@@ -326,6 +345,8 @@ class SQLiteAgentStore:
                     now,
                 ),
             )
+            if on_commit is not None:
+                await on_commit(self.conn)
 
     async def set_self_revision_requires_approval(self, name: str, value: bool) -> None:
         """Targeted UPDATE of the operator-owned approval-mode flag (M21 F02 L02).
@@ -478,6 +499,21 @@ class SQLiteAgentStore:
                 "UPDATE chat_sessions SET agent_name = ? WHERE agent_name = ?",
                 (new_name, old_name),
             )
+            # M36 F2 L2: GleepGlorp's proposals name the agent and key their target by it.
+            async with self.conn.execute(
+                "SELECT id, kind, target_key FROM gleepglorp_proposals WHERE agent_name = ?",
+                (old_name,),
+            ) as cur:
+                proposal_rows = await cur.fetchall()
+            for prop in proposal_rows:
+                old_prefix = f"{prop['kind']}:{old_name}"
+                key = prop["target_key"]
+                if key == old_prefix or key.startswith(old_prefix + ":"):
+                    key = f"{prop['kind']}:{new_name}" + key[len(old_prefix) :]
+                await self.conn.execute(
+                    "UPDATE gleepglorp_proposals SET agent_name = ?, target_key = ? WHERE id = ?",
+                    (new_name, key, prop["id"]),
+                )
             async with self.conn.execute("SELECT id, config FROM connectors") as cur:
                 connector_rows = await cur.fetchall()
             for row in connector_rows:
@@ -1788,7 +1824,22 @@ class AgentRuleRepository:
             row = await cur.fetchone()
         return int(row[0]) if row else 0
 
-    async def create(self, name: str, text: str, enabled: bool = True) -> AgentRule:
+    async def create(
+        self,
+        name: str,
+        text: str,
+        enabled: bool = True,
+        *,
+        position: int | None = None,
+        precheck: Callable[[AgentRule | None], None] | None = None,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> AgentRule:
+        """Insert a rule in ONE transaction: the limit check, ``precheck(None)``, the insert,
+        ``on_commit(conn)`` (a raise from either hook rolls the insert back).
+
+        ``position=None`` appends. An int is clamped to ``[0, n]`` (a negative becomes 0):
+        the rules at or after it move down one place and the new rule takes it.
+        """
         text = validate_rule_text(text)
         rule_id = uuid.uuid4().hex
         now = now_iso()
@@ -1796,18 +1847,35 @@ class AgentRuleRepository:
             total = await self.total_chars(name)
             if total + len(text) > RULES_TOTAL_MAX_CHARS:
                 raise total_limit_error(total + len(text))
-            async with self.conn.execute(
-                "SELECT COALESCE(MAX(position) + 1, 0) FROM agent_rules WHERE agent_name = ?",
-                (name,),
-            ) as cur:
-                row = await cur.fetchone()
-            position = int(row[0])
-            await self.conn.execute(
-                "INSERT INTO agent_rules "
-                "(id, agent_name, text, enabled, position, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (rule_id, name, text, 1 if enabled else 0, position, now, now),
-            )
+            if precheck is not None:
+                precheck(None)
+            if position is None:
+                async with self.conn.execute(
+                    "SELECT COALESCE(MAX(position) + 1, 0) FROM agent_rules WHERE agent_name = ?",
+                    (name,),
+                ) as cur:
+                    row = await cur.fetchone()
+                position = int(row[0])
+                await self._insert_rule(rule_id, name, text, enabled, position, now)
+            else:
+                async with self.conn.execute(
+                    "SELECT COUNT(*) FROM agent_rules WHERE agent_name = ?", (name,)
+                ) as cur:
+                    row = await cur.fetchone()
+                position = max(0, min(int(position), int(row[0])))
+                await self.conn.execute(
+                    "UPDATE agent_rules SET position = position + 1 "
+                    "WHERE agent_name = ? AND position >= ?",
+                    (name, position),
+                )
+                await self._insert_rule(rule_id, name, text, enabled, position, now)
+                await self._redensify(name)
+                async with self.conn.execute(
+                    "SELECT position FROM agent_rules WHERE id = ?", (rule_id,)
+                ) as cur:
+                    position = int((await cur.fetchone())[0])
+            if on_commit is not None:
+                await on_commit(self.conn)
         return AgentRule(
             id=rule_id,
             agent_name=name,
@@ -1818,6 +1886,16 @@ class AgentRuleRepository:
             updated_at=now,
         )
 
+    async def _insert_rule(
+        self, rule_id: str, name: str, text: str, enabled: bool, position: int, now: str
+    ) -> None:
+        await self.conn.execute(
+            "INSERT INTO agent_rules "
+            "(id, agent_name, text, enabled, position, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (rule_id, name, text, 1 if enabled else 0, position, now, now),
+        )
+
     async def update(
         self,
         name: str,
@@ -1825,12 +1903,18 @@ class AgentRuleRepository:
         *,
         text: str | None = None,
         enabled: bool | None = None,
+        precheck: Callable[[AgentRule | None], None] | None = None,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
     ) -> AgentRule:
+        """Update in ONE transaction: get, ``precheck(current_rule)``, the limit check, the
+        UPDATE, ``on_commit(conn)`` (a raise from either hook rolls the update back)."""
         new_text = validate_rule_text(text) if text is not None else None
         async with write_transaction(self.conn):
             current = await self.get(name, rule_id)
             if current is None:
                 raise KeyError(f"Rule not found: {rule_id}")
+            if precheck is not None:
+                precheck(current)
             if new_text is not None:
                 others = await self.total_chars(name, exclude_id=rule_id)
                 if others + len(new_text) > RULES_TOTAL_MAX_CHARS:
@@ -1843,6 +1927,8 @@ class AgentRuleRepository:
                 "WHERE agent_name = ? AND id = ?",
                 (final_text, 1 if final_enabled else 0, now, name, rule_id),
             )
+            if on_commit is not None:
+                await on_commit(self.conn)
         return current.model_copy(
             update={"text": final_text, "enabled": final_enabled, "updated_at": now}
         )
@@ -3215,6 +3301,9 @@ class ChatSessionRepository:
             if await cur.fetchone() is None:
                 raise KeyError(f"Chat session not found: {session_id}")
         async with write_transaction(self.conn):
+            await self.conn.execute(
+                "DELETE FROM gleepglorp_proposals WHERE session_id = ?", (session_id,)
+            )
             await self.conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
         notify_sessions_changed()
 
@@ -3229,6 +3318,12 @@ class ChatSessionRepository:
         rename() re-points chat_sessions.agent_name in one transaction.
         """
         async with write_transaction(self.conn):
+            # M36 F2 L2: a proposal belongs to its chat (no foreign key), so it goes with it.
+            await self.conn.execute(
+                "DELETE FROM gleepglorp_proposals WHERE session_id IN "
+                "(SELECT id FROM chat_sessions WHERE agent_name = ?)",
+                (agent_name,),
+            )
             async with self.conn.execute(
                 "DELETE FROM chat_sessions WHERE agent_name = ?", (agent_name,)
             ) as cur:
@@ -3270,6 +3365,11 @@ class ChatSessionRepository:
         if ids:
             async with write_transaction(self.conn):
                 await self.conn.execute(
+                    "DELETE FROM gleepglorp_proposals WHERE session_id IN "
+                    "(SELECT id FROM chat_sessions WHERE agent_name = ? AND updated_at < ?)",
+                    (agent_name, cutoff),
+                )
+                await self.conn.execute(
                     "DELETE FROM chat_sessions WHERE agent_name = ? AND updated_at < ?",
                     (agent_name, cutoff),
                 )
@@ -3284,6 +3384,9 @@ class ChatSessionRepository:
             if await cur.fetchone() is None:
                 raise KeyError(f"Chat session not found: {session_id}")
         async with write_transaction(self.conn):
+            await self.conn.execute(
+                "DELETE FROM gleepglorp_proposals WHERE session_id = ?", (session_id,)
+            )
             await self.conn.execute(
                 "UPDATE chat_sessions SET messages='[]', updated_at=? WHERE id=?",
                 (now_iso(), session_id),

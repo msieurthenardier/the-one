@@ -36,6 +36,9 @@ from the_one.gleepglorp.view_core import (
     ALLOWED,
     KINDS,
     LIST_KINDS,
+    OPERATOR_PATHS,
+    OUTSIDE_PATHS,
+    OUTSIDE_VALUE_PREFIXES,
     SURFACE_SUMMARY,
     UNREADABLE,
     Ctx,
@@ -44,6 +47,7 @@ from the_one.gleepglorp.view_core import (
     cut,
     scrub_url,
 )
+from the_one.gleepglorp.view_fields import fields_view
 from the_one.gleepglorp.view_library import (
     built_in_tools_view,
     connectors_view,
@@ -58,14 +62,20 @@ __all__ = [
     "ALLOWED",
     "KINDS",
     "LIST_KINDS",
+    "OPERATOR_PATHS",
+    "OUTSIDE_PATHS",
     "SURFACE_SUMMARY",
     "UNREADABLE",
     "VIEWS",
     "PlainMessage",
     "UndeclaredKeyError",
     "cut",
+    "is_operator_only",
+    "path_provenance",
     "read",
+    "read_with_provenance",
     "scrub_url",
+    "walk_paths",
 ]
 
 VIEWS: dict[str, Callable[..., Awaitable[Any]]] = {
@@ -79,14 +89,80 @@ VIEWS: dict[str, Callable[..., Awaitable[Any]]] = {
     "secrets": secrets_view,
     "built_in_tools": built_in_tools_view,
     "settings": settings_view,
+    "fields": fields_view,
 }
 
 
 async def read(conn: Any, enc: Any, kind: str, name: str | None = None) -> Any:
     """One view. Raises :class:`PlainMessage` for a reply meant for the model as text."""
+    return (await read_with_provenance(conn, enc, kind, name))[0]
+
+
+def _resolve(path: str, table: dict[str, frozenset[str]], kind: str) -> int | None:
+    """Length of the longest declared path in ``table[kind]`` that ``path`` equals or is under."""
+    best: int | None = None
+    for declared in table.get(kind, frozenset()):
+        if path == declared or path.startswith((declared + ".", declared + "[")):
+            best = max(best or 0, len(declared))
+    return best
+
+
+def path_provenance(kind: str, path: str) -> str | None:
+    """``"operator"``, ``"outside"`` or ``None`` (declared in neither table) for one path."""
+    op = _resolve(path, OPERATOR_PATHS, kind)
+    out = _resolve(path, OUTSIDE_PATHS, kind)
+    if op is None and out is None:
+        return None
+    if out is None or (op is not None and op > out):
+        return "operator"
+    return "outside"
+
+
+def walk_paths(kind: str, data: Any) -> list[tuple[str, Any]]:
+    """Every non-empty leaf of a view's output as ``(path, value)``; a list level is ``[]``.
+
+    A list kind's output is a list of list entries (level ``list``); anything else is one
+    detail dict (level ``detail``), except the list-or-detail kinds asked for a name.
+    """
+    leaves: list[tuple[str, Any]] = []
+
+    def go(path: str, value: Any) -> None:
+        if isinstance(value, dict):
+            for k, v in value.items():
+                go(f"{path}.{k}", v)
+        elif isinstance(value, (list, tuple)):
+            for v in value:
+                go(f"{path}[]", v)
+        elif value is not None and value != "":
+            leaves.append((path, value))
+
+    if isinstance(data, list) and kind in LIST_KINDS:
+        for entry in data:
+            go(f"{kind}.list", entry)
+    else:
+        go(f"{kind}.detail", data)
+    return leaves
+
+
+def is_operator_only(kind: str, data: Any) -> bool:
+    """True when no leaf of ``data`` can carry text an outside party wrote (fail closed)."""
+    for path, value in walk_paths(kind, data):
+        if path_provenance(kind, path) != "operator":
+            return False
+        prefix = OUTSIDE_VALUE_PREFIXES.get(path)
+        if prefix is not None and isinstance(value, str) and value.startswith(prefix):
+            return False
+    return True
+
+
+async def read_with_provenance(
+    conn: Any, enc: Any, kind: str, name: str | None = None, *, fields_only: bool = False
+) -> tuple[Any, bool]:
+    """One view and whether its output is operator-only. Same errors as :func:`read`."""
     view = VIEWS.get(kind)
     if view is None:
         raise PlainMessage(f"Unknown kind {cut(str(kind), 60)!r}. Valid kinds: {', '.join(KINDS)}")
     if not isinstance(name, str) or not name.strip() or kind in {"overview", "settings"}:
         name = None  # an empty name is no name; these two kinds take none
-    return await view(Ctx(conn, enc), name)
+    data = await view(Ctx(conn, enc, fields_only=fields_only), name)
+    return data, is_operator_only(kind, data)

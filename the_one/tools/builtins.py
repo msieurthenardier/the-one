@@ -254,3 +254,11 @@ class BuiltinToolProvider:
             # (old and new) still takes the plain construction below.
             result.append(cls(cfg, cross_configs=cross_configs, agent_name=agent_name))
         return result
+
+
+def builtin_tool_names() -> list[str]:
+    """Every built-in tool's name, from the same source ``GET /api/tools`` lists (M36 F2 L2).
+
+    The one list a change proposal checks ``enabled_tools`` / ``disabled_tools`` names against.
+    """
+    return [t.name for t in BuiltinToolProvider().get_tools()]

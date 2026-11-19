@@ -9,9 +9,9 @@ import hashlib
 import json
 import logging
 import os
-import re
 import time
 import uuid
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -27,6 +27,17 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, StrictBool, ValidationError
 
 from the_one import __version__, time_zones
+from the_one.agent import service as agent_service
+from the_one.agent import write_checks
+from the_one.agent.rules_service import change_rule as change_rule_service
+from the_one.agent.rules_service import create_rule as create_rule_service
+from the_one.agent.service import AgentWriteDeps, AgentWriteError
+from the_one.agent.write_checks import drop_surface_override as _drop_surface_override
+from the_one.agent.write_checks import (
+    merge_preserved_mcp_credentials as _merge_preserved_mcp_credentials,
+)
+from the_one.agent.write_checks import name_conflict_detail as _name_conflict_detail
+from the_one.agent.write_checks import validation_detail as _validation_detail
 from the_one.api_credential import LocalApiCredential
 from the_one.config import settings
 from the_one.connectors import registry as connector_registry
@@ -47,7 +58,6 @@ from the_one.db._provider_types import PROVIDER_TYPE_LABELS
 from the_one.db._rules import (
     RULE_MAX_CHARS,
     RULES_TOTAL_MAX_CHARS,
-    RuleLimitError,
     RuleOrderError,
 )
 from the_one.db._write_lock import write_transaction
@@ -107,7 +117,7 @@ from the_one.knowledge.watcher import get_manager as get_watch_manager
 from the_one.llm import anthropic_oauth, ollama_api, ollama_library, plan_credentials
 from the_one.mcp._era import forget_era
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS, configured_names, missing_values
-from the_one.mcp.override_validation import carries_credentials, validate_mcp_overrides
+from the_one.mcp.override_validation import validate_mcp_overrides
 from the_one.naming import (
     GLEEPGLORP_AGENT_NAME,
     NAME_CONFLICT_AGENT,
@@ -123,9 +133,15 @@ from the_one.platform.sandbox import factory as sandbox_factory
 from the_one.routines import service as routine_service
 from the_one.routines.proposals import RoutineProposalRepository
 from the_one.routines.repository import RoutineRunRepository
+from the_one.secret_mask import MASK_PREFIX as _MASK_PREFIX
+from the_one.secret_mask import MASK_SHAPE_RE as _MASK_SHAPE_RE  # noqa: F401 (re-exported)
+from the_one.secret_mask import MASK_TAIL_LEN as _MASK_TAIL_LEN
+from the_one.secret_mask import MASK_TAIL_SEPARATOR as _MASK_TAIL_SEPARATOR
+from the_one.secret_mask import MASKED_API_KEY_SENTINEL as _MASKED_API_KEY_SENTINEL
+from the_one.secret_mask import looks_masked as _looks_masked
 from the_one.self_configuration import external_credentials as self_configuration_external
 from the_one.self_configuration import manage as self_configuration_manage
-from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX, SURFACE_TOOL_PREFIX
+from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
 from the_one.sessions import is_session_busy, turn_seq
 from the_one.tools import override_validation
 from the_one.vectors import get_vector_store
@@ -184,13 +200,14 @@ new endpoints log through it directly.
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
-def _validation_detail(e: ValidationError) -> list[dict]:
-    """The one 422 body for a pydantic ``ValidationError``.
-
-    ``include_context=False``: ``ctx`` may hold a raw exception (not JSON-serializable).
-    ``include_input=False``: ``input`` echoes the submitted value, secrets included.
-    """
-    return e.errors(include_context=False, include_input=False)
+@contextlib.contextmanager
+def _agent_write_errors() -> Iterator[None]:
+    """Turn the write services' ``AgentWriteError`` into the ``HTTPException`` the route
+    always returned (one place; Mission 36 F2 L1, DD3)."""
+    try:
+        yield
+    except AgentWriteError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
 
 
 def _checked_name(value: object) -> str:
@@ -203,10 +220,8 @@ def _checked_name(value: object) -> str:
 
 def _checked_agent_name(value: object) -> str:
     """:func:`_checked_name` for an agent: also refuses the reserved agent names."""
-    try:
-        return check_agent_name(value)
-    except NameRuleError as e:
-        raise HTTPException(status_code=422, detail=name_rule_detail(e.message))
+    with _agent_write_errors():
+        return write_checks.checked_agent_name(value)
 
 
 def _reserved_binding_message(value: object) -> str:
@@ -239,10 +254,6 @@ def _reject_reserved_binding(config: object) -> None:
         raise HTTPException(status_code=422, detail=detail)
 
 
-def _name_conflict_detail(message: str) -> list[dict]:
-    return [{"type": "name_conflict", "loc": ["name"], "msg": message}]
-
-
 async def _agent_store() -> SQLiteAgentStore:
     conn = await get_connection()
     # M21 F01 L01: pass the encryptor explicitly (rather than relying on
@@ -257,20 +268,18 @@ async def _secret_repo() -> SecretRepository:
     return SecretRepository(await get_connection(), get_encryptor(settings.data_dir))
 
 
-async def _validate_secret_grants(stored: list[str], cfg: AgentConfig) -> None:
-    """422 on ``["secret_ids", i]`` for a granted id that is new relative to ``stored`` and
-    not a Library secret (sortie 10, DD2). Stored ids are not re-checked."""
-    fresh = [(i, s) for i, s in enumerate(cfg.secret_ids) if s not in stored]
-    if not fresh:
-        return
-    found = await (await _secret_repo()).exists_many(s for _, s in fresh)
-    missing = [
-        {"type": "value_error", "loc": ["secret_ids", i], "msg": "This secret doesn't exist."}
-        for i, s in fresh
-        if s not in found
-    ]
-    if missing:
-        raise HTTPException(status_code=422, detail=missing)
+async def _agent_write_deps() -> AgentWriteDeps:
+    """The repositories the agent write services need, from this module's own getters (so
+    the tests that patch ``get_connection``, ``get_encryptor`` or ``_agent_store`` here
+    still govern them)."""
+    return AgentWriteDeps(
+        store=await _agent_store(),
+        mcp_repo=await _mcp_repo(),
+        provider_repo=await _provider_repo(),
+        secret_repo=await _secret_repo(),
+        tool_config_repo=await _tool_config_repo(),
+        override_validator=validate_mcp_overrides,
+    )
 
 
 def _agent_response(
@@ -374,8 +383,7 @@ async def _tool_config_rows(*cfgs: AgentConfig) -> dict[str, Any]:
     request, and none when no config carries a tool override."""
     if not any(c.tool_overrides for c in cfgs):
         return {}
-    repo = await _tool_config_repo()
-    return override_validation.rows_by_name(await repo.list())
+    return await write_checks.tool_config_rows(await _tool_config_repo(), *cfgs)
 
 
 async def _agent_notices(cfgs: list[AgentConfig], rows: dict[str, Any]) -> list[list[dict]]:
@@ -384,20 +392,6 @@ async def _agent_notices(cfgs: list[AgentConfig], rows: dict[str, Any]) -> list[
     if not any(c.tool_overrides for c in cfgs):
         return [[] for _ in cfgs]
     return await asyncio.to_thread(override_validation.compute_notices_for_many, cfgs, rows)
-
-
-async def _validate_tool_overrides(
-    stored: dict[str, Any] | None, cfg: AgentConfig, rows: dict[str, Any]
-) -> None:
-    """422 (sortie 07 DD5) on a new or changed override that widens the app-wide
-    value or is invalid. ``stored`` is the stored map, ``None`` on create."""
-    if not cfg.tool_overrides:
-        return
-    details = await asyncio.to_thread(
-        override_validation.validate_overrides, stored, cfg.tool_overrides, rows
-    )
-    if details:
-        raise HTTPException(status_code=422, detail=details)
 
 
 async def _full_agent_response(cfg: AgentConfig, rows: dict[str, Any] | None = None) -> dict:
@@ -444,72 +438,18 @@ async def _normalize_surface_fields(
     *,
     mcp_repo: MCPSourceRepository,
 ) -> None:
-    """Sortie 08: the self-configuration server is owned by the server, not
-    the agent form. Runs on the RAW body of ``create_agent`` / ``update_agent``
-    (before the credential merge and validation), in this order:
-
-    - DD3: ``mcp_overrides["self-configuration"]`` with anything in it is a
-      422 (an empty dict or null is dropped); checked on the raw body so a
-      Save that merely omits the key (while one is stored) is not refused.
-    - DD7: ``mcp__self-configuration__*`` entries are stripped from a
-      ``disabled_tools`` list (silently: Studio re-sends stored names).
-    - DD2: the agent's own surface row id never comes from the body; the
-      stored one is carried back at its stored position. An omitted
-      ``mcp_source_ids`` is carried the same way (the other ids still reset).
-    """
-    overrides = data.get("mcp_overrides")
-    if isinstance(overrides, dict) and self_configuration_manage.SURFACE_ROW_NAME in overrides:
-        entry = overrides[self_configuration_manage.SURFACE_ROW_NAME]
-        if entry is not None and entry != {}:
-            raise HTTPException(
-                status_code=422, detail=self_configuration_manage.SURFACE_OVERRIDE_REFUSAL
-            )
-        data["mcp_overrides"] = {
-            k: v for k, v in overrides.items() if k != self_configuration_manage.SURFACE_ROW_NAME
-        }
-    disabled = data.get("disabled_tools")
-    if isinstance(disabled, list):
-        data["disabled_tools"] = [
-            t for t in disabled if not (isinstance(t, str) and t.startswith(SURFACE_TOOL_PREFIX))
-        ]
-    if "mcp_source_ids" not in data:
-        incoming_ids: Any = []
-    else:
-        incoming_ids = data["mcp_source_ids"]
-    if isinstance(incoming_ids, list) and all(isinstance(i, str) for i in incoming_ids):
-        data["mcp_source_ids"] = await self_configuration_manage.carry_surface_attachment(
-            name, incoming_ids, stored_ids, mcp_repo=mcp_repo
-        )
+    """Thin wrapper (Mission 36 F2 L1): the check moved to
+    ``the_one.agent.write_checks``; a refusal is an ``HTTPException`` here as before."""
+    with _agent_write_errors():
+        await write_checks.normalize_surface_fields(data, name, stored_ids, mcp_repo=mcp_repo)
 
 
 async def _validate_mcp_override_credentials(
     data: dict[str, Any], mcp_repo: MCPSourceRepository
 ) -> None:
-    """Sortie 09 DD2: 422 (one list, the sortie 07 shape) on a refused per-agent
-    credential in the RAW body, before the credential merge. The source list is
-    read only when the body carries a credential key."""
-    incoming = data.get("mcp_overrides")
-    if not carries_credentials(incoming):
-        return
-    sources = {s.name: s for s in await mcp_repo.list()}
-    details = validate_mcp_overrides(incoming, sources, _looks_masked)
-    if details:
-        raise HTTPException(status_code=422, detail=details)
-
-
-def _credential_view(overrides: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
-    """``{source name: {credential key: value}}`` for the non-empty credential keys
-    of an ``mcp_overrides`` map (the part a change of which needs a new connection)."""
-    out: dict[str, dict[str, Any]] = {}
-    for source_name, entry in (overrides or {}).items():
-        if not isinstance(entry, dict):
-            continue
-        view = {
-            k: entry[k] for k in MCP_OVERRIDE_CREDENTIAL_KEYS if entry.get(k) not in (None, {}, "")
-        }
-        if view:
-            out[source_name] = view
-    return out
+    """Thin wrapper: see ``write_checks.validate_mcp_override_credentials``."""
+    with _agent_write_errors():
+        await write_checks.validate_mcp_override_credentials(data, mcp_repo, validate_mcp_overrides)
 
 
 async def _evict_changed_mcp_credentials(
@@ -518,25 +458,8 @@ async def _evict_changed_mcp_credentials(
     after: dict[str, Any] | None,
     mcp_repo: MCPSourceRepository,
 ) -> None:
-    """Sortie 09 DD7: after an agent write commits, evict the pool entry of every
-    source whose credentials (``headers``/``env``/``bearer_token``) differ between
-    ``before`` and ``after``, so the agent's next connection uses the new values.
-    No eviction when nothing credential-related changed. The agent's per-agent tool
-    cache row for each such source is deleted too (DD5/DD7). Never raises."""
-    old_view, new_view = _credential_view(before), _credential_view(after)
-    changed = {n for n in old_view.keys() | new_view.keys() if old_view.get(n) != new_view.get(n)}
-    if not changed:
-        return
-    from the_one.mcp._pool import _evict
-
-    try:
-        cache_repo = AgentMcpToolCacheRepository(mcp_repo.conn)
-        for source in await mcp_repo.list():
-            if source.name in changed:
-                await _evict((agent_name, source.id))
-                await cache_repo.delete(agent_name, source.id)
-    except Exception:
-        logger.warning("could not evict MCP connections for agent %r", agent_name, exc_info=False)
+    """Thin wrapper: see ``write_checks.evict_changed_mcp_credentials`` (never raises)."""
+    await write_checks.evict_changed_mcp_credentials(agent_name, before, after, mcp_repo)
 
 
 async def _drop_source_agent_tool_cache(mcp_repo: MCPSourceRepository, source_id: str) -> None:
@@ -557,153 +480,6 @@ async def _evict_agent_connections(agent_name: str) -> None:
         await _evict_all_for_agent(agent_name)
     except Exception:
         logger.warning("could not evict MCP connections for agent %r", agent_name, exc_info=False)
-
-
-def _drop_surface_override(merged: Any) -> Any:
-    """Sortie 08 AC7: after the credential merge re-injects a stored entry,
-    remove the surface's key; ``None`` (not ``{}``) when the map is empty."""
-    if not isinstance(merged, dict):
-        return merged
-    kept = {k: v for k, v in merged.items() if k != self_configuration_manage.SURFACE_ROW_NAME}
-    return kept or None
-
-
-def _merge_preserved_mcp_credentials(
-    incoming: dict[str, Any] | None,
-    stored: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    """Resolve an incoming ``mcp_overrides`` PUT payload against the
-    stored row, per ``(source_name, credential_key)`` — AC5 / Design
-    Decision DD5 / Decision D4.
-
-    Studio never round-trips a credential (it rebuilds ``mcp_overrides``
-    from the DOM, which renders no credential fields), so preserve
-    CANNOT key off a sentinel the client sends — it must resolve against
-    ``stored`` directly:
-
-    - key omitted from the incoming source entry (or the whole source
-      entry / whole payload omitted or ``None``) → keep the stored value.
-    - key present and ``_looks_masked`` (a client round-tripping a masked
-      GET response) → keep the stored value.
-    - key present as an explicit ``None`` → clear it.
-    - key present with any other value → overwrite.
-    - masked value for a key with nothing stored → drop (never persist
-      the mask string).
-
-    For the two dict-valued credential keys (``headers``, ``env``), the
-    same four rules apply per INNER key — an operator changing one
-    header must not silently wipe the others (Edge Case: "partially
-    masked dict").
-
-    Non-credential keys (``enabled_tools`` / ``disabled_tools``) and
-    entries whose incoming value is not a dict are left untouched — the
-    caller's ``AgentConfig.model_validate`` still validates the merged
-    result, so a malformed entry 422s exactly as it does today.
-
-    Returns ``None`` (not ``{}``) when the merged result is empty, so the
-    ``None``/``{}`` fidelity the round-trip tests pin is preserved when
-    nothing was ultimately stored for any source.
-    """
-    incoming = incoming or {}
-    stored = stored or {}
-    merged: dict[str, Any] = {}
-    all_sources = set(incoming) | set(stored)
-    for source_name in all_sources:
-        incoming_entry = incoming.get(source_name)
-        stored_entry = stored.get(source_name) or {}
-        if source_name not in incoming:
-            # Source entirely omitted from the payload → keep stored as-is.
-            if stored_entry:
-                merged[source_name] = dict(stored_entry)
-            continue
-        if not isinstance(incoming_entry, dict):
-            # Not a dict (e.g. explicit null for the whole source, or a
-            # malformed value) — leave alone. `None` here also degrades
-            # to "nothing incoming for this source", which correctly
-            # preserves the stored non-credential keys via the branch
-            # below only when incoming_entry is None; anything else is
-            # validation's problem, not ours.
-            if incoming_entry is None:
-                if stored_entry:
-                    merged[source_name] = dict(stored_entry)
-                continue
-            merged[source_name] = incoming_entry
-            continue
-        resolved_entry = dict(incoming_entry)
-        for key in MCP_OVERRIDE_CREDENTIAL_KEYS:
-            stored_value = stored_entry.get(key)
-            if key not in incoming_entry:
-                # Omitted (Studio's shape) → preserve stored.
-                if stored_value is not None:
-                    resolved_entry[key] = stored_value
-                continue
-            incoming_value = incoming_entry[key]
-            if incoming_value is None:
-                # Explicit null → clear.
-                resolved_entry.pop(key, None)
-                continue
-            if isinstance(incoming_value, dict):
-                # headers/env: per-inner-key resolution. `stored_value`
-                # may be absent/non-dict (nothing stored for this key
-                # yet) — treat as {} so a masked inner value with
-                # nothing to resolve against is dropped, not persisted
-                # literally.
-                stored_inner = stored_value if isinstance(stored_value, dict) else {}
-                resolved_inner: dict[str, Any] = {}
-                for inner_key, inner_value in incoming_value.items():
-                    if _looks_masked(inner_value):
-                        if inner_key in stored_inner:
-                            resolved_inner[inner_key] = stored_inner[inner_key]
-                        # else: masked with nothing stored → drop.
-                    else:
-                        resolved_inner[inner_key] = inner_value
-                resolved_entry[key] = resolved_inner
-            elif _looks_masked(incoming_value):
-                if stored_value is not None:
-                    resolved_entry[key] = stored_value
-                else:
-                    # Masked, nothing stored → drop.
-                    resolved_entry.pop(key, None)
-            else:
-                resolved_entry[key] = incoming_value
-        # Sortie 09 L05: `plain_names` follows the same omitted-keeps / null-clears /
-        # list-replaces rule, then is pruned to names that still have a value. This
-        # runs before the empty-entry check so a leftover list alone keeps nothing alive.
-        if "plain_names" in incoming_entry:
-            plain = incoming_entry["plain_names"]
-        else:
-            plain = stored_entry.get("plain_names")
-        resolved_entry.pop("plain_names", None)
-        pruned = _prune_plain_names(plain, resolved_entry)
-        if pruned:
-            resolved_entry["plain_names"] = pruned
-        if resolved_entry:
-            merged[source_name] = resolved_entry
-    return merged or None
-
-
-def _prune_plain_names(plain: Any, entry: dict[str, Any]) -> list[str]:
-    """The names of ``plain`` that still have a value in ``entry``'s ``headers``
-    (matched ignoring case) or ``env`` (exact), in the merged dict's order, once each.
-    Robust to a non-list or non-string ``plain`` (returns what is usable)."""
-    if not isinstance(plain, list):
-        return []
-    wanted = {n for n in plain if isinstance(n, str)}
-    if not wanted:
-        return []
-    wanted_folded = {n.strip().lower() for n in wanted}
-    out: list[str] = []
-    headers = entry.get("headers")
-    if isinstance(headers, dict):
-        for name in headers:
-            if isinstance(name, str) and name.strip().lower() in wanted_folded and name not in out:
-                out.append(name)
-    env = entry.get("env")
-    if isinstance(env, dict):
-        for name in env:
-            if isinstance(name, str) and name in wanted and name not in out:
-                out.append(name)
-    return out
 
 
 async def _kb_repo() -> KnowledgeBaseRepository:
@@ -1449,189 +1225,39 @@ async def get_agent_context_window(name: str) -> dict[str, int]:
     return {"max_context_tokens": agent.llm.max_context_tokens}
 
 
-async def _check_agent_provider(provider_id: str | None) -> None:
-    """Squawk 0277: a provider id that names no provider is a 422 on the field, not a 500
-    from the foreign key. ``None`` (no provider) stays legal; ``""`` never names one."""
-    if provider_id is None:
-        return
-    exists = False
-    if provider_id != "":
-        try:
-            await (await _provider_repo()).get(provider_id)
-            exists = True
-        except KeyError:
-            exists = False
-    if not exists:
-        raise HTTPException(
-            status_code=422,
-            detail=[
-                {
-                    "type": "value_error",
-                    "loc": ["provider_config_id"],
-                    "msg": "That model provider doesn't exist.",
-                }
-            ],
-        )
-
-
 @router.post("/agents", status_code=201)
 async def create_agent(request: Request) -> dict[str, Any]:
     """Create a new agent.
 
-    No stored row exists yet, so there is nothing to preserve — but a
-    client sending a masked ``mcp_overrides`` credential value (e.g.
-    round-tripping a GET response into a POST body) must not have that
-    literal mask string persisted as the "secret". ``_merge_preserved_mcp_credentials``
-    with ``stored=None`` drops any mask-shaped credential value while
-    leaving real values and non-credential keys untouched.
+    The checks and the save live in :func:`the_one.agent.service.create_agent` (Mission 36
+    F2 L1), the same code Approve runs: a masked ``mcp_overrides`` credential in the body
+    is never persisted as the secret, and an existing name is a 409 (also under the lock).
     """
-    from the_one.agent.config import AgentConfig
-
     data = await _read_json(request)
-    data["name"] = _checked_agent_name(data.get("name"))
-    # M33 F2 DD5: the Routines switches are operator-owned; a create never sets them.
-    data.pop("routines_self_config_enabled", None)
-    data.pop("routines_require_approval", None)
-    mcp_repo = await _mcp_repo()
-    # Sortie 08: the self-configuration server is server-owned (DD3 422, DD7, DD2).
-    await _normalize_surface_fields(data, data["name"], [], mcp_repo=mcp_repo)
-    # Sortie 09 DD2: a refused per-agent credential is a 422 on its loc.
-    await _validate_mcp_override_credentials(data, mcp_repo)
-    incoming_overrides = data.get("mcp_overrides")
-    if incoming_overrides is None or isinstance(incoming_overrides, dict):
-        # No stored row to preserve against (`stored=None`) — this drops
-        # any mask-shaped credential value rather than persisting the
-        # literal mask string; real values and non-credential keys pass
-        # through unchanged.
-        data["mcp_overrides"] = _merge_preserved_mcp_credentials(incoming_overrides, None)
-    # else: not a dict and not null (e.g. a list) — leave alone;
-    # AgentConfig validation below 422s it as today.
-    try:
-        cfg = AgentConfig.model_validate(data)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=_validation_detail(e))
-    # M21 F01 L02 (LD1 ownership guard): run on the VALIDATED config — an
-    # agent can never attach another agent's self-configuration surface row.
-    guard_error = await self_configuration_manage.reject_foreign_surface_attachments(
-        cfg, mcp_repo=mcp_repo
-    )
-    if guard_error is not None:
-        raise HTTPException(status_code=422, detail=guard_error)
-    # Sortie 07 DD5: a new tool override that widens the app-wide value or is invalid
-    # is a 422 on its field, before the provider check and the name conflict.
-    rows = await _tool_config_rows(cfg)
-    await _validate_tool_overrides(None, cfg, rows)
-    await _validate_secret_grants([], cfg)
-    await _check_agent_provider(cfg.provider_config_id)
-    store = await _agent_store()
-    if await store.exists(cfg.name):
-        raise HTTPException(status_code=409, detail=_name_conflict_detail(NAME_CONFLICT_AGENT))
-    await store.save(cfg)
-    # Sortie 09 DD7: a re-created name may have a stale pool entry; evict what
-    # carries credentials (harmless when there is none).
-    await _evict_changed_mcp_credentials(cfg.name, None, cfg.mcp_overrides, mcp_repo)
+    deps = await _agent_write_deps()
+    with _agent_write_errors():
+        cfg, rows = await agent_service.create_agent(deps, data)
     return await _full_agent_response(cfg, rows)
 
 
 @router.put("/agents/{name}")
 async def update_agent(name: str, request: Request) -> dict[str, Any]:
-    """Update an existing agent.
+    """Update an existing agent (the whole-body replace).
 
-    Server-side credential preserve (AC5 / DD5 / Decision D4): Studio
-    rebuilds ``mcp_overrides`` from the DOM and renders no credential
-    fields at all, so any credential set via the API would otherwise be
-    silently wiped by the next Studio save. ``_merge_preserved_mcp_credentials``
-    resolves the incoming payload against ``existing.mcp_overrides`` per
-    ``(source, credential key)`` before validation — omitted/masked keys
-    keep the stored value, explicit ``null`` clears, anything else
-    overwrites. Incoming ``mcp_overrides: null`` degrades to "nothing
-    incoming", which preserves every stored source (the same rule that
-    applies to a single omitted key, generalized to the whole field).
+    The rules (omitted fields reset or keep, the server-side credential preserve of
+    AC5 / DD5 / Decision D4, the provider checked only when changed) live in
+    :func:`the_one.agent.service.replace_agent`. The 404 for an unknown agent still comes
+    before the body is read.
     """
-    from the_one.agent.config import AgentConfig
-
     store = await _agent_store()
     try:
-        existing = await store.load(name)
+        await store.load(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     data = await _read_json(request)
-    data["name"] = name  # Ensure name matches path
-    mcp_repo = await _mcp_repo()
-    # Sortie 08: the self-configuration server is server-owned (DD3 422 on the
-    # raw body, DD7 strip, DD2 carry of the stored attachment).
-    await _normalize_surface_fields(data, name, existing.mcp_source_ids, mcp_repo=mcp_repo)
-    # Sortie 09 DD2: a refused per-agent credential is a 422 on its loc.
-    await _validate_mcp_override_credentials(data, mcp_repo)
-    incoming_overrides = data.get("mcp_overrides")
-    if incoming_overrides is None or isinstance(incoming_overrides, dict):
-        # `data.get(...)` cannot distinguish "key omitted" from "key
-        # explicitly null" — both decode to `None`, and AC5 treats them
-        # identically (both preserve every stored source), so that
-        # collapse is intentional, not a gap.
-        # Sortie 08 AC7: the merge re-injects a stored surface entry the body
-        # omitted; drop it so any Save cleans it.
-        data["mcp_overrides"] = _drop_surface_override(
-            _merge_preserved_mcp_credentials(incoming_overrides, existing.mcp_overrides)
-        )
-    # else: not a dict and not null (e.g. a list) — leave alone;
-    # AgentConfig validation below 422s it as today.
-    # M21 F02 L02 DD2 (HIGH): approval mode is operator-owned and set by a
-    # dedicated immediate-post control, NOT by the Studio agent-save form —
-    # which rebuilds its payload from the DOM and never sends this field. If
-    # the PUT omits it we must preserve the stored value, or every unrelated
-    # Save silently resets approval mode to False. Mirrors the mcp_overrides
-    # preserve just above.
-    if "self_revision_requires_approval" not in data:
-        data["self_revision_requires_approval"] = existing.self_revision_requires_approval
-    # M27 F2 DD2: the notes switch is set by its own immediate-post control;
-    # an agent save that omits it must not reset it.
-    if "notes_enabled" not in data:
-        data["notes_enabled"] = existing.notes_enabled
-    # M35 F1 DD11: the rich-visuals switch is a General-form field; a PUT that
-    # omits it keeps the stored value.
-    if "rich_visuals" not in data:
-        data["rich_visuals"] = existing.rich_visuals
-    # M33 F2 DD5: the Routines switches are set only by their own routes; an agent
-    # PUT ignores any incoming value, so the response echoes the stored truth.
-    data["routines_self_config_enabled"] = existing.routines_self_config_enabled
-    data["routines_require_approval"] = existing.routines_require_approval
-    # AC-7: `kb_ids` omitted from the PUT body preserves the stored value
-    # — mirrors the `self_revision_requires_approval` preserve immediately
-    # above. An explicit `kb_ids: []` is NOT an omission and still clears
-    # it; omission and empty are distinguishable and mean different things.
-    if "kb_ids" not in data:
-        data["kb_ids"] = existing.kb_ids
-    # Sortie 10 DD2: `secret_ids` follows the same rule (omitted keeps, `[]` clears).
-    if "secret_ids" not in data:
-        data["secret_ids"] = existing.secret_ids
-    # Squawk 0223: `tool_overrides` omitted from the PUT body preserves the
-    # stored map (same pattern as `kb_ids`). An explicit `null` still clears
-    # it and a supplied map replaces it.
-    if "tool_overrides" not in data:
-        data["tool_overrides"] = existing.tool_overrides
-    try:
-        cfg = AgentConfig.model_validate(data)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=_validation_detail(e))
-    # M21 F01 L02: ownership guard, on the validated config (see create_agent).
-    guard_error = await self_configuration_manage.reject_foreign_surface_attachments(
-        cfg, mcp_repo=mcp_repo
-    )
-    if guard_error is not None:
-        raise HTTPException(status_code=422, detail=guard_error)
-    # Sortie 07 DD5: only a new or changed override field is checked, against the
-    # STORED map (an omitted `tool_overrides` was carried above, so it is unchanged).
-    rows = await _tool_config_rows(cfg)
-    await _validate_tool_overrides(existing.tool_overrides, cfg, rows)
-    await _validate_secret_grants(existing.secret_ids, cfg)
-    if cfg.provider_config_id != existing.provider_config_id:
-        # Squawk 0277: only a CHANGED id is checked, so an agent whose provider was
-        # deleted later stays editable (and fixable).
-        await _check_agent_provider(cfg.provider_config_id)
-    await store.save(cfg)
-    # Sortie 09 DD7: the agent's next connection must use the new credentials.
-    await _evict_changed_mcp_credentials(name, existing.mcp_overrides, cfg.mcp_overrides, mcp_repo)
+    deps = await _agent_write_deps()
+    with _agent_write_errors():
+        cfg, rows = await agent_service.replace_agent(deps, name, data)
     return await _full_agent_response(cfg, rows)
 
 
@@ -2107,10 +1733,8 @@ async def create_agent_rule(name: str, request: Request) -> dict[str, Any]:
     body = await _rules_body(request, _RuleCreateBody)
     await _load_agent_or_404(name)
     repo = await _agent_rules_repo()
-    try:
-        rule = await repo.create(name, body.text, body.enabled)
-    except RuleLimitError as e:
-        raise HTTPException(status_code=422, detail=e.detail)
+    with _agent_write_errors():
+        rule = await create_rule_service(repo, name, body.text, body.enabled)
     return rule.model_dump()
 
 
@@ -2131,12 +1755,9 @@ async def update_agent_rule(name: str, rule_id: str, request: Request) -> dict[s
     body = await _rules_body(request, _RuleUpdateBody)
     await _load_agent_or_404(name)
     repo = await _agent_rules_repo()
-    try:
-        rule = await repo.update(name, rule_id, text=body.text, enabled=body.enabled)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Rule not found: {rule_id}")
-    except RuleLimitError as e:
-        raise HTTPException(status_code=422, detail=e.detail)
+    changes = {k: v for k, v in (("text", body.text), ("enabled", body.enabled)) if v is not None}
+    with _agent_write_errors():
+        rule = await change_rule_service(repo, name, rule_id, changes)
     return rule.model_dump()
 
 
@@ -3420,9 +3041,9 @@ async def _after_monitoring_settings_changed(monitoring: MonitoringSettings) -> 
 # Mask-shape single source-of-truth. The emit helper, the recognize
 # regex, and any future paired helper read these constants; never
 # hardcode the literals. M11 F8 L3.
-_MASK_PREFIX = "***"
-_MASK_TAIL_SEPARATOR = "..."
-_MASK_TAIL_LEN = 4
+# The three shape constants, the sentinel, the recognise regex and
+# ``_looks_masked`` live in ``the_one/secret_mask.py`` (imported above under these
+# names) so the agent write checks can use them without importing this module.
 # Squawk 0030: a tail is only shown when it doesn't reconstruct most of
 # the secret. Below this length the tail is elided entirely (fully
 # opaque ``***``) — the tail's identification purpose only makes sense
@@ -3491,45 +3112,9 @@ def _mask_secret_value(value: Any) -> Any:
 # Naming note: the ``_API_KEY`` suffix is historical — the constant is
 # reused for the per-key MCP/connector secrets dicts too. Renaming is a
 # cosmetic refactor deferred out of this hotfix's scope.
-_MASKED_API_KEY_SENTINEL = "__MASKED__"
-
-# Matches the exact output shape of ``_emit_mask`` — either
-# ``_MASK_PREFIX`` alone (short / non-string secrets) or
-# ``_MASK_PREFIX + _MASK_TAIL_SEPARATOR + tail-of-1-to-_MASK_TAIL_LEN-chars``
-# (longer secrets). Anchored on both sides so a legitimate user-supplied
-# value that merely starts with ``***`` (e.g. ``***hello``) is NOT
-# mistaken for a mask. Built from the same constants ``_emit_mask`` uses
-# so the emit and recognize shapes cannot drift. M11 F8 L3.
-_MASK_SHAPE_RE = re.compile(
-    rf"^{re.escape(_MASK_PREFIX)}"
-    rf"({re.escape(_MASK_TAIL_SEPARATOR)}.{{1,{_MASK_TAIL_LEN}}})?$"
-)
-
-
-def _looks_masked(value: Any) -> bool:
-    """Return True if ``value`` is a sentinel or mask-shape string.
-
-    Recognizes both ``__MASKED__`` (the canonical preserve sentinel the
-    Studio UI emits) AND the GET-response mask shapes ``***`` /
-    ``***...{tail4}`` produced by ``_emit_mask`` (the single
-    source-of-truth for mask shape; ``_mask_secret_value`` and
-    ``_mask_api_key`` both route through it). PUT handlers treat both
-    as "preserve existing" — any caller that round-trips a GET-masked
-    payload through a PUT no longer corrupts the stored secret with
-    the literal mask string. The union-recognition (sentinel OR visual
-    mask) is intentional: both semantics still matter at PUT-handler
-    sites.
-
-    Non-string values are never masked (return False) so legitimate
-    boolean / dict secret values pass through to overwrite semantics
-    unchanged. F7 L12 hotfix — see flight log for the discovered
-    corruption case (BOT_TOKEN persisted as ``***...SD7U``).
-    """
-    if not isinstance(value, str):
-        return False
-    if value == _MASKED_API_KEY_SENTINEL:
-        return True
-    return bool(_MASK_SHAPE_RE.match(value))
+# The sentinel itself (``MASKED_API_KEY_SENTINEL``), the recognise regex and
+# ``looks_masked`` moved to ``the_one/secret_mask.py``; the old names are imported
+# at the top of this module.
 
 
 def _secret_field_names(config_cls: type) -> set[str]:
