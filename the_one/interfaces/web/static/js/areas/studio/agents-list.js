@@ -25,6 +25,20 @@
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
+  // The create-focus suppression (M36 F3 L6): a one-shot flag the form fill sets before it opens
+  // the create form, so the form's own name-field focus does not take focus from the drawer. It
+  // is consumed by the next create-form mount and always cleared by the fill's applier when its
+  // navigation ends (a Stay, an already-open form or a superseded navigation never leak it).
+  var suppressCreateFocus = false;
+
+  function suppressNextCreateFocus() { suppressCreateFocus = true; }
+  function clearCreateFocusSuppression() { suppressCreateFocus = false; }
+  function consumeCreateFocusSuppression() {
+    var was = suppressCreateFocus;
+    suppressCreateFocus = false;
+    return was;
+  }
+
   function create(ctx) {
     var self = ctx.self;
     var state = ctx.state;
@@ -327,6 +341,8 @@
       var routed = window.App && App.router && App.router.current && App.router.current();
       if (self._activeSection !== 'agents' || (routed && routed.destination !== 'agents')) return;
       var mySelect = ++state.selectSeq;
+      // A Studio load is pending until this select settles (the form fill waits on it, M36 F3 L6).
+      var endPending = App.studio.agentEditorFill.pendingBegin();
       // Preserve the current tab when re-selecting the same agent (e.g.,
       // when activate() triggers a refresh after the user is already
       // viewing this agent on a non-default tab). Honor any pending tab
@@ -401,6 +417,14 @@
         // Sortie 10: after the fresh agent, so `results[3]` stays the agent.
         agentData.refreshSecretsCache()
       ]).then(function (results) {
+        try {
+          selectLanded(results);
+        } finally {
+          endPending();
+        }
+      }, endPending);
+
+      function selectLanded(results) {
         // Stale-then guard (M25 F2 L3 (a)): the user may have left Agents, closed
         // the editor or opened another agent while the fetches were in flight.
         if (mySelect !== state.selectSeq || self._activeSection !== 'agents' || self._createMode) return;
@@ -421,7 +445,7 @@
         updateContentVisibility();
         writeUrl_();
         App.focusAfter.flush();
-      });
+      }
     }
 
     // Agent navigation (M25 F2 L4). Opening an agent is a user INTENT: a list
@@ -472,6 +496,7 @@
       // before loadAll has the providers the form's picker needs; the store
       // read returns the cached list or joins the in-flight load.
       var myCreate = ++state.selectSeq;
+      var endPending = App.studio.agentEditorFill.pendingBegin();
       var providersReady = agentData.fetchProviders().then(function (list) {
         self._allProviders = list;
       }, function () { /* keep the prior list; the form still renders */ });
@@ -479,12 +504,18 @@
         agentData.refreshToolConfigsCache(), agentData.refreshMcpSourcesCache(), agentData.refreshKnowledgeBasesCache(),
         agentData.refreshSecretsCache(), providersReady
       ]).then(function () {
-        if (myCreate !== state.selectSeq || self._activeSection !== 'agents' || !self._createMode) return;
-        renderEditor(null);
-        updateContentVisibility();
-        writeUrl_();
-        focusNameField();
-      });
+        try {
+          if (myCreate !== state.selectSeq || self._activeSection !== 'agents' || !self._createMode) return;
+          renderEditor(null);
+          updateContentVisibility();
+          writeUrl_();
+          // A form fill opening the create form never takes focus (M36 F3 L6): its one-shot
+          // flag stands in for this focus call.
+          if (!consumeCreateFocusSuppression()) focusNameField();
+        } finally {
+          endPending();
+        }
+      }, endPending);
     }
 
     // ── Editor rendering ─────────────────────────────────────────────
@@ -579,5 +610,9 @@
     };
   }
 
-  window.App.studio.agentsList = { create: create };
+  window.App.studio.agentsList = {
+    create: create,
+    suppressNextCreateFocus: suppressNextCreateFocus,
+    clearCreateFocusSuppression: clearCreateFocusSuppression
+  };
 })();

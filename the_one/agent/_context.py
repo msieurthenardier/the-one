@@ -103,6 +103,9 @@ class TurnContext:
     routine_name: str | None = None
     routine_sources: list[str] = field(default_factory=list)
     routine_writes: int = 0
+    # M36 F3 L4: the page the operator sent this turn from, ``{"line", "descriptor"}``
+    # (GleepGlorp drawer turns only; None for every other turn).
+    page: dict | None = None
 
 
 current_turn: ContextVar[TurnContext | None] = ContextVar("current_turn", default=None)

@@ -81,10 +81,14 @@ SCORING_DIGESTS = {
     # is the operator-typed mark no longer needs the untrusted flag (it did before: the name
     # alone made every read_app_config outside content). Operator-approved 2026-11-19 after the
     # Reviewer confirmed `_taint_expected` is the only behaviour change.
-    "checks.py": "688bac672f716e3fea658c7854fb5f372c3fe2b391026fdbf959915b44d0704a",
+    # M36 F3 L4 (2026-11-20, operator-approved: both hashes): TurnTrace gains an optional `page`;
+    # conversation_messages sets Message.page on a page turn's user message; harness.py passes
+    # PageTurn pages to step/TurnContext and records them. Additive: no existing scenario has a
+    # page turn, so no existing check or score changes.
+    "checks.py": "204dd8b1ed2ddee190ede11461633445b8472d95c1fb5585f79016548434298f",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "023f64e83d0736d0d28cc11d24f7a2beacee6aaec8449b06aa05d28dd0c6ffbb",
+    "harness.py": "26b06f0314c82e4ef73e9b51abdbfb143054479b7b2e90a8b03b4ef914a20457",
 }
 # Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
 # `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must

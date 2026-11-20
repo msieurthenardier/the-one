@@ -3005,6 +3005,8 @@
   .ui-message--assistant td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; vertical-align: top; }
   .ui-message--assistant thead th { background: var(--surface); font-weight: var(--font-weight-semibold); }
   .ui-message--assistant tbody tr:nth-child(even) { background: var(--surface-translucent); }
+  /* The page line above a user bubble (a sibling of the bubble, M36 F3 L4). */
+  .ui-message-context { align-self: flex-end; max-width: 85%; font-size: var(--font-size-tiny); color: var(--fg-faint); font-family: var(--font-family-mono); letter-spacing: 0.04em; padding: 0 4px; margin-bottom: -6px; overflow-wrap: anywhere; text-align: right; }
   /* Attribution. */
   .ui-message-attribution { font-size: var(--font-size-tiny); color: var(--fg-faint); font-family: var(--font-family-mono); letter-spacing: 0.04em; padding: 0 4px; margin-top: -6px; }
   .ui-message-attribution--you { align-self: flex-end; }

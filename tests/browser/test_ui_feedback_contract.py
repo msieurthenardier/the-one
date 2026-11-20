@@ -574,6 +574,28 @@ def test_note_flag_role_name_and_icon(engine_page: Page) -> None:
     assert out["gone"] == ["undefined", "undefined"]
 
 
+def test_note_flag_fill_subject(engine_page: Page) -> None:
+    """M36 F3 L6: the subject ``fill`` says "form fill", made; an unknown subject still throws."""
+    out = _mount(
+        engine_page,
+        """() => {
+          const f = App.ui.noteFlag({sources: ['web_fetch', 'file'], subject: 'fill', testid: 'ff'});
+          document.getElementById('harness-root').append(f);
+          let err = '';
+          try { App.ui.noteFlag({subject: 'form'}); } catch (e) { err = String(e.message); }
+          return {label: f.getAttribute('aria-label'), title: f.title, tid: f.getAttribute('data-testid'),
+                  role: f.getAttribute('role'), svgs: f.querySelectorAll('svg').length, err: err};
+        }""",
+    )
+    sentence = (
+        "Check this form fill: it was made after content that didn't come from you "
+        "(web_fetch, file). It may have been planted."
+    )
+    assert out["label"] == sentence and out["title"] == sentence
+    assert out["tid"] == "ff" and out["role"] == "img" and out["svgs"] == 1
+    assert "subject" in out["err"] and '"fill"' in out["err"]
+
+
 def test_layered_note_flag_and_consent_link_styles_are_unchanged(engine_page: Page) -> None:
     out = _mount(
         engine_page,

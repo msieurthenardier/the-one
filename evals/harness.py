@@ -51,7 +51,7 @@ from evals.fixtures import (
     KBFixtures,
 )
 from evals.models import Preset, effective_values, provider_row
-from evals.scenario import Scenario, StepTurn, Variant, expand
+from evals.scenario import PageTurn, Scenario, StepTurn, Variant, expand
 
 FS_TOOLS = (
     "read_file",
@@ -774,12 +774,14 @@ class Harness:
                     attempt.effective = effective_values(agent.llm)
                     for turn in turns:
                         is_step = isinstance(turn, StepTurn)
+                        is_page = isinstance(turn, PageTurn)
                         tt = TurnTrace(
                             conversation=ci,
                             index=turn_index,
-                            user="" if is_step else turn,
+                            user="" if is_step else (turn.text if is_page else turn),
                             skip_empty_reply=sc.skip_empty_final_reply,
                             step=turn.kind if is_step else None,
+                            page=dict(turn.page) if is_page else None,
                         )
                         trace.turns.append(tt)
                         turn_index += 1
@@ -796,10 +798,20 @@ class Harness:
                                 attempt.turn_s.append(round(time.monotonic() - t0, 3))
                                 await _note_proposals(conn, session_id, known, tt, proposal_turns)
                                 break
-                        token = current_turn.set(TurnContext(session_id=session_id))
+                        # A page turn only: the keyword and the context page are passed only
+                        # when there is a page, as the app does.
+                        page_kw: dict[str, Any] = {}
+                        turn_ctx = TurnContext(session_id=session_id)
+                        if tt.page:
+                            page_kw = {"page": {"line": tt.page["line"]}}
+                            turn_ctx.page = {
+                                "line": tt.page["line"],
+                                "descriptor": tt.page.get("descriptor"),
+                            }
+                        token = current_turn.set(turn_ctx)
                         try:
                             async with asyncio.timeout(self.turn_timeout):
-                                async for msg in agent.step(text):
+                                async for msg in agent.step(text, **page_kw):
                                     tt.messages.append(msg)
                         except TimeoutError:
                             attempt.model_failure = f"turn timed out after {self.turn_timeout:.0f}s"

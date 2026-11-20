@@ -26,6 +26,11 @@
 //                 chat / a failed or deleted conversation (null).
 //   emptyState    a Node shown while the chat is pending, in place of the new-chat state.
 //   onBlockedChange(blocked)  the composer's blocked state, for the empty state's suggestion.
+//   pageContext() (M36 F3 L4) returns the page descriptor to send with a message, or null; the
+//                 Chats profile has none, so its payloads have no `page` key.
+//   fillHooks {fillNow(view), isApplying(id)} (M36 F3 L6) the receipts' Fill now (drawer only).
+//   onFillRequested(view, sessionId) (M36 F3 L6, drawer only) a fill_requested for the bound chat
+//                 while this instance owns the turn (ctx.send.ownsTurn): the drawer applies it.
 // and the socket's onopen only re-joins its own conversation, never lists sessions or idles.
 //
 // The handle: root, connect, ws, refreshAgentsAndSetup, serialize, hydrate, joinSession,
@@ -156,6 +161,10 @@
       validating: false,
       // The optimistic first-message bubble's nodes, removed on start_failed.
       startBubbleNodes: [],
+      // M36 F3 L4: the sender's bubble that is waiting for its `page_line` frame (one slot: the
+      // client sends one turn at a time). Cleared on done, cancelled, a turn-ending system
+      // frame, start_failed, a log wipe and a page_line for another session.
+      pendingPageBubble: null,
       currentAgentName: null,
       // M27 F3 L2: live tool_call_id -> tool name (tool_result events carry no
       // name), so a note tool's result can refresh the agent panel's notes.
@@ -335,6 +344,12 @@
       router: router,
       config: config,
       profile: isDrawer ? 'drawer' : 'chats',
+      // M36 F3 L6: the form-fill receipts' hooks (the drawer supplies them); a no-op and "not
+      // applying" by default, so a receipt's Fill now does nothing in an instance that has none.
+      fillHooks: {
+        fillNow: (config.fillHooks && config.fillHooks.fillNow) || function () {},
+        isApplying: (config.fillHooks && config.fillHooks.isApplying) || function () { return false; }
+      },
       testidPrefix: testidPrefix,
       prefixTestids: prefixTestids,
       signIn: null,
@@ -351,6 +366,7 @@
     ctx.turnWork = App.chat.turnWork.create(ctx);
     ctx.send = App.chat.send.create(ctx);
     ctx.proposalCards = App.chat.proposalCards.create(ctx);
+    ctx.fillReceipts = App.chat.fillReceipts.create(ctx);
     if (config.signIn) ctx.signIn = App.chat.signIn.create(ctx);
     ctx.turnFrames = App.chat.turnFrames.create(ctx);
     ctx.sessionFlow = App.chat.sessionFlow.create(ctx);
@@ -475,6 +491,9 @@
       transcript: ctx.transcript,
       turnWork: ctx.turnWork,
       turnFrames: ctx.turnFrames,
+      fillReceipts: ctx.fillReceipts,
+      // The hooks object itself (a test or Part B may replace a member).
+      fillHooks: ctx.fillHooks,
       agentDrawer: agentDrawer,
       currentSessionId: function () { return chatState.boundId(); },
       pendingJoinId: function () { return ctx.sessionFlow.pendingJoinId(); },

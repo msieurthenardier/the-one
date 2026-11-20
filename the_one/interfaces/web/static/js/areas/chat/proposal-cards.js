@@ -365,8 +365,11 @@
       e.el.setAttribute('data-state', state);
       e.el.className = 'chat-proposal chat-proposal--' + state;
       e.el.setAttribute('aria-label', 'Proposed change: ' + e.view.title);
-      if (state === 'applying') e.el.setAttribute('aria-busy', 'true');
-      else e.el.removeAttribute('aria-busy');
+      // On the body wrapper, never an ancestor of the status node: some screen readers hold back
+      // live-region updates inside an aria-busy subtree (WCAG 4.1.3).
+      e.el.removeAttribute('aria-busy');
+      if (state === 'applying') e.body.setAttribute('aria-busy', 'true');
+      else e.body.removeAttribute('aria-busy');
       e.body.replaceChildren.apply(e.body, kids);
       announce(e, state);
       syncBusy(e);
@@ -429,26 +432,12 @@
 
     // ── Placement ──────────────────────────────────────────────────────
 
-    function isBoundary(node, e) {
-      if (node.nodeType !== 1) return false;
-      if (node.getAttribute('data-role') === 'user') return true;
-      var tid = node.getAttribute('data-testid');
-      if (tid === 'turn-work' || tid === 'chat-approval-line') return true;
-      if (tid === 'proposal-card') return Number(node.getAttribute('data-proposal-id')) > e.view.id;
-      return false;
-    }
-
-    // The group of the turn that made the proposal, or null (trimmed history, no tool call id).
-    function anchorGroup(e) {
-      var id = e.view.tool_call_id;
-      if (!id) return null;
-      var found = messagesEl.querySelectorAll('[data-tool-call-id]');
-      for (var i = 0; i < found.length; i++) {
-        if (found[i].getAttribute('data-tool-call-id') !== id) continue;
-        var group = found[i].closest('[data-testid="turn-work"]');
-        if (group && group.parentNode === messagesEl) return group;
-      }
-      return null;
+    // The placement (after the turn that made the proposal, ordered with the other cards) is the
+    // shared App.chat.cardOrder, which the form-fill receipts use too (M36 F3 L6).
+    function cardInfo(e) {
+      return {
+        kind: 'proposal', id: e.view.id, createdAt: e.view.created_at, toolCallId: e.view.tool_call_id
+      };
     }
 
     function isPinned() {
@@ -470,13 +459,8 @@
       e.el.appendChild(e.body);
       e.said = undefined;
       build(e);
-      var group = anchorGroup(e);
-      var ref = null;
-      if (group) {
-        ref = group.nextSibling;
-        while (ref && !isBoundary(ref, e)) ref = ref.nextSibling;
-      }
-      messagesEl.insertBefore(e.el, ref);
+      App.chat.cardOrder.mark(e.el, cardInfo(e));
+      App.chat.cardOrder.place(messagesEl, e.el, cardInfo(e));
       e.drawn = true;
       e.held = false;
       if (wasPinned) messagesEl.scrollTop = messagesEl.scrollHeight;

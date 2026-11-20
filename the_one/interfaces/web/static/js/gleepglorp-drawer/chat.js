@@ -37,6 +37,45 @@
     return App.ui.util.el(tag, attrs, children);
   }
 
+  // The page descriptor a drawer message carries (M36 F3 L4, DD5): {destination, section?, item?,
+  // item_name?, tab?, create?} from the current route, plus the open item's display name
+  // (from the router) as `item_name` when the route names an item. Unsaved form values are never read. Null on Chats
+  // (the drawer is hidden there) or before the first route commit. Strings are truncated to the
+  // server's caps here, so a long name never makes the server refuse the message.
+  var ITEM_MAX = 200;
+
+  function clip(s) {
+    s = String(s);
+    return s.length > ITEM_MAX ? s.slice(0, ITEM_MAX) : s;
+  }
+
+  // The open item's display name as the router speaks it (the name from the client store, or
+  // the segment; the router shortens it to 30 characters, so the server's stored name wins).
+  function itemDisplayName() {
+    var d = App.router.describeCurrent && App.router.describeCurrent();
+    var parts = d && d.parts;
+    return parts && parts.length ? String(parts[parts.length - 1]) : null;
+  }
+
+  function pageContext() {
+    var cur = App.router && App.router.current && App.router.current();
+    var p = cur && App.router.parse(cur.route);
+    if (!p || p.destination === 'chats') return null;
+    var d = { destination: p.destination };
+    if (p.destination !== 'agents' && p.section) d.section = p.section;
+    if (p.create) {
+      d.create = true;
+      return d;
+    }
+    if (p.id) {
+      d.item = clip(p.id);
+      var name = itemDisplayName();
+      if (name) d.item_name = clip(name);
+      if (p.destination === 'agents' && p.tab) d.tab = p.tab;
+    }
+    return d;
+  }
+
   function mount() {
     if (mounted) return mounted;
     var D = App.gleepglorpDrawer;
@@ -117,13 +156,20 @@
       go: function (href, opts) { return App.router.go(href, opts); }
     };
 
+    // The form fills this drawer applies (M36 F3 L6): the instance hands over a fill_requested for
+    // a turn it sent, and the receipts' Fill now retries one.
+    var filler = App.gleepglorpDrawerFill.create({ instance: function () { return inst; } });
+
     inst = App.chat.create({
       profile: 'drawer',
+      fillHooks: { fillNow: filler.fillNow, isApplying: filler.isApplying },
+      onFillRequested: filler.enqueue,
       content: slot,
       agent: App.chat.GLEEPGLORP,
       testidPrefix: 'gg-',
       pickerHost: false,
       signIn: false,
+      pageContext: pageContext,
       router: router,
       emptyState: empty,
       onSessionChange: function (id) {
@@ -189,6 +235,8 @@
 
   window.App.gleepglorpDrawerChat = {
     mount: mount,
-    instance: function () { return null; }
+    instance: function () { return null; },
+    // The page descriptor the drawer would send now (M36 F3 L4); the tests read it for every route.
+    pageContext: pageContext
   };
 })();

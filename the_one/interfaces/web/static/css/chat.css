@@ -412,6 +412,10 @@
   .chat-instance .chat-proposal-state--applied { color: var(--status-success); }
   .chat-instance .chat-proposal-state--applied svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
   .chat-instance .chat-proposal-details { margin-top: 6px; }
+  /* The form-fill receipt (M36 F3 L6) reuses the proposal card's frame; these are its lines. */
+  .chat-instance .chat-fill-headline { margin: 4px 0 0; font-weight: var(--font-weight-semibold); color: var(--fg); }
+  .chat-instance .chat-fill-line { margin: 0 0 4px; color: var(--fg-secondary); }
+  .chat-instance .chat-fill .chat-proposal-title { margin: 2px 0 6px; font-weight: 400; color: var(--fg-secondary); }
 }
 
 /* L10d: the step-limit notice's Continue button sits on its own line below the text, centred. */

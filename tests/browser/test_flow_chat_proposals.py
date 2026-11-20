@@ -927,6 +927,39 @@ def test_the_card_is_not_a_live_region_and_one_status_node_speaks_each_state(
     expect(status).to_have_text("Dismissed: Change agent “plain”.")
 
 
+def test_an_applying_card_marks_busy_on_the_body_never_above_the_status_node(
+    app_with_data_dir: tuple[str, Any], page: Page
+) -> None:
+    """WCAG 4.1.3: some screen readers hold back live-region updates inside an aria-busy subtree,
+    so the busy marker sits on the body wrapper, never on an ancestor of the status node."""
+    w = _world(app_with_data_dir)
+    pid = _seed(w, changes={"description": "Words"}, base={"description": ""})
+    held: list[Any] = []
+    page.route("**/api/gleepglorp/proposals/*/approve", lambda route: held.append(route))
+    _open(page, w)
+    c = _card(page, pid)
+    _in(c, "proposal-approve").click()
+    expect(c).to_have_attribute("data-state", "applying")
+    busy_ancestors = """() => {
+      const s = document.querySelector('[data-testid="proposal-announce"]');
+      const out = [];
+      for (let n = s; n; n = n.parentElement) {
+        if (n.getAttribute('aria-busy') === 'true') out.push(n.className || n.tagName);
+      }
+      return out;
+    }"""
+    assert page.evaluate(busy_ancestors) == []
+    expect(c.locator(".chat-proposal-body")).to_have_attribute("aria-busy", "true")
+    # The busy signal goes when the card leaves applying.
+    held[0].fulfill(
+        status=409,
+        content_type="application/json",
+        body='{"detail": {"error": "busy"}}',
+    )
+    expect(c).to_have_attribute("data-state", "pending")
+    expect(c.locator(".chat-proposal-body")).not_to_have_attribute("aria-busy", "true")
+
+
 def test_a_card_drawn_from_the_snapshot_is_silent(
     app_with_data_dir: tuple[str, Any], page: Page
 ) -> None:

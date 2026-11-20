@@ -336,12 +336,16 @@
         payload.images = ctx.attachments.staged();
         displayText = text ? text + ' [image]' : '[image]';
       }
+      // M36 F3 L4: the drawer's first message carries its page (a Chats start has no hook).
+      var page = ctx.config.pageContext ? ctx.config.pageContext() : null;
+      if (page) payload.page = page;
       var eff = chatState.startSend(App.chat.newClientId(), payload);
       if (eff.noop) return false;
       if (payload.images) ctx.attachments.clearStagedImages();
       var before = messagesEl.lastChild;
       ctx.turnWork.onUserEvent();
-      ctx.transcript.addMsg('user', displayText, 'You');
+      var bubble = ctx.transcript.addMsg('user', displayText, 'You');
+      state.pendingPageBubble = page ? bubble : null;
       state.startBubbleNodes = [];
       for (var n = before ? before.nextSibling : messagesEl.firstChild; n; n = n.nextSibling) {
         state.startBubbleNodes.push(n);
@@ -363,6 +367,7 @@
         if (node.parentNode) node.parentNode.removeChild(node);
       }
       state.startBubbleNodes = [];
+      state.pendingPageBubble = null;
       ctx.turnWork.dropEmpty();
       var held = [];
       if (eff.clientId) {
@@ -382,7 +387,7 @@
         // once with the count.
         var rest = held;
         if (!composer.getValue()) {
-          ctx.send.setInputValue(held[0]);
+          ctx.send.setInputValue(held[0].text);
           rest = held.slice(1);
         }
         if (rest.length === 1) ctx.transcript.addMsg('system', 'The queued message was discarded.');

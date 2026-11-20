@@ -1,0 +1,291 @@
+"""The store for GleepGlorp's form fills (Mission 36 F3 L5, DD6).
+
+One row per fill in ``gleepglorp_fills`` (schema v55, no foreign keys). A fill records what
+GleepGlorp wrote into the operator's agent editor as *unsaved edits*; it never writes any
+configuration. The browser that applies it claims it (``sent``/``not_filled`` -> ``applying``,
+with a token and a lease) and reports a coded outcome.
+
+Every status write is conditional (``WHERE id = ? AND status ...``), checked by ``rowcount``,
+so a stale claim or a late outcome never overwrites a newer state.
+"""
+
+from __future__ import annotations
+
+import json
+import secrets
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Any
+
+import aiosqlite
+
+from the_one.db._write_lock import write_transaction
+from the_one.db.models import now_iso
+
+STATUSES = ("sent", "applying", "filled", "partly_filled", "not_filled", "replaced")
+CLAIMABLE = ("sent", "not_filled")
+OUTCOME_STATUSES = ("filled", "partly_filled", "not_filled")
+REASONS = ("in_chats", "stay", "editor_unavailable", "target_gone")
+KINDS = ("agent",)
+CLAIM_LEASE_SECONDS = 120
+
+_COLS = (
+    "id, session_id, tool_call_id, kind, action, agent_name, target_key, changes, base, "
+    "status, outcome, claim_token, untrusted, untrusted_sources, created_at, claimed_at, "
+    "resolved_at"
+)
+
+
+class FillNotFound(Exception):  # noqa: N818 - a refusal
+    """No fill has that id."""
+
+
+class FillClaimRefused(Exception):  # noqa: N818 - a refusal carrying the fill's status
+    def __init__(self, status: str) -> None:
+        super().__init__(f"Fill is {status}")
+        self.status = status
+
+
+class FillOutcomeRefused(Exception):  # noqa: N818 - a wrong token or not applying
+    """The outcome's token is not the current claim, or the fill is not ``applying``."""
+
+
+@dataclass
+class NewFill:
+    session_id: str
+    kind: str
+    action: str
+    agent_name: str
+    target_key: str
+    changes: dict[str, Any]
+    base: dict[str, Any] | None = None
+    tool_call_id: str | None = None
+    untrusted: bool = False
+    untrusted_sources: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Fill:
+    id: int
+    session_id: str
+    tool_call_id: str | None
+    kind: str
+    action: str
+    agent_name: str
+    target_key: str
+    changes: dict[str, Any]
+    base: dict[str, Any] | None
+    status: str
+    outcome: dict[str, Any] | None
+    claim_token: str | None
+    untrusted: bool
+    untrusted_sources: list[str]
+    created_at: str
+    claimed_at: str | None
+    resolved_at: str | None
+
+
+def _loads(raw: Any, default: Any = None) -> Any:
+    if raw is None:
+        return default
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _dumps(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+def _row(row: Any) -> Fill:
+    return Fill(
+        id=row[0],
+        session_id=row[1],
+        tool_call_id=row[2],
+        kind=row[3],
+        action=row[4],
+        agent_name=row[5],
+        target_key=row[6],
+        changes=_loads(row[7], {}),
+        base=_loads(row[8]),
+        status=row[9],
+        outcome=_loads(row[10]),
+        claim_token=row[11],
+        untrusted=bool(row[12]),
+        untrusted_sources=_loads(row[13], []) or [],
+        created_at=row[14],
+        claimed_at=row[15],
+        resolved_at=row[16],
+    )
+
+
+class GleepGlorpFillRepository:
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def insert(self, new: NewFill) -> tuple[int, list[int]]:
+        """Record a fill; returns ``(id, replaced_ids)``.
+
+        In the same transaction every fill of the chat still in ``sent`` or ``not_filled`` is
+        marked ``replaced``: it can no longer be claimed, so Fill now never puts older values
+        over a newer fill. ``applying``, ``filled`` and ``partly_filled`` are left alone.
+        """
+        if new.kind not in KINDS:
+            raise ValueError(f"unsupported fill kind: {new.kind!r}")
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT id FROM gleepglorp_fills WHERE session_id = ? "
+                "AND status IN ('sent', 'not_filled') ORDER BY id",
+                (new.session_id,),
+            ) as cur:
+                older = [r[0] for r in await cur.fetchall()]
+            async with self.conn.execute(
+                "INSERT INTO gleepglorp_fills (session_id, tool_call_id, kind, action, "
+                "agent_name, target_key, changes, base, status, untrusted, untrusted_sources, "
+                "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?, ?, ?)",
+                (
+                    new.session_id,
+                    new.tool_call_id,
+                    new.kind,
+                    new.action,
+                    new.agent_name,
+                    new.target_key,
+                    _dumps(new.changes),
+                    _dumps(new.base) if new.base is not None else None,
+                    1 if new.untrusted else 0,
+                    json.dumps(new.untrusted_sources),
+                    now_iso(),
+                ),
+            ) as cur:
+                new_id = int(cur.lastrowid or 0)
+            replaced: list[int] = []
+            for old in older:
+                async with self.conn.execute(
+                    "UPDATE gleepglorp_fills SET status = 'replaced', resolved_at = ? "
+                    "WHERE id = ? AND status IN ('sent', 'not_filled')",
+                    (now_iso(), old),
+                ) as cur:
+                    if cur.rowcount == 1:
+                        replaced.append(old)
+        return new_id, replaced
+
+    async def get(self, fill_id: int) -> Fill | None:
+        async with self.conn.execute(
+            f"SELECT {_COLS} FROM gleepglorp_fills WHERE id = ?",  # noqa: S608
+            (fill_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        return _row(row) if row else None
+
+    async def list_for_session(self, session_id: str) -> list[Fill]:
+        async with self.conn.execute(
+            f"SELECT {_COLS} FROM gleepglorp_fills WHERE session_id = ? ORDER BY id",  # noqa: S608
+            (session_id,),
+        ) as cur:
+            return [_row(r) for r in await cur.fetchall()]
+
+    async def claim(self, fill_id: int, now: datetime) -> tuple[Fill, str]:
+        """Claim a fill for applying; returns ``(fill, token)``.
+
+        Succeeds from ``sent`` or ``not_filled``, or from an ``applying`` row whose claim is
+        older than the lease. Raises :class:`FillNotFound` or :class:`FillClaimRefused`.
+        """
+        token = secrets.token_urlsafe(18)
+        stale_before = (now - timedelta(seconds=CLAIM_LEASE_SECONDS)).isoformat()
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "UPDATE gleepglorp_fills SET status = 'applying', claim_token = ?, "
+                "claimed_at = ?, resolved_at = NULL, outcome = NULL WHERE id = ? AND "
+                "(status IN ('sent', 'not_filled') OR (status = 'applying' AND claimed_at < ?))",
+                (token, now.isoformat(), fill_id, stale_before),
+            ) as cur:
+                moved = cur.rowcount == 1
+        fill = await self.get(fill_id)
+        if fill is None:
+            raise FillNotFound(fill_id)
+        if not moved:
+            raise FillClaimRefused(fill.status)
+        return fill, token
+
+    async def record_outcome(
+        self, fill_id: int, token: str, status: str, kept: list[str], reason: str | None
+    ) -> Fill:
+        """Record the applier's outcome, only for the current claim of an ``applying`` fill."""
+        if status not in OUTCOME_STATUSES:
+            raise ValueError(f"unknown outcome status: {status!r}")
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "UPDATE gleepglorp_fills SET status = ?, outcome = ?, resolved_at = ? "
+                "WHERE id = ? AND status = 'applying' AND claim_token = ?",
+                (status, _dumps({"kept": kept, "reason": reason}), now_iso(), fill_id, token),
+            ) as cur:
+                moved = cur.rowcount == 1
+        fill = await self.get(fill_id)
+        if fill is None:
+            raise FillNotFound(fill_id)
+        if not moved:
+            raise FillOutcomeRefused()
+        return fill
+
+
+# --- the view (the contract Leg 6's client reads) --------------------------------------
+
+
+async def fill_view(conn: aiosqlite.Connection, fill: Fill) -> dict[str, Any]:
+    """The ``fill_requested`` / ``fill_changed`` payload and the receipt's data.
+
+    Never carries ``claim_token``. ``values`` are the stored changes as the editor needs them
+    (ids for the provider, MCP servers and knowledge bases); ``changes`` and ``base`` show
+    each id as the name it has now. ``stale`` lists the fields whose stored value now differs
+    from ``base`` (``[{field, label, current, proposed}]``; empty for a create), computed here
+    when read. ``target_gone``: a change's agent no longer exists.
+    """
+    from the_one.gleepglorp.proposals import shape
+    from the_one.gleepglorp.proposals.store import display_values
+    from the_one.gleepglorp.view_core import _agent_names
+
+    labels = {f.stored: f.label for f in shape.SPECS.get(fill.kind, ())}
+    gone = False
+    stale: list[dict[str, Any]] = []
+    if fill.action == "change":
+        gone = fill.agent_name not in await _agent_names(conn)
+        if not gone and fill.base:
+            current = await shape._agent_base(conn, None, fill.agent_name, list(fill.base))
+            moved = [f for f in fill.base if current.get(f) != fill.base[f]]
+            if moved:
+                cur = await display_values(conn, {f: current[f] for f in moved})
+                prop = await display_values(conn, {f: fill.changes.get(f) for f in moved})
+                stale = [
+                    {
+                        "field": f,
+                        "label": labels.get(f, f),
+                        "current": cur[f],
+                        "proposed": prop[f],
+                    }
+                    for f in moved
+                ]
+    quoted = f"“{fill.agent_name}”"
+    title = f"{'Create' if fill.action == 'create' else 'Change'} agent {quoted}"
+    return {
+        "id": fill.id,
+        "kind": fill.kind,
+        "action": fill.action,
+        "agent_name": fill.agent_name,
+        "status": fill.status,
+        "outcome": fill.outcome,
+        "untrusted": fill.untrusted,
+        "untrusted_sources": fill.untrusted_sources,
+        "created_at": fill.created_at,
+        "claimed_at": fill.claimed_at,
+        "resolved_at": fill.resolved_at,
+        "tool_call_id": fill.tool_call_id,
+        "values": fill.changes,
+        "changes": await display_values(conn, fill.changes),
+        "base": await display_values(conn, fill.base) if fill.base is not None else None,
+        "labels": labels,
+        "title": title,
+        "field_count": len(fill.changes),
+        "target_gone": gone,
+        "stale": stale,
+    }

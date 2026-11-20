@@ -1122,7 +1122,7 @@ def _build_user_content(
     return blocks
 
 
-class ValidatedPayload(NamedTuple):
+class _ValidatedFields(NamedTuple):
     """Result of ``_validate_message_payload``.
 
     Exactly one of three shapes:
@@ -1139,6 +1139,63 @@ class ValidatedPayload(NamedTuple):
     content: str | list[ContentBlock] | None
     error: str | None
     empty: bool
+
+
+class ValidatedPayload(_ValidatedFields):
+    """``_ValidatedFields`` plus M36 F3 L4's ``page`` (the validated page descriptor, else
+    None). It is an attribute, not a tuple field, so the five-item tuple equality that tests
+    pin on this result is unchanged."""
+
+    page: dict[str, Any] | None = None
+
+    def with_page(self, page: dict[str, Any] | None) -> ValidatedPayload:
+        self.page = page
+        return self
+
+
+MALFORMED_PAGE_TEXT = "Malformed page context."
+
+
+def _validate_page(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, bool]:
+    """``(descriptor, refused)`` for an optional ``page`` key (M36 F3 L4). A shape fault is
+    refused; a value fault drops the page (one warning) and keeps the message."""
+    from the_one.gleepglorp import page as gg_page
+
+    raw = payload.get("page")
+    if raw is None:
+        return None, False
+    descriptor, error = gg_page.validate_descriptor(raw)
+    if error is None:
+        return descriptor, False
+    if error.startswith(gg_page.VALUE_FAULT):
+        logger.warning("Dropped page context: %s", error[len(gg_page.VALUE_FAULT) :])
+        return None, False
+    logger.warning("Rejected message: malformed page context (%s)", error)
+    return None, True
+
+
+async def _page_for(agent_name: str | None, page: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The resolved page for a turn that runs ``agent_name`` (M36 F3 L4): only GleepGlorp
+    keeps one; a valid page sent for any other agent is dropped silently. A resolver failure
+    drops it too, and never fails the turn."""
+    if page is None or agent_name != GLEEPGLORP_AGENT_NAME:
+        return None
+    from the_one.gleepglorp.page import resolve_page
+
+    try:
+        return await resolve_page(await get_connection(), page)
+    except Exception:
+        logger.warning("Could not resolve the page context", exc_info=True)
+        return None
+
+
+async def _page_kwargs(
+    agent_name: str | None, page: dict[str, Any] | None
+) -> dict[str, dict[str, Any]]:
+    """``{"page": resolved}`` for ``_spawn_web_message`` only when there is a page, so an
+    ordinary turn calls it exactly as before (tests patch the signature)."""
+    resolved = await _page_for(agent_name, page)
+    return {} if resolved is None else {"page": resolved}
 
 
 def _validate_message_payload(payload: dict[str, Any]) -> ValidatedPayload:
@@ -1168,6 +1225,12 @@ def _validate_message_payload(payload: dict[str, Any]) -> ValidatedPayload:
     images = payload.get("images") or []
     if not user_input and not images:
         return ValidatedPayload(user_input, [], None, None, True)
+
+    # M36 F3 L4: a malformed page refuses the message for every agent; it comes after the
+    # emptiness check and before the images.
+    page, page_refused = _validate_page(payload)
+    if page_refused:
+        return ValidatedPayload(user_input, [], None, MALFORMED_PAGE_TEXT, False)
 
     # M18 F02 L02: reject an over-count/over-size images payload BEFORE any
     # session is created (an oversized attachment must not spin up an
@@ -1229,7 +1292,7 @@ def _validate_message_payload(payload: dict[str, Any]) -> ValidatedPayload:
         # the connection. Surface it as a per-connection error instead.
         logger.exception("Failed to build user content from images payload")
         return ValidatedPayload(user_input, images, None, f"Cannot process message: {exc}", False)
-    return ValidatedPayload(user_input, images, content, None, False)
+    return ValidatedPayload(user_input, images, content, None, False).with_page(page)
 
 
 async def _spawn_message_processing(
@@ -1364,7 +1427,10 @@ async def _locked_message_processing(
 
 
 def _spawn_web_message(
-    session: Session, content: str | list[ContentBlock], ws: WebSocket
+    session: Session,
+    content: str | list[ContentBlock],
+    ws: WebSocket,
+    page: dict[str, Any] | None = None,
 ) -> asyncio.Task:
     """Spawn one web-typed message turn in the background, with bookkeeping.
 
@@ -1380,7 +1446,12 @@ def _spawn_web_message(
     reservation can rely on ``_session_inflight[session.id]`` being set
     before the reservation is released.
     """
-    task = asyncio.create_task(_spawn_message_processing(session, content, "web", ws))
+    if page is None:
+        # No `turn_info` unless there is a page (tests patch this signature).
+        coro = _spawn_message_processing(session, content, "web", ws)
+    else:
+        coro = _spawn_message_processing(session, content, "web", ws, {"page": page})
+    task = asyncio.create_task(coro)
     return _register_turn_task(session, task)
 
 
@@ -2655,6 +2726,10 @@ async def _process_and_broadcast(
     proposal = (turn_info or {}).get("proposal")
     if not isinstance(proposal, dict):
         proposal = None
+    # M36 F3 L4: the resolved page of a GleepGlorp drawer turn (None for every other turn).
+    page = (turn_info or {}).get("page")
+    if not (isinstance(page, dict) and isinstance(page.get("line"), str)):
+        page = None
     # Auto-load Ollama model if needed (fast check, safe to run every message)
     await _ensure_ollama_model_loaded(session)
 
@@ -2679,6 +2754,8 @@ async def _process_and_broadcast(
         user_event["proposal_id"] = proposal.get("id")
         user_event["proposal_event"] = proposal.get("event")
         user_event["session_id"] = session.id
+    if page is not None:
+        user_event["page"] = {"line": page["line"]}
     # M10 F06 L6: close the F5 live-broadcast carry-forward. The
     # operator-typed message on a connector-attached session must
     # carry the visibility tag at LIVE broadcast time (the refresh
@@ -2701,6 +2778,15 @@ async def _process_and_broadcast(
         user_event["visibility"] = OPERATOR_VISIBILITY
     session.add_event(user_event)
     await _send_to_session(session, user_event, exclude=exclude_user_echo)
+    if page is not None and exclude_user_echo is not None:
+        # The sender gets no `user` echo; this one frame is how its chip shows the server's
+        # line. Sent to that socket alone (no helper does that), guarded like the others.
+        try:
+            await exclude_user_echo.send_json(
+                {"type": "page_line", "session_id": session.id, "line": page["line"]}
+            )
+        except Exception:
+            remove_subscriber(session.id, exclude_user_echo)
 
     total_input = 0
     total_output = 0
@@ -2801,6 +2887,7 @@ async def _process_and_broadcast(
             routine_id=routine.get("id") if routine is not None else None,
             routine_name=routine.get("name") if routine is not None else None,
             routine_sources=_routine_turn_sources(routine),
+            page=page,
         )
     )
 
@@ -2818,11 +2905,15 @@ async def _process_and_broadcast(
             await _save_session_to_db(session)
         await _notify_cancelled_once(session)
 
+    # M36 F3 L4: `page=` is passed ONLY when there is a page (many `step` test doubles take
+    # no such keyword).
+    step_extra: dict[str, Any] = {} if page is None else {"page": {"line": page["line"]}}
     try:
         async for msg in session.agent.step(
             user_input,
             on_chunk=_broadcast_chunk,
             on_usage=_broadcast_usage,
+            **step_extra,
         ):
             if msg.role == Role.ASSISTANT:
                 # Squawk 0355: this reply is stored now; a later cancel's
@@ -3861,7 +3952,13 @@ async def _websocket_loop(ws: WebSocket) -> None:
                         await _send_pause_snapshot_if_needed(existing, ws)
                         await _send_proposals_snapshot(ws, existing.id, existing.agent_name)
                         if deliver:
-                            _spawn_web_message(existing, validated.content, ws)
+                            # The page follows the agent of the session that runs the turn.
+                            _spawn_web_message(
+                                existing,
+                                validated.content,
+                                ws,
+                                **await _page_kwargs(existing.agent_name, validated.page),
+                            )
                         continue
 
                     if restored.is_degraded:
@@ -3911,7 +4008,12 @@ async def _websocket_loop(ws: WebSocket) -> None:
                     # Brand-new session: no pause state; kept for the pattern.
                     await _send_pause_snapshot_if_needed(session, ws)
                     await _send_proposals_snapshot(ws, session.id, session.agent_name)
-                    _spawn_web_message(session, validated.content, ws)
+                    _spawn_web_message(
+                        session,
+                        validated.content,
+                        ws,
+                        **await _page_kwargs(session.agent_name, validated.page),
+                    )
                     continue
                 finally:
                     # 6. Always release, or waiters hang.
@@ -4020,7 +4122,12 @@ async def _websocket_loop(ws: WebSocket) -> None:
                 await _save_session_to_db(session)
                 continue
 
-            _spawn_web_message(session, validated.content, ws)
+            _spawn_web_message(
+                session,
+                validated.content,
+                ws,
+                **await _page_kwargs(session.agent_name, validated.page),
+            )
 
     except WebSocketDisconnect:
         if session:

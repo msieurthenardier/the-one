@@ -568,6 +568,9 @@ App.registerArea({
     });
 
     self._refresh = function () {
+      // A Studio load is pending from here until the load and the select it starts have been
+      // handed on (doSelect counts itself, synchronously): the form fill waits for it (M36 F3 L6).
+      var endPending = App.studio.agentEditorFill.pendingBegin();
       agentData.loadAll(true).then(function () {
         // (b) Re-select ONLY on the Agents section: a refresh landing after
         // the user moved to Library must not re-open the stale agent (and
@@ -591,7 +594,7 @@ App.registerArea({
         }
       }).catch(function (err) {
         agentData.showLoadAllError(err, { nonDestructive: true });
-      });
+      }).then(endPending, endPending);
       // Studio activate on a Library section (the Library pane survived a trip
       // to Chats or Settings): force-get the four Library collections, so a
       // mutation made elsewhere shows within DD9's freshness bound (M25 F3
@@ -653,6 +656,7 @@ App.registerArea({
     // The init() load, while it is in flight: the list's pending-agent rule reads it.
     var bootLoad = agentData.loadAll(true);
     state.bootLoad = bootLoad;
+    var endBootPending = App.studio.agentEditorFill.pendingBegin();
     var bootSettled = function () { state.bootLoad = null; };
     bootLoad.then(bootSettled, bootSettled);
     bootLoad.then(function () {
@@ -675,7 +679,7 @@ App.registerArea({
       }
     }).catch(function (err) {
       agentData.showLoadAllError(err);
-    });
+    }).then(endBootPending, endBootPending);
   },
 
   activate: function () {

@@ -39,6 +39,8 @@
         }
       } else {
         ctx.transcript.dropModelLoading();
+        // A refused turn never gets a chip: the slot is cleared (M36 F3 L4).
+        state.pendingPageBubble = null;
         // Every other system frame ends the turn (the work group folds, or goes if empty).
         ctx.turnWork.onSystemEnd();
         if (ctx.transcript.isAgentError(data.content)) {
@@ -48,6 +50,7 @@
         }
         // M36 F2 L6: the turn ended, so a proposal card held for it lands now.
         ctx.proposalCards.turnEnded();
+        ctx.fillReceipts.turnEnded();
         var errActive = chatState.activeId();
         if (errActive && state.inFlightSessions[errActive]) {
           delete state.inFlightSessions[errActive];
@@ -119,8 +122,32 @@
         App.perf.mark('telemetry-update:end');
         App.perf.measure('telemetry-update', 'telemetry-update:start', 'telemetry-update:end');
       }
+      else if (data.type === 'page_line') {
+        // M36 F3 L4: the server's line for the page the sender's last message came from. The
+        // sender gets no `user` echo, so this is how its own bubble gains the chip.
+        var pageBubble = state.pendingPageBubble;
+        state.pendingPageBubble = null;
+        if (pageBubble && data.session_id === chatState.boundId()) {
+          ctx.transcript.addPageChip(pageBubble, data.line);
+        }
+      }
       else if (data.type === 'proposal_changed') ctx.proposalCards.onChanged(data);
-      else if (data.type === 'proposals_snapshot') ctx.proposalCards.onSnapshot(data);
+      else if (data.type === 'proposals_snapshot') {
+        ctx.proposalCards.onSnapshot(data);
+        // M36 F3 L6: the same frame carries the chat's form fills.
+        ctx.fillReceipts.onSnapshot(data);
+      }
+      else if (data.type === 'fill_requested' && data.session_id === chatState.boundId()) {
+        ctx.fillReceipts.onRequested(data);
+        // M36 F3 L6: only the instance that sent the running turn applies the fill, and only the
+        // drawer supplies the hook. Chats and any other drawer draw the receipt and stop here.
+        if (ctx.config.onFillRequested && ctx.send.ownsTurn(data.session_id)) {
+          ctx.config.onFillRequested(data.fill, data.session_id);
+        }
+      }
+      else if (data.type === 'fill_changed' && data.session_id === chatState.boundId()) {
+        ctx.fillReceipts.onChanged(data);
+      }
       else if (data.type === 'auth_required') { if (ctx.signIn) ctx.signIn.onAuthRequired(data); }
       else if (data.type === 'auth_resolved') { if (ctx.signIn) ctx.signIn.onAuthResolved(data); }
       else if (data.type === 'auth_failed') { if (ctx.signIn) ctx.signIn.onAuthFailed(data); }
@@ -132,14 +159,17 @@
         ctx.turnWork.onStepLimit();
         ctx.transcript.addStepLimitNotice(data.steps, state.currentAgentName);
         ctx.proposalCards.turnEnded();
+        ctx.fillReceipts.turnEnded();
       }
       else if (data.type === 'done') {
+        state.pendingPageBubble = null;
         ctx.transcript.dropModelLoading();
         // End of agent step: the reply lands now (only from "working"), before a held
         // message is sent, so it sits above the queued message's bubble.
         ctx.turnWork.onDone();
         // M36 F2 L6: held proposal cards land after the reply.
         ctx.proposalCards.turnEnded();
+        ctx.fillReceipts.turnEnded();
         // AC6: the joined session (activeId); a held message goes out on
         // the joined path (performSend), never as a start.
         var sid = chatState.activeId();
@@ -176,6 +206,7 @@
         // F7 L04: cancel — mirror the FULL done reset (binding per design review).
         // The work group folds its pending text and reads "Stopped" (no reply bubble; with no
         // open group nothing changes and only the notices are added).
+        state.pendingPageBubble = null;
         ctx.transcript.dropModelLoading();
         ctx.turnWork.onCancelled();
         var cancelledActive = chatState.activeId();
@@ -188,6 +219,7 @@
           : 0;
         if (cancelledHeld) ctx.transcript.addDiscardedNotice(cancelledHeld);
         ctx.proposalCards.turnEnded();
+        ctx.fillReceipts.turnEnded();
         if (cancelledActive) delete state.discardedOnStop[cancelledActive];
         if (cancelledActive) {
           delete state.inFlightSessions[cancelledActive];

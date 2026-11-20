@@ -134,6 +134,7 @@
           ctx.applyComposerState();
           // M36 F2 L6: the turn is gone with the socket, so a held proposal card lands.
           ctx.proposalCards.turnEnded();
+          ctx.fillReceipts.turnEnded();
         }
         reconnectTimer = setTimeout(connect, 2000);
       };

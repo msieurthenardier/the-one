@@ -514,6 +514,21 @@ class SQLiteAgentStore:
                     "UPDATE gleepglorp_proposals SET agent_name = ?, target_key = ? WHERE id = ?",
                     (new_name, key, prop["id"]),
                 )
+            # M36 F3 L5: a fill names the agent and keys its target the same way.
+            async with self.conn.execute(
+                "SELECT id, kind, target_key FROM gleepglorp_fills WHERE agent_name = ?",
+                (old_name,),
+            ) as cur:
+                fill_rows = await cur.fetchall()
+            for fill in fill_rows:
+                old_prefix = f"{fill['kind']}:{old_name}"
+                key = fill["target_key"]
+                if key == old_prefix or key.startswith(old_prefix + ":"):
+                    key = f"{fill['kind']}:{new_name}" + key[len(old_prefix) :]
+                await self.conn.execute(
+                    "UPDATE gleepglorp_fills SET agent_name = ?, target_key = ? WHERE id = ?",
+                    (new_name, key, fill["id"]),
+                )
             async with self.conn.execute("SELECT id, config FROM connectors") as cur:
                 connector_rows = await cur.fetchall()
             for row in connector_rows:
@@ -3304,6 +3319,9 @@ class ChatSessionRepository:
             await self.conn.execute(
                 "DELETE FROM gleepglorp_proposals WHERE session_id = ?", (session_id,)
             )
+            await self.conn.execute(
+                "DELETE FROM gleepglorp_fills WHERE session_id = ?", (session_id,)
+            )
             await self.conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
         notify_sessions_changed()
 
@@ -3321,6 +3339,11 @@ class ChatSessionRepository:
             # M36 F2 L2: a proposal belongs to its chat (no foreign key), so it goes with it.
             await self.conn.execute(
                 "DELETE FROM gleepglorp_proposals WHERE session_id IN "
+                "(SELECT id FROM chat_sessions WHERE agent_name = ?)",
+                (agent_name,),
+            )
+            await self.conn.execute(
+                "DELETE FROM gleepglorp_fills WHERE session_id IN "
                 "(SELECT id FROM chat_sessions WHERE agent_name = ?)",
                 (agent_name,),
             )
@@ -3370,6 +3393,11 @@ class ChatSessionRepository:
                     (agent_name, cutoff),
                 )
                 await self.conn.execute(
+                    "DELETE FROM gleepglorp_fills WHERE session_id IN "
+                    "(SELECT id FROM chat_sessions WHERE agent_name = ? AND updated_at < ?)",
+                    (agent_name, cutoff),
+                )
+                await self.conn.execute(
                     "DELETE FROM chat_sessions WHERE agent_name = ? AND updated_at < ?",
                     (agent_name, cutoff),
                 )
@@ -3386,6 +3414,9 @@ class ChatSessionRepository:
         async with write_transaction(self.conn):
             await self.conn.execute(
                 "DELETE FROM gleepglorp_proposals WHERE session_id = ?", (session_id,)
+            )
+            await self.conn.execute(
+                "DELETE FROM gleepglorp_fills WHERE session_id = ?", (session_id,)
             )
             await self.conn.execute(
                 "UPDATE chat_sessions SET messages='[]', updated_at=? WHERE id=?",

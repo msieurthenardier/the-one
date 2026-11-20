@@ -46,6 +46,8 @@ class TurnTrace:
     approve_outcome: str | None = None
     proposal_id: int | None = None
     open_proposals: int | None = None
+    # M36 F3 L4: the page a page turn was sent from, ``{"line", "descriptor"?}``, else None.
+    page: dict[str, Any] | None = None
 
     @property
     def reply(self) -> str:
@@ -119,7 +121,10 @@ class RunTrace:
         for t in self.turns:
             if t.conversation == conversation:
                 if t.user:  # a step that sent no text adds no user message
-                    out.append(Message.user(t.user))
+                    msg = Message.user(t.user)
+                    if t.page:
+                        msg.page = {"line": t.page["line"]}
+                    out.append(msg)
                 out.extend(t.messages)
         return out
 

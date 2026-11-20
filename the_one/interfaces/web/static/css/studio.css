@@ -1282,6 +1282,20 @@
   margin: 0;
   padding: var(--space-1) var(--space-3);
 }
+/* The caption a GleepGlorp form fill leaves under each control it wrote (M36 F3 L6): the same
+   quiet look as the approved-change note, with the bot icon leading. */
+.area-studio .agent-filled-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  color: var(--fg-tertiary);
+  font-size: var(--font-size-caption);
+}
+.area-studio .agent-filled-note--item {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+}
 .area-studio .rules-row-changed-note {
   margin: var(--space-1) 0 0;
   color: var(--fg-tertiary);

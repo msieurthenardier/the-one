@@ -75,6 +75,7 @@
     if (!p) return null;
     var out = { message: typeof p.message === 'string' ? p.message : '' };
     if (p.images && p.images.length) out.images = p.images.slice();
+    if (p.page) out.page = p.page;
     return out;
   }
 
@@ -131,6 +132,7 @@
       var p = copyPayload(cur.payload) || { message: '' };
       var f = { action: 'start_session', session_id: cur.clientId, agent_name: cur.agent, message: p.message };
       if (p.images) f.images = p.images;
+      if (p.page) f.page = p.page;
       return f;
     }
 

@@ -398,6 +398,301 @@ cite, so none had drifted.
     shared 402 and chats 177. Legs 1-3 are marked `completed`, and the
     checkpoint commit holds batch A's code, the planning artifacts, the
     Leg 4 spec and this log.
+  - **Batch A checkpoint commit:** `0163769d` (not pushed).
+  - **Leg 4 implementation started:** a Developer (Sonnet), background, on
+    `0163769d`. Its brief keeps the core touch to the approved three lines
+    (otherwise `[BLOCKED]`), forbids assertion edits and detached loops,
+    and runs the lanes one at a time before the full run.
+  - **Leg 4 `[BLOCKED]` on the evals freeze (2026-11-20).** Leg 4 changed
+    two frozen scoring files, `evals/checks.py` and `evals/harness.py`.
+    `checks.py` gained an optional `TurnTrace.page`, and a page turn's user
+    message now carries `Message.page`; `harness.py` passes `PageTurn`
+    pages through. Both changes are additive: no existing scenario has a
+    page turn. The permission classifier refused the Developer's
+    `checks.py` hash edit, and the Developer stopped without working
+    around it, as it should. Its `harness.py` hash edit had already gone
+    through, without the comment it reported adding. The FD did not apply
+    the edit itself (that would be permission laundering). Instead the
+    FD asked the operator, who chose "Approve both hashes". The approval
+    went back to the same Developer, scoped to the two hashes plus a dated
+    comment, a unit-tier rerun and ruff; nothing else.
+    - **Leg 4 deviations accepted, for the batch B Reviewer to examine:**
+      1. `ValidatedPayload` subclasses a five-field NamedTuple, so the
+         pinned tuple equality holds.
+      2. `performSend` accepts a held `{text, page}` entry, because of the
+         pinned `performSend(held, …)` literal.
+      3. `item_name` comes from the router's display parts, not the
+         editor title (an owned class); the server's stored name wins.
+      4. The eval error texts keep their old prefixes.
+    - **Hash applied.** The classifier refused the relayed approval again.
+      The operator then ruled that the freeze is a data-integrity check,
+      not a safety one, and told the FD to make the edit itself. The FD set
+      the `checks.py` hash (`204dd8b1…298f`) and added the dated comment.
+      The freeze test passes 3/3 and ruff is clean.
+    - **Leg 4 `[LAND:leg]`.** The unit tier had 11137 passed, 0 failed and
+      15 skipped, in 340 s at start load 0.17 (quiet, under the 350 s
+      target). Leg 4 is `landed` and uncommitted, in batch B with Legs 5
+      and 6.
+    - **Leg 5 (fill-server) designed and tiered HIGH.** It brings a schema
+      migration (v55), a new write surface (the claim and outcome routes)
+      and a security-sensitive tool. Calls the FD made within DD6, each for
+      the design review to test:
+      - no CHECK on `kind`;
+      - a `target_key` column;
+      - a newer fill marks the older ones that never applied `replaced`;
+      - a claim token plus a 120 s lease on `applying`;
+      - outcome reasons as codes only;
+      - `notes_enabled` refused.
+
+      The eval harness's fill clean-up moves to Leg 7, so this leg leaves
+      `evals/` and its freeze hashes alone. A Developer (Sonnet) design
+      review follows.
+    - **Leg 5 design review, cycle 1: approve with changes.** No high
+      issues, and no path reaches `fill_form` without a page.
+      - **Folded in:**
+        - an unlisted pin (`_loaded_schemas == 4` → 5);
+        - the context fix: the drawer's step-limit Continue carries a page
+          and may fill, which is intended;
+        - an explicit list of the refusing turns;
+        - the lease timestamp format (`claim` takes a tz-aware datetime);
+        - a store guard on `kind`;
+        - the `EXEMPT` rows and the credential-gate test;
+        - the extra verification files;
+        - the latest-version pin list, `TestSchemaV54` ~:6875 included;
+        - the AC9 reverse case (a failed proposals read still drops the
+          fills, as today);
+        - a "Hand-off to Leg 6" section.
+      - **The FD answered the reviewer's two questions:**
+        - An `applying` fill is never replaced. The applier in a window
+          queues fills and applies them one at a time, in id order.
+        - A drawer `continue` may fill.
+      - **No second cycle:** the changes are clarifications and one test
+        list entry, not design changes. Leg 5 is `ready`.
+    - **Leg 5 implementation started:** a Developer (Sonnet), background.
+      - **Rules:**
+        - It doesn't touch `evals/`, `core.py`, `static/`, the prompt or the
+          guide.
+        - On a permission refusal it reports `[BLOCKED]` and does not work
+          around it.
+        - It edits assertions only from the leg's allowed list.
+      - **Testing:** the `chats-transcript` and `shared` lanes run one at a
+        time. There is no full run until the batch B end.
+    - **Leg 5 `[LAND:leg]`.**
+      - **Tests:** the unit tier had 11196 passed, 0 failed and 15 skipped in
+        396 s. Start load was 1.98, so it is not a budget reading. The
+        `chats-transcript` lane ran 180 and `shared` 409, and ruff is clean.
+      - **Falsifications:** all six AC10 items were falsified and restored.
+      - **FD check of the replace-all edits in `test_db_migration.py`:**
+        exactly 15 latest-version pins moved from 54 to 55, and the other
+        added lines belong to the new `TestSchemaV55`. No historical pin was
+        touched.
+      - **Deferred:** the evals harness clean-up of fills stays with Leg 7.
+      - **Process check:** no stray test processes.
+    - **Leg 6 (fill-client) designed and tiered HIGH:** a new browser write
+      seam into the agent editor. The ground truth came from a read-only
+      Explore recon of the editor, follow path, router, chat instance and
+      drawer. The FD's calls within DD7, for the review to test:
+      - only the drawer applies, gated on `ownTurn`;
+      - one queue per window, in id order;
+      - a `whenSettled` ready seam with a pending-load counter;
+      - no navigation when the editor already holds the key;
+      - a one-shot create-focus suppression;
+      - a new `agent-editor-fill.js` that reuses follow's dirty test and
+        never rebases;
+      - the model list is awaited before the other values are written;
+      - `fill-receipts.js` beside the proposal cards;
+      - `noteFlag` gains the subject `fill`;
+      - a client allowlist of the twelve keys.
+
+      A Developer (Sonnet) design review follows.
+    - **Leg 6 design review, cycle 1: approve with changes, with four high
+      issues, all folded in.**
+      - **The model-write trap was inverted.** The fix is `setModel`, then
+        `checkDirty`, then await the list. B3 pins it.
+      - **A second fill would take the first fill's values as the
+        operator's edits.** The record now keeps the written values, and
+        B5 pins the overlap.
+      - **A patch wipes unsaved values,** so the record is cleared in
+        `patchEditor_`, and the AC that asked the notes to survive a patch
+        was dropped.
+      - **"No navigation when the slot holds the key" was wrong when the
+        operator is on another destination.** It now also requires the
+        router to be on that editor.
+      - **The medium issues, also folded in:**
+        - the pending counter's placement, plus `bootLoad`;
+        - `whenSettled` lives in the fill module's registry, since the
+          controller is per-init;
+        - the picker gains `modelsSettled`;
+        - tools mapping rules and effective-set checks;
+        - one tool-call order shared by receipts and proposal cards;
+        - literal unprefixed testids;
+        - the focus suppression is cleared in a `finally`;
+        - a dialog that is already open is treated as `stay`;
+        - an all-or-nothing availability check;
+        - `App.config.dev_mode`.
+      - **The leg is split into Part A (receipts) and Part B (applying),**
+        two Developer passes in order, as the review suggested. The flight's
+        leg list is unchanged.
+      - **FD answers:**
+        - a fill during an open dialog is `stay`;
+        - a model-only fill against a deleted provider still writes;
+        - `enabled_tools: []` means none enabled.
+
+      **These are substantive changes, so a second review cycle runs**
+      (the last allowed).
+    - **Leg 6 design review, cycle 2: approve with changes, with no high
+      issue. Every item folded in.**
+      - **Mediums:**
+        - A model-only or provider-only fill keeps the other half of the
+          pair. B3 grew to cover both, plus the deleted provider.
+        - A `disabled_tools`-only fill stays within the stored whitelist,
+          and never widens it.
+        - The Part A/B hook surface is `fillHooks {fillNow, isApplying}`,
+          and claiming lives only in Part B.
+      - **Lows:**
+        - Fill now on a stuck `applying` past the 120 s lease (the FD's
+          call: no accepted residual);
+        - the apply draws its own notes;
+        - the order key is tool-call DOM position, then `created_at`, then
+          kind and id, with unanchored elements last;
+        - `modelsSettled` decrements through `.then(done, done)`;
+        - the `noteFlag` contract needs no assertion edit (keep the word
+          "subject").
+      - **FD answers:** a `disabled_tools`-only fill is interpreted within
+        the stored whitelist.
+      - **Status:** Leg 6 is `ready`. Part A is implemented first, then
+        Part B.
+    - **Leg 6 Part A implementation started:** a Developer (Sonnet),
+      background. The scope is the receipts only, with no editor writes and
+      no claim or outcome calls. The leg stays `in-flight`, and Part A
+      signals `[LAND:part-A]`.
+    - **Leg 6 Part A `[LAND:part-A]`.**
+      - **Built:**
+        - `card-order.js`, the one order shared by proposal cards and
+          receipts;
+        - `fill-receipts.js`;
+        - the frame feed;
+        - `fillHooks`;
+        - `noteFlag` gains the subject `fill`;
+        - the seeder;
+        - `_drawer.py` helpers.
+      - **Tests:**
+        - static guards 550 passed, ruff clean;
+        - unit tier 11237 passed and 18 skipped (an explicit `-m` adds the 3
+          bwrap skips), start load 1.98;
+        - lanes, one at a time at start load 3.66 (loaded):
+          `contracts-controls` 1302 passed and 4 skipped,
+          `chats-transcript` 180, `chats` 178, `shared` 417.
+      - **Falsifications:** both falsified and restored.
+      - **Process check:** no stray processes.
+      - **Next:** the Part B Developer.
+    - **Leg 6 Part B `[LAND:leg]`.** The leg is `landed`, not committed.
+      - **Built:** the applier, the drawer queue, `ownsTurn`, the pending
+        counter, `modelsSettled()`, the focus suppression and the 409 line.
+      - **Tests:** 28 new; seven falsifications, all confirmed. Unit tier
+        11196 passed and 15 skipped (start load 3.15). Lanes, one at a time
+        on a loaded host: `agents` 186, `agent-tabs` 221, `routing` 193,
+        `shared` 446, `chats-transcript` 180.
+      - **FD call: the assertion edit outside the allowed list is
+        accepted.** Part A's drawer "default hook does nothing" block pinned
+        a placeholder that Part B was chartered to replace, so removing it is
+        the planned behaviour change, not a weakened test. The Reviewer is
+        asked to confirm the stubbed-hook half still bites.
+      - **FD call: the B1 parametrization is accepted.** Library and Agents
+        are one Studio area, so the re-patch case is a return from Settings.
+      - **Process check:** no stray test processes. Host load 10.96, from
+        processes outside this session.
+    - **Batch B end (Legs 4-6).**
+      - **Reviewer tier: Sonnet.** The batch adds the fill write routes
+        (claim token and lease) behind the credential gate, a `core.py` touch
+        and a trusted tool, so it is security-sensitive.
+      - **Accessibility Reviewer: Sonnet**, in parallel. The batch adds the
+        page chip, receipts, Fill now, filled-field notes and the editor
+        focus handling.
+      - **Accessibility Reviewer: `[HANDOFF:confirmed]`**, with five
+        non-blocking items:
+        1. filled-field notes not tied to their control by
+           `aria-describedby`;
+        2. the receipt's announcement does not say which fields were filled
+           or kept;
+        3. the "Still being applied in another window." notice is not
+           announced;
+        4. a possible double announcement across the two chat instances;
+        5. each receipt `<section>` with an `aria-label` is a region
+           landmark.
+      - **FD check of item 4: not an issue.** A closed drawer is
+        `root.hidden = true` (`js/ui/drawer.js`), which the global `[hidden]`
+        reset makes `display: none`, and the drawer is hidden on Chats, so
+        the two instances' status nodes are never exposed together.
+      - **FD call: items 1-3 and 5 go into the fix pass.** They are small and
+        within the leg's surface, alongside whatever the Reviewer raises.
+      - **Reviewer (Sonnet): `[HANDOFF:confirmed]`**, no blocking issues.
+        - **Ran:** static and new tests 591 passed, ruff clean, and the fill
+          browser file 37 passed.
+        - **Security:** found the claim and outcome writes conditional on
+          `rowcount`, `claim_token` never in a view, no echoed input, the page
+          gate and the `core.py` touch within scope, the allowlist and the
+          no-widening rule, and `ownsTurn`.
+        - **Non-blocking:** (1) `FillOutcomeBody.kept` has no length cap;
+          (2) token comparison is SQL equality, not constant-time.
+        - **FD call:** (1) goes into the fix pass (a cap at the fill's change
+          key count is one line). (2) is accepted: a local, single-user,
+          credential-gated route.
+      - **Fix pass 1:** a Developer (Sonnet) takes accessibility items 1, 2, 3
+        and 5 and the `kept` cap.
+      - **Fix pass 1 `[HANDOFF:review-needed]`.** Re-reviewed by a Reviewer
+        (Sonnet) and an Accessibility Reviewer (Sonnet), scoped to the fixes.
+      - **Accessibility re-review: `[HANDOFF:confirmed]`**, with one
+        non-blocking caveat.
+        - **The caveat:** `fill-receipts.js:188` sets `aria-busy="true"` on
+          the receipt root while it is `sent` or `applying`. The status node
+          is inside that root, and some screen readers hold back live
+          updates inside a busy subtree. The "Still being applied" notice
+          happens exactly in that state.
+        - **FD call:** it is confirmed in code and defeats fix C, so it goes
+          into fix pass 2: keep `aria-busy` off the status node's ancestors.
+        - **Same pattern in committed Flight 2 code:** `proposal-cards.js:368`
+          has the same `aria-busy` on the card root. Any fix there is outside
+          this batch, so it is checked separately.
+      - **Code re-review: `[HANDOFF:confirmed]`**, no issues. 451 unit and
+        guard tests passed, ruff clean, and the fill browser file 40 passed
+        on the first try.
+      - **FD call on `proposal-cards.js`:** the proposal card's status node
+        (`proposal-announce`) is also inside the busy root, so the defect is
+        the same. The file is already in this batch's diff (card order), so
+        it is fixed in the same pass rather than logged as a squawk.
+      - **Fix pass 2:** a Developer (Sonnet) moves `aria-busy` off the
+        status node's ancestors in both files, with a test for each.
+      - **Fix pass 2 `[HANDOFF:review-needed]`.** Both tests were falsified.
+        - Unit tier 11198 passed and 15 skipped.
+        - `shared` 450 passed and `chats-transcript` 181 passed.
+        - An Accessibility Reviewer (Sonnet) re-checks the change.
+      - **Accessibility re-check of fix pass 2: `[HANDOFF:confirmed]`.** The
+        body wrapper is a sibling of the status node, the marker clears when
+        the state leaves busy, and the tests assert the ancestor rule. All
+        review loops for batch B are closed after two fix passes, within the
+        three-cycle limit.
+      - **Batch B full browser run:** `PARALLEL_RESULT rc=1 total=2348s
+        lanes=20 failed=contracts-widget-lifecycle`, at start load 2.14 and
+        about 5 at the end, so it is not a quiet budget reading.
+        - **The failure:** one test,
+          `test_ui_widget_lifecycle_contract.py::test_a_stopped_card_keeps_its_slot_height[chromium]`
+          (`'48px' == '240px'`).
+        - **FD call: a load flake, not a regression.** The batch touches no
+          widget code: the only `js/ui/` changes are `message.js` (the
+          context chip) and `feedback.js` (the `fill` subject), and the only
+          `components.css` change is the chip's rule. The lane re-run alone
+          at load 4.49 passed 113 of 113.
+        - **Over budget:** `shared` ran 610 s against its 420 s budget (1.45x).
+          The new drawer and fill files land in `shared`. That needs a lane
+          split or a re-budget from a quiet-host run, which is carried to the
+          flight's closing gate. Every other lane was within budget.
+      - **Legs 4, 5 and 6 set `completed`.** Checkpoint commit follows.
+      - **Batch B full browser run:** the FD started `--parallel 3` (netns,
+        WebKit required, `TEST_TIMEOUT=3600`), with start load 2.14. It is a
+        correctness run, not a budget reading.
+    - **The full `--parallel 3` run:** rc=0 in 2606 s on a loaded host
+      (load 4.4 near the start). It is not a budget reading.
   - **The leg is `ready`.** The design review closed at the two-cycle
     maximum with no open high issue. Implementation starts after the batch
     A fix pass and checkpoint commit, so the Leg 4 Developer starts on a
@@ -470,6 +765,98 @@ Three non-blocking review items fixed.
 1. `router.js` `commit`: steps 4-8 now run in a try/finally that resets `inCommit`, so a throwing `mountArea` or `hydrateState` no longer silences `onRouteChange` and syncs for the session; success path unchanged (one notification at the end). Test `test_a_throwing_hydrate_does_not_silence_later_notifications` (`test_router_route_change.py`): falsified, yes (finally removed: the sync after the failed commit did not notify). A later successful commit resets the flag anyway, so the test checks a sync first.
 2. `gleepglorp-drawer/shell.js`: `apply()` now calls `notifyOpen(drawerShown)`, and `notifyOpen` de-duplicates on the last effective state, so Chats and GleepGlorp-off hides (and the restore after Chats) tell the open listeners once; the drawer's own open and close do not double-notify. Test `test_the_log_is_a_live_region_only_while_the_drawer_is_shown` (`test_flow_gleepglorp_drawer_chat.py`): falsified, yes.
 3. `test_flow_chat_instance_factory.py`: new AC7 assertions after `destroy()` on the third instance (attached to the document first): no `gg-input` left in the document and nothing built inside the root. `destroy()` already removed the DOM it built (so no fix to `instance.js`); the root itself is the caller's container and is deliberately kept. Falsified, yes (node removal disabled in `destroy`).
+
+### Leg 4 (page-awareness): landed (not committed), with one open approval
+
+**Built.** All per the leg: `the_one/gleepglorp/page.py` (descriptor, two fault kinds via the `VALUE_FAULT` prefix, label tables, `sanitize_name`, `build_line`, async `resolve_page`); `tests/_app_routes.py` label readers; `Message.page`, codec, `messages_to_ui_events`, the `build_user_message_content` projection; the `core.py` keyword; `TurnContext.page`; the WebSocket path (`_validate_page`, `_page_for`/`_page_kwargs`, `_spawn_web_message(page=)`, `turn_info["page"]`, the sender-only `page_line` frame); evals `PageTurn`, harness, `TurnTrace.page`, `conversation_messages`, `Plan.llm_calls`, runner transcript; the client (drawer `pageContext`, payloads, `{text, page}` hold entries, `App.ui.message.context`, the chip, `pendingPageBubble` slot, `page_line` branch); inventory row, testid registry row, `agents.md`, `CLAUDE.md`, `SECURITY-MODEL.md`.
+
+**Repositories used by `resolve_page`** (all async `get`, any error falls back): `LLMProviderRepository` (providers), `KnowledgeBaseRepository` (knowledge), `MCPSourceRepository` (mcp), `ConnectorRepository` (connectors), `SecretRepository` (secrets); an agent item is one `SELECT name FROM agents` (no agent repository `get` exists); a Settings tool item is the tool name.
+
+**Adapter call sites** (unchanged, all already call the shared helper): anthropic `_to_api_message`, openai `_to_api_message`, ollama `_to_native_message` and `_to_api_message`.
+
+**core.py diff** (`git diff 0163769d -- the_one/agent/core.py`): the `page: dict | None = None` parameter, two docstring lines, and `if page is not None:` + `self.messages[-1].page = page` (the guard is a second code line):
+```
+@@ -228,6 +228,7 @@ async def step(
++        page: dict | None = None,
+@@ -247,9 +248,13 @@
++
++        ``page``: M36 F3 L4 — optional ``{"line": str}`` stored on the appended user message.
+         self.messages.append(Message.user(user_input))
++        if page is not None:
++            self.messages[-1].page = page
+```
+
+**Deviations.**
+1. `ValidatedPayload` keeps its five tuple fields: `tests/test_ws_build_user_content.py` pins `== ('hi', [], 'hi', None, False)`, so a sixth tuple field would break it (and an assertion edit is forbidden). It is now a subclass (`_ValidatedFields` NamedTuple + `ValidatedPayload` with a `page` attribute set by `with_page`).
+2. `performSend` accepts a held entry `{text, page}` as its first argument (`performSend(held, {textOnly: true})`), because `tests/test_store_static.py::test_held_message_drain_is_text_only` pins that exact source text.
+3. `item_name` comes from `App.router.describeCurrent().parts` (the router's display name, shortened to 30 characters, the server's stored name wins), not the editor title: `editor-title` is an owned class and the ownership guard forbids using it outside `js/ui/`.
+4. Eval error texts reworded but their old prefixes are kept ("must be a non-empty string", "the first turn must be a string"), so `test_evals_gleepglorp_proposals.py`'s substring matches pass unedited.
+
+**Approval given and applied (2026-11-20).** The operator approved both evals freeze hashes (asked by the Flight Director) and the Flight Director applied the `checks.py` digest and the dated comment in `tests/test_evals_freeze.py`; the freeze test passes. The original note follows.
+
+**Open approval (resolved above).** `tests/test_evals_freeze.py` pins sha256 digests of `evals/checks.py` and `evals/harness.py`; both changed (additive page turn). The harness digest is updated (with a comment). The auto-mode classifier refused my edit of the `checks.py` digest ("Undermining Oversight"), so `test_the_scoring_modules_are_frozen` fails until the operator approves and sets `"checks.py": "204dd8b1ed2ddee190ede11461633445b8472d95c1fb5585f79016548434298f"`. The only change to checks.py: `TurnTrace.page` and `conversation_messages` setting `.page`.
+
+**Falsifications (AC10), each edited out, run, restored by editing:** AC1 core set line removed: yes (`test_step_stores_the_page...` failed). AC2 str (page branch returns `inner`): yes (str, peer-order, four str adapter tests, rename test failed). AC2 list (prepend dropped): yes (list contract, peer-block order, four list adapter tests failed). AC5 ordinary-agent drop (GleepGlorp check removed): yes (the ordinary-session-drops and ordinary-agent-dropped tests failed). AC7 queued page (current page sent): yes (`test_a_queued_message_carries_the_page_it_was_queued_on` failed). AC8 sender chip (`page_line` ignored): yes (first-message, refused-turn, malformed-page and chip-survives tests failed).
+
+**Test results.** New: `test_gleepglorp_page.py` 38, `test_page_projection.py` 27, `test_ws_page_context.py` 24, `test_evals_page_turn.py` 14; browser: 7 new drawer page tests, `test_flow_chat_no_page_context.py`, 2 `App.ui.message.context` contract tests (both engines). Unit tier (start load 1.95): 11135 passed, 2 failed (the freeze digest above, and the `ValidatedPayload` tuple pin, fixed by deviation 1 and green after), 15 skipped. Static guards: 493 passed. Lane and full-run results below.
+
+### Leg 5 (fill-server): landed (not committed)
+
+**Built.** Schema v55 `gleepglorp_fills` (no CHECK on `kind`, `status` CHECKed); `the_one/gleepglorp/fill/` (`store.py`, `tool.py`, `events.py`); `FillFormTool` registered and bound for GleepGlorp in `agent/factory.py`; `"fill_form"` in `TRUSTED_TOOL_NAMES`; `snapshot_frame` gains `fills` (own `try`); `interfaces/web/gleepglorp_fills_api.py` (GET, claim, outcome; outcome body read by hand so no 422 echoes input) attached in `api.py`; fills handled at the five `repositories.py` sites (rename, delete, delete_all_for_agent, delete_older_than, purge_messages). Nothing under `evals/`, `agent/core.py`, `static/`, the prompt or the guide was touched. Docs: `agents.md` "GleepGlorp fills, server (M36 F3 L5)", `CLAUDE.md`, `SECURITY-MODEL.md`.
+
+**Chat-delete site audit.** The only `DELETE FROM chat_sessions` / `messages='[]'` sites are those five (plus the v53 migration in `schema.py`, which predates fills). No unhandled site found.
+
+**Assertion edits (all within the allowed list).** `tests/test_gleepglorp_build.py`: `fill_form` added to the four exact toolset sets, `_loaded_schemas` count 4 to 5, not-in lines beside `propose_change`, `_BASE`. `tests/test_notes_tools.py` trusted-names list (+`fill_form`). `tests/test_db_migration.py`: 15 latest-version pins 54 to 55 (the review's candidate list was exactly the 15 failing tests; all were latest-version pins, none historical). `tests/test_api_name_rule.py`: two `EXEMPT` rows (data). No other file pinned the toolset, `TRUSTED_TOOL_NAMES` or the version.
+
+**New tests.** `test_gleepglorp_fill_store.py` (19), `test_gleepglorp_fill_tool.py` (17, including the approval-continuation refusal through the real `turn_host.spawn_turn` seam), `test_gleepglorp_fills_api.py` (21), `TestSchemaV55` in `test_db_migration.py` (2).
+
+**Falsifications (AC10), each edited out, run, restored by editing:** page gate (`turn.page is None` removed): yes (2 tool tests failed). `claim` status/`claimed_at` condition: yes (3 failed). `record_outcome` token condition: yes (3 failed). replacement `UPDATE` status: yes (3 failed). `fill_form` in `TRUSTED_TOOL_NAMES`: yes (3 failed, including the exact-set test in `test_notes_tools.py`). fills line in `ChatSessionRepository.delete`: yes (1 failed).
+
+**Unit tier** (`THE_ONE_TEST_NETNS=1 make test-unit`, start `uptime` load 1.98): 11196 passed, 15 skipped, 0 failed, 396 s. `ruff check` and `ruff format --check` clean.
+
+**Browser lanes** (one at a time, `THE_ONE_TEST_NETNS=1`, `THE_ONE_REQUIRE_WEBKIT=1`, start load about 1.6): `chats-transcript` 180 passed (424 s), `shared` 409 passed (417 s). No flakes, no failures.
+
+### Leg 6 Part A (fill receipts): done, leg left in-flight (not committed)
+
+**Built.** `areas/chat/card-order.js` (`App.chat.cardOrder`: the one placement and order for proposal cards and receipts: tool-call DOM position, then `created_at`, then kind and id; `proposal-cards.js` now uses it); `areas/chat/fill-receipts.js` (receipt states and exact texts, held during a turn, in-place status changes, drawer-only Fill now and Show the form); `turn-frames.js` branches for `fill_requested` / `fill_changed` (gated on `boundId()`) and `data.fills` from `proposals_snapshot`; `turnEnded`, `clear` and `redraw` calls in `turn-frames.js`, `socket.js`, `transcript.js`; `fillHooks {fillNow, isApplying}` on the instance config (defaults no-op and false), exposed with `fillReceipts` on the instance; `App.ui.noteFlag` subject `fill`; CSS lines in `chat.css`; `index.html` script order; seeder `seed_gleepglorp_fill`; drawer helpers moved to `tests/browser/_drawer.py` (the drawer test keeps underscore aliases, no assertion changed). New `tests/browser/test_flow_gleepglorp_fill.py` (8 tests: A1-A4) and `test_note_flag_fill_subject` (A5). Docs: testid registry, noteFlag row, `agents.md` "GleepGlorp fills, browser (M36 F3 L6)" first part.
+
+**Falsifications (Part A).** Mixed-order rule (tool-call position removed from `compare`): yes, A2 live test failed. `session_id` gate on `fill_requested`: yes, the live test saw 2 receipts. Both restored by editing.
+
+**Verification.** Static guards, ruff check and format: clean. Unit tier (`THE_ONE_TEST_NETNS=1`, start `uptime` load 1.98, run with an explicit `-m`): 11237 passed, 18 skipped (15 plus 3 `requires_bwrap` skips from the `-m` override), 447 s. Browser lanes one at a time (`THE_ONE_TEST_NETNS=1`, `THE_ONE_REQUIRE_WEBKIT=1`, start load 3.66, loaded host): `contracts-controls` 1302 passed, 4 skipped (408 s); `chats-transcript` 180 passed (434 s); `chats` 178 passed (353 s); `shared` 417 passed (452 s). Also `test_flow_chat_proposals.py` and the drawer chat tests pass unchanged.
+
+### Leg 6 Part B (fill apply): done, leg set to `landed` (not committed)
+
+**Built.** `areas/studio/agent-editor-fill.js` (`App.studio.agentEditorFill`: pending counter `pendingBegin`, `whenSettled`, per-controller `apply` with the allowlist, availability check, operator-dirty rule with last-written values, tools/MCP/KB item writes, model group last, record and `agent-filled-note` notes); `js/gleepglorp-drawer/fill.js` (per-window queue in id order, claim, Chats and dialog checks, navigation, outcome, `fillNow`, `isApplying`); `ctx.send.ownsTurn` and the `onFillRequested` config hook (turn-frames); the drawer passes `fillHooks` and the hook; picker `modelsSettled()` (fetch wrapper counting in-flight lists); pending counter wired into `doSelect`, `doEnterCreateMode`, `_refresh` and the init `bootLoad` (rejection handlers added); one-shot create-focus suppression in `agents-list.js` with an always-cleared `finally`; `name` in `setField` and the `name` note host in general-tab.js; `dirtyGroup_` and the tab-item test moved to module scope in follow (exported, behaviour unchanged); controller registers the fill, calls its `afterMount`, clears on patch, Cancel, Save and destroy; receipts show "Still being applied in another window." (`fill-receipt-notice`) on a claim 409 from Fill now; CSS `agent-filled-note`; index.html order; registry rows; agents.md, CLAUDE.md, SECURITY-MODEL.md.
+
+**Tests.** 28 new Part B tests in `tests/browser/test_flow_gleepglorp_fill.py` (B1-B11, Fill now, the 409 line); file total 36 (plus 1 parametrized case), all pass.
+
+**Assertion edit outside the allowed list (reported).** Part A's `test_the_drawer_offers_fill_now_for_the_retry_cases_and_chats_never` pinned "with the default hook a click does nothing and sends no request" on the drawer; since Part B the drawer passes the real hooks, so that block was removed (the stubbed-hook part of the test is unchanged). Also in that file `_view` from the proposals test module is now imported as `_proposal_view` (a name clash with the Part B helper).
+
+**Design note.** The Library case of B1 does not re-patch (Library and Agents are one Studio area, so no `activate`); the re-patch case is a return from Settings, so the mounted-editor test runs for both `library` and `settings`, and the counter falsification is on the `settings` case.
+
+**Falsifications (Part B), each edited out, run, restored by editing:** pending counter (no increment): yes (settings case failed; the first try on the Library case did not fail, hence the parametrization). Model write order (both synchronous `checkDirty` calls removed): yes (2 failed). Last-written-value rule: yes (B5 failed). Operator-dirty check: yes (B4 failed). `ownsTurn` condition: yes (2 failed). Allowlist: yes (B11 failed). `finally` clear of the focus suppression: yes (the Stay-then-New-agent test failed).
+
+**Verification.** Static guards (ui_guards, token_definitions, design_tokens_a11y, ui_ownership, ui_emitted_classes, ui_control_inventory, area_module_size, store_static, mechanism_testids, time_getters): 455 passed. `ruff check` and `ruff format --check`: clean. Unit tier (`THE_ONE_TEST_NETNS=1 make test-unit`, start `uptime` load 3.15): 11196 passed, 15 skipped, 343 s. Browser lanes one at a time (`THE_ONE_TEST_NETNS=1`, `THE_ONE_REQUIRE_WEBKIT=1`, start load about 3-4): `agents` 186 passed (471 s), `agent-tabs` 221 passed (464 s), `routing` 193 passed (505 s), `shared` 446 passed (536 s), `chats-transcript` 180 passed (459 s). No failures or flakes.
+
+### Batch B fix pass 1 (Legs 4-6 review): done (not committed)
+
+**Fixes.** A: each `agent-filled-note` has a unique `id` and is appended to its control's `aria-describedby` (General fields: the host's controls; Rich visuals: its switch; tab items: the item's own toggle), and only that id is removed whenever the notes are removed (`agent-editor-fill.js`). B: the receipt announcement now carries the field count and, for partly filled, the kept sentence (same wording as the body; one shared `keptText`). C: "Still being applied in another window." is announced through the status node once per Fill now press. D: the receipt is `div[role=group]` with its label (no region landmark), `aria-live="off"` dropped (no test pinned it; registry and agents.md updated). E: `kept` on a fill outcome is refused (422, no echo) when longer than the fill's changes or repeating a key.
+
+**Tests.** Browser (`test_flow_gleepglorp_fill.py`): `test_a_filled_control_is_described_by_its_note_and_loses_it_when_the_note_goes` (keeps an existing id), `test_a_filled_tab_item_toggle_is_described_by_its_note`, `test_a_filled_receipt_announces_its_field_count`, plus announce assertions added to the partly-filled test (B) and the "another window" test (C). Unit: two cases added to the parametrized 422 test in `tests/test_gleepglorp_fills_api.py` (E).
+
+**Falsifications.** A (no id appended): yes (both describedby tests failed). B (count and kept sentence removed): yes (both announce tests failed). C (notice announcement removed): yes (the another-window test failed). E (length/duplicate check removed): yes (duplicate case failed). D: no (a structural change, nothing pinned it).
+
+**Verification.** Static guards plus the fills API tests: 453 passed; ruff check and format: clean. `THE_ONE_TEST_NETNS=1 make test-unit` (start load about 2.7): 11198 passed, 15 skipped, 351 s. Browser lanes one at a time (`THE_ONE_TEST_NETNS=1`, `THE_ONE_REQUIRE_WEBKIT=1`, start load 2.71): `shared` 449 passed (542 s), `agents` 186 passed (488 s), `agent-tabs` 221 passed (491 s).
+
+### Batch B fix pass 2 (Legs 4-6 review): done (not committed)
+
+**Fix.** WCAG 4.1.3: `aria-busy` moved off the root of the fill receipt (`fill-receipts.js` `build()`, while `sent` or `applying`) and the proposal card (`proposal-cards.js` `build()`, while `applying`) onto each one's `.chat-proposal-body` wrapper, a sibling of the `role=status` node, so no ancestor of a status node is busy. The root's attribute is always removed. Docs updated: `docs/ui-testid-registry.md` (both rows) and `the_one/agents.md` (card states); no test pinned the old placement.
+
+**Tests.** `test_an_applying_card_marks_busy_on_the_body_never_above_the_status_node` (`test_flow_chat_proposals.py`; holds the approve route to stay `applying`, then releases it with a 409 busy) and `test_a_busy_receipt_marks_busy_on_the_body_never_above_the_status_node` (`test_flow_gleepglorp_fill.py`; `sent`, `applying`, then `filled`). Each asserts no ancestor of the status node has `aria-busy="true"`, the body has it while busy, and it goes when the state ends.
+
+**Falsifications.** Proposal card (marker moved back to the root): yes, failed on the ancestor assertion. Fill receipt: yes, failed (body lacked the marker). Both restored by edit.
+
+**Verification.** ruff check and format: clean. `THE_ONE_TEST_NETNS=1 make test-unit` (start load 0.61): 11198 passed, 15 skipped, 344 s. Static guards (ui_guards, token_definitions, design_tokens_a11y, ui_ownership, ui_emitted_classes, ui_control_inventory, area_module_size): 430 passed. Lanes one at a time (`THE_ONE_TEST_NETNS=1`, `THE_ONE_REQUIRE_WEBKIT=1`): `shared` 450 passed (511 s, start load 1.10), `chats-transcript` 181 passed (418 s, start load 1.97). No failures.
 
 ## Decisions
 

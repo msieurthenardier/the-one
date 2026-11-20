@@ -147,6 +147,13 @@ def _usage_to_dict(u: TokenUsage) -> dict[str, Any]:
     return d
 
 
+def _decode_page(raw: Any) -> dict | None:
+    """A stored page decodes only as a dict with a string ``line``; anything else is None."""
+    if isinstance(raw, dict) and isinstance(raw.get("line"), str):
+        return {"line": raw["line"]}
+    return None
+
+
 def _routine_sources(raw: Any) -> list[str] | None:
     if not isinstance(raw, list):
         return None
@@ -213,6 +220,9 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
         d["proposal_id"] = msg.proposal_id
     if msg.proposal_event is not None:
         d["proposal_event"] = msg.proposal_event
+    # M36 F3 L4: the page line, emitted only when set.
+    if msg.page is not None:
+        d["page"] = {"line": msg.page["line"]}
     # Fix: message-timestamp-on-replay. Emit created_at only when non-None.
     # Pre-fix rows had no created_at key; preserve that shape for back-compat
     # (mirrors the peer_name/channel_id/channel_name pattern above).
@@ -281,6 +291,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:
             if d.get("proposal_event") in ("approved", "approved_no_turn", "dismissed")
             else None
         ),
+        page=_decode_page(d.get("page")),
         # Fix: message-timestamp-on-replay. created_at — None on pre-fix
         # rows without the key.
         created_at=d.get("created_at"),
@@ -414,6 +425,8 @@ def messages_to_ui_events(
             routine_spread["routine_id"] = msg.routine_id
         if msg.routine_name is not None:
             routine_spread["routine_name"] = msg.routine_name
+        if msg.page is not None:
+            routine_spread["page"] = {"line": msg.page["line"]}
         if msg.role == Role.USER:
             # M16 F12 L08: project through content_to_text — msg.content may
             # be a list[ContentBlock] (image-bearing turn). Without this, a

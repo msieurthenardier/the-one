@@ -192,19 +192,21 @@
   // App.ui.noteFlag(opts) -> HTMLSpanElement (span.note-flag, role=img): the warning-triangle
   //   flag on an untrusted note or routine. opts.sources: the origins (an array of strings)
   //   named in the sentence, which is both the title and the accessible name. opts.subject:
-  //   'note' (default), 'routine' (M33 F2 L5) or 'proposal' (M36 F2 L6, "made" for "written");
-  //   any other value throws. The test id option
+  //   'note' (default), 'routine' (M33 F2 L5), 'proposal' (M36 F2 L6, "made" for "written") or
+  //   'fill' (M36 F3 L6, "Check this form fill: it was made ..."); any other value throws. The test id option
   //   is placed on the span (supplied by the caller).
   App.ui.noteFlag = function (opts) {
     opts = opts || {};
     var subject = opts.subject === undefined ? 'note' : opts.subject;
-    if (subject !== 'note' && subject !== 'routine' && subject !== 'proposal') {
-      throw new Error('App.ui.noteFlag: subject must be "note", "routine" or "proposal"');
+    if (subject !== 'note' && subject !== 'routine' && subject !== 'proposal' && subject !== 'fill') {
+      throw new Error('App.ui.noteFlag: subject must be "note", "routine", "proposal" or "fill"');
     }
     var list = (opts.sources || []).join(', ');
-    // A proposal is "made", a note or routine "written" (M36 F2 L6).
-    var verb = subject === 'proposal' ? 'made' : 'written';
-    var sentence = 'Check this ' + subject + ': it was ' + verb + ' after content that didn\'t come from you' +
+    // A proposal or a form fill is "made", a note or routine "written" (M36 F2 L6, F3 L6); the
+    // fill's noun is "form fill".
+    var verb = subject === 'proposal' || subject === 'fill' ? 'made' : 'written';
+    var noun = subject === 'fill' ? 'form fill' : subject;
+    var sentence = 'Check this ' + noun + ': it was ' + verb + ' after content that didn\'t come from you' +
       (list ? ' (' + list + ')' : '') + '. It may have been planted.';
     var flag = App.ui.util.el('span', {
       className: 'note-flag', role: 'img', title: sentence, 'aria-label': sentence

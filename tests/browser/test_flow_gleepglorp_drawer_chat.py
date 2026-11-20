@@ -20,164 +20,46 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from browser import _chats, _nav
+from browser import _chats, _drawer, _nav
 from browser._credential_registry import auth_headers_for
+from browser._drawer import (  # noqa: F401  (the constants are used by name below)
+    BTN,
+    DRAWER,
+    EMPTY,
+    INPUT,
+    NEW_CHAT,
+    OPEN_IN_CHATS,
+    SEND,
+    SETUP_ACTION,
+    STAY,
+    STORE,
+    SUGGESTION,
+)
 from browser.seeders import SeededApp, seed_gleepglorp_proposal, seed_mock_provider
 from browser.test_flow_chat_proposals import _world
 from playwright.sync_api import Page, expect
 
 pytestmark = pytest.mark.browser
 
-BTN = '[data-testid="gg-corner-button"]'
-DRAWER = "#gleepglorp-drawer"
-INPUT = '[data-testid="gg-chat-input"]'
-SEND = '[data-testid="gg-chat-send-btn"]'
-EMPTY = '[data-testid="gg-drawer-empty"]'
-SUGGESTION = '[data-testid="gg-drawer-suggestion"]'
-NEW_CHAT = '[data-testid="gg-drawer-new-chat"]'
-OPEN_IN_CHATS = '[data-testid="gg-drawer-open-in-chats"]'
-SETUP_ACTION = '[data-testid="gg-drawer-setup-action"]'
-STORE = "gleepglorp-drawer-session"
-STAY = '[data-testid="modal-cancel-btn"]'
-
-# Wrap WebSocket: record every socket (by construction order) with the frames it sent. With
-# window.__hold set at construction, the socket reads CONNECTING and its onopen is withheld until
-# window.__releaseSocks() (the "drawer opened before its socket" case).
-_RECORD = """
-(() => {
-  const Native = window.WebSocket;
-  const rs = Object.getOwnPropertyDescriptor(Native.prototype, 'readyState');
-  window.__socks = [];
-  window.__hold = false;
-  window.WebSocket = new Proxy(Native, {
-    construct(target, args) {
-      const s = new target(...args);
-      const rec = { ws: s, url: String(args[0]), sent: [], held: window.__hold, onopen: null,
-                    opened: false };
-      const send = s.send.bind(s);
-      s.send = (d) => {
-        try { rec.sent.push(JSON.parse(d)); } catch (e) { rec.sent.push(d); }
-        return send(d);
-      };
-      if (rec.held) {
-        Object.defineProperty(s, 'readyState', {
-          get() { return rec.held ? 0 : rs.get.call(s); }, configurable: true });
-        Object.defineProperty(s, 'onopen', {
-          set(fn) { rec.onopen = fn; }, get() { return rec.onopen; }, configurable: true });
-        s.addEventListener('open', () => { rec.opened = true; });
-      }
-      window.__socks.push(rec);
-      return s;
-    },
-  });
-  window.__releaseSocks = () => {
-    for (const r of window.__socks) {
-      if (r.held) { r.held = false; if (r.onopen) r.onopen.call(r.ws, new Event('open')); }
-    }
-  };
-})();
-"""
-
-_DRAWER_INDEX = (
-    "() => { const i = App.gleepglorpDrawerChat.instance();"
-    " return window.__socks.findIndex(r => r.ws === i.ws()); }"
-)
-
-
-def _put(base: str, **over) -> None:
-    body = {
-        "enabled": True,
-        "provider_config_id": None,
-        "model": None,
-        "web_access": True,
-        "memory": True,
-        "retention_days": 30,
-        **over,
-    }
-    r = httpx.put(f"{base}/api/gleepglorp", json=body, headers=auth_headers_for(base), timeout=5.0)
-    assert r.status_code == 200, r.text
-
-
-def _ready(app: SeededApp) -> None:
-    _put(app.base_url, provider_config_id=app.provider_id, model="mock-default")
-
-
-def _ready_with_reply(base: str, reply: str = "Hello from the mock", delay_ms: int = 0) -> None:
-    config: dict = {"response": {"content": reply}}
-    if delay_ms:
-        config["delay_ms"] = delay_ms
-    provider = seed_mock_provider(base, name="gg-mock", config=config)
-    _put(base, provider_config_id=provider, model="mock-default")
-
-
-def _boot(page: Page, base: str, route: str, *, connected: bool = True) -> None:
-    """Load *route* with the socket recorder installed; wait for the drawer's socket to open."""
-    page.add_init_script(_RECORD)
-    _nav.goto(page, base, route)
-    page.wait_for_function(
-        "() => App.gleepglorpDrawer && App.gleepglorpDrawer.state() !== null", timeout=8000
-    )
-    if connected:
-        _wait_socket(page)
-
-
-def _wait_socket(page: Page) -> None:
-    page.wait_for_function(
-        "() => { const i = App.gleepglorpDrawerChat.instance();"
-        " return !!(i && i.ws() && i.ws().readyState === 1); }",
-        timeout=8000,
-    )
-
-
-def _drawer_sent(page: Page) -> list[dict]:
-    return page.evaluate(
-        "() => { const i = App.gleepglorpDrawerChat.instance();"
-        " const r = window.__socks.find(x => x.ws === i.ws()); return r ? r.sent : []; }"
-    )
-
-
-def _actions(frames: list[dict]) -> list[str]:
-    return [f.get("action") for f in frames if isinstance(f, dict)]
-
-
-def _open_drawer(page: Page) -> None:
-    if page.locator(DRAWER).is_visible():
-        return
-    page.locator(BTN).click()
-    expect(page.locator(DRAWER)).to_be_visible()
-
-
-def _drawer_msgs(page: Page, role: str):
-    return page.locator(f'{DRAWER} [data-testid="message"].ui-message--{role}')
-
-
-def _send(page: Page, text: str) -> None:
-    box = page.locator(INPUT)
-    box.fill(text)
-    box.press("Enter")
-
-
-def _stored(page: Page) -> str | None:
-    return page.evaluate(f"() => localStorage.getItem('{STORE}')")
-
-
-def _drawer_session(page: Page) -> str | None:
-    return page.evaluate("() => App.gleepglorpDrawerChat.instance().currentSessionId()")
-
-
-def _wait_joined(page: Page) -> str:
-    page.wait_for_function(
-        "() => App.gleepglorpDrawerChat.instance().sessionState().name === 'joined'", timeout=10000
-    )
-    return _drawer_session(page)  # type: ignore[return-value]
-
-
-def _chat_with(page: Page, text: str, reply: str) -> str:
-    """Open the drawer, send *text*, wait for *reply* and the joined session; return its id."""
-    _open_drawer(page)
-    _send(page, text)
-    expect(_drawer_msgs(page, "assistant").last).to_contain_text(reply, timeout=15000)
-    return _wait_joined(page)
+# The shared drawer helpers live in tests/browser/_drawer.py (M36 F3 L6); the underscore names
+# below are kept so this file's tests read as before.
+_RECORD = _drawer.RECORD
+_DRAWER_INDEX = _drawer.DRAWER_INDEX
+_DELIVER = _drawer.DELIVER
+_put = _drawer.put_settings
+_ready = _drawer.ready
+_ready_with_reply = _drawer.ready_with_reply
+_boot = _drawer.boot
+_wait_socket = _drawer.wait_socket
+_drawer_sent = _drawer.drawer_sent
+_actions = _drawer.actions
+_open_drawer = _drawer.open_drawer
+_drawer_msgs = _drawer.drawer_msgs
+_send = _drawer.send
+_stored = _drawer.stored
+_drawer_session = _drawer.drawer_session
+_wait_joined = _drawer.wait_joined
+_chat_with = _drawer.chat_with
 
 
 # ── AC1: the drawer chat works ───────────────────────────────────────────────
@@ -538,14 +420,6 @@ _INSTRUMENT = """
 }
 """
 
-_DELIVER = """
-(frame) => {
-  window.__socks.forEach(r => {
-    if (r.ws.onmessage) r.ws.onmessage({ data: JSON.stringify(frame) });
-  });
-}
-"""
-
 
 def test_window_frames_run_once_with_both_sockets_open(
     app_with_agent: SeededApp, page: Page
@@ -720,3 +594,226 @@ def test_the_drawer_stores_one_bare_session_id_under_one_key(
     )
     assert keys == [STORE]
     assert _stored(page) == sid
+
+
+# ── M36 F3 L4: the page travels with each drawer message, and shows as a chip ─────────────
+
+CHIP = f'{DRAWER} [data-testid="message-context"]'
+MCP_NEW_LINE = "Library › MCP servers › New MCP server"
+MCP_NEW_PAGE = {"destination": "library", "section": "mcp", "create": True}
+
+# Drop the named frame types the page receives (a window that has not heard of a settings change).
+_DROP = """
+(() => {
+  const Native = window.WebSocket;
+  window.__drop = [];
+  const desc = Object.getOwnPropertyDescriptor(Native.prototype, 'onmessage');
+  Object.defineProperty(Native.prototype, 'onmessage', {
+    set(fn) {
+      desc.set.call(this, fn ? function (ev) {
+        try { if (window.__drop.includes(JSON.parse(ev.data).type)) return; } catch (e) {}
+        return fn.call(this, ev);
+      } : fn);
+    },
+    get() { return desc.get.call(this); },
+    configurable: true,
+  });
+})();
+"""
+
+
+def _frames(page: Page, action: str) -> list[dict]:
+    """The drawer's sent frames of an action; a plain `message` frame is `{message}` alone
+    (no `action` key), so "message" selects those."""
+    if action == "message":
+        return [f for f in _drawer_sent(page) if "message" in f and "action" not in f]
+    return [f for f in _drawer_sent(page) if f.get("action") == action]
+
+
+def _chip_precedes_its_bubble(page: Page, index: int = 0) -> bool:
+    return page.evaluate(
+        """(i) => { const c = document.querySelectorAll(
+            '#gleepglorp-drawer [data-testid="message-context"]')[i];
+          const n = c && c.nextElementSibling;
+          return !!n && n.matches('[data-testid="message"].ui-message--user'); }""",
+        index,
+    )
+
+
+def test_the_first_message_carries_the_page_and_its_bubble_gains_the_servers_line(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base = app_with_agent.base_url
+    _ready_with_reply(base, "Page reply")
+    _boot(page, base, "library/mcp/~new")
+    _open_drawer(page)
+    _send(page, "what is this?")
+    expect(page.locator(CHIP)).to_have_text(MCP_NEW_LINE, timeout=15000)
+    assert [f["page"] for f in _frames(page, "start_session")] == [MCP_NEW_PAGE]
+    assert _chip_precedes_its_bubble(page)
+    # The chip is not a bubble: the user-message count is unchanged by it.
+    expect(_drawer_msgs(page, "user")).to_have_count(1)
+    expect(_drawer_msgs(page, "assistant").last).to_contain_text("Page reply", timeout=15000)
+
+
+def test_a_later_message_carries_the_agent_tab_it_was_sent_from(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _ready_with_reply(base, "Tab reply")
+    _boot(page, base, "agents")
+    _chat_with(page, "first", "Tab reply")
+    _nav.set_route(page, f"agents/{_nav.seg(agent)}/tools")
+    expect(page.locator("#main-content .editor-title")).to_have_text(agent, timeout=8000)
+    _send(page, "second")
+    expect(_drawer_msgs(page, "assistant")).to_have_count(2, timeout=15000)
+    pages = [f["page"] for f in _frames(page, "message")]
+    assert pages == [{"destination": "agents", "item": agent, "item_name": agent, "tab": "tools"}]
+    assert [f["page"] for f in _frames(page, "start_session")] == [{"destination": "agents"}]
+    expect(page.locator(CHIP)).to_have_text(["Agents", f"Agents › {agent} › Tools"])
+
+
+def test_a_queued_message_carries_the_page_it_was_queued_on(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base = app_with_agent.base_url
+    _ready_with_reply(base, "Held reply", delay_ms=2500)
+    _boot(page, base, "library/mcp/~new")
+    _open_drawer(page)
+    _send(page, "one")
+    expect(page.locator(f'{DRAWER} [data-testid="turn-work"]')).to_be_visible(timeout=8000)
+    _send(page, "two")  # held: queued on page A (the new MCP server editor)
+    expect(page.locator(f'{DRAWER} [data-testid="gg-pending-queued"]')).to_have_count(1)
+    _nav.open_destination(page, "settings")  # page B, before the turn ends
+    _nav.expect_route(page, "settings/appearance", timeout=8000)
+    expect(_drawer_msgs(page, "assistant")).to_have_count(2, timeout=25000)
+    messages = _frames(page, "message")
+    assert [f["message"] for f in messages] == ["two"]
+    assert messages[0]["page"] == MCP_NEW_PAGE, "the page captured at queue time, not at send time"
+    expect(page.locator(CHIP)).to_have_text([MCP_NEW_LINE, MCP_NEW_LINE])
+
+
+def test_the_chip_survives_a_reload_and_shows_in_chats_and_a_chats_chat_has_none(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _ready_with_reply(base, "Chip reply")
+    _boot(page, base, "library/mcp/~new")
+    _open_drawer(page)
+    _send(page, "hello there")
+    expect(page.locator(CHIP)).to_have_text(MCP_NEW_LINE, timeout=15000)
+    sid = _wait_joined(page)
+    page.reload()
+    _wait_socket(page)
+    _open_drawer(page)
+    expect(page.locator(CHIP)).to_have_text(MCP_NEW_LINE, timeout=10000)
+    assert _chip_precedes_its_bubble(page)
+    # The conversation opened in Chats shows the same chip, with no hook.
+    page.locator(OPEN_IN_CHATS).click()
+    _nav.expect_route(page, f"chats/{sid}", timeout=8000)
+    page.wait_for_function(_chats_joined_js(sid), timeout=10000)
+    chip = page.locator('#main-content [data-testid="message-context"]')
+    expect(chip).to_have_text(MCP_NEW_LINE, timeout=8000)
+    expect(_chats.messages(page, "user")).to_have_count(1)
+    # A conversation started in Chats has none.
+    _chats.start_chat(page, agent)
+    _chats.send_first(page, "chats only")
+    expect(_chats.messages(page, "assistant").last).to_be_visible(timeout=10000)
+    expect(page.locator('#main-content [data-testid="message-context"]')).to_have_count(0)
+
+
+def test_a_refused_turn_leaves_no_chip_on_the_next_message(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base = app_with_agent.base_url
+    _ready_with_reply(base, "Fine reply")
+    page.add_init_script(_DROP)
+    _boot(page, base, "library/mcp/~new")
+    _open_drawer(page)
+    # [not ready, unheard]: the server turns GleepGlorp off; the window drops the push.
+    page.evaluate("() => { window.__drop = ['gleepglorp_changed', 'config_changed']; }")
+    _put(base, enabled=False)
+    _send(page, "refused")
+    expect(page.locator(EMPTY)).to_be_visible(timeout=8000)  # start_failed: pending again
+    expect(page.locator(CHIP)).to_have_count(0)
+    # [ready again]: the next message gets exactly one chip, on its own bubble.
+    provider = seed_mock_provider(base, name="gg-mock-2", config={"response": {"content": "Ok"}})
+    _put(base, provider_config_id=provider, model="mock-default")
+    _send(page, "accepted")
+    expect(page.locator(CHIP)).to_have_count(1, timeout=15000)
+    expect(page.locator(CHIP)).to_have_text(MCP_NEW_LINE)
+    expect(_drawer_msgs(page, "user")).to_have_count(1)
+    assert _chip_precedes_its_bubble(page)
+
+
+def test_a_malformed_page_is_refused_and_leaves_no_chip_on_the_next_message(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    base = app_with_agent.base_url
+    _ready_with_reply(base, "Fine reply")
+    _boot(page, base, "library/mcp/~new")
+    _open_drawer(page)
+    sid = _chat_with(page, "start", "Fine reply")
+    expect(page.locator(CHIP)).to_have_count(1)
+    # One send with a malformed page (a section over its cap, a shape fault).
+    page.evaluate(
+        "() => { window.__realParse = App.router.parse;"
+        " App.router.parse = () => ({ destination: 'library', section: 'x'.repeat(100) }); }"
+    )
+    _send(page, "bad page")
+    expect(page.locator(f'{DRAWER} [data-testid="message"].ui-message--system')).to_contain_text(
+        "Malformed page context.", timeout=8000
+    )
+    page.evaluate("() => { App.router.parse = window.__realParse; }")
+    expect(page.locator(CHIP)).to_have_count(1)
+    assert _drawer_session(page) == sid
+    _send(page, "good page")
+    expect(page.locator(CHIP)).to_have_count(2, timeout=15000)
+    assert _chip_precedes_its_bubble(page, 1)
+    # The refused bubble ("bad page") has no chip: the first chip belongs to "start".
+    assert page.evaluate(
+        """() => { const c = document.querySelectorAll(
+            '#gleepglorp-drawer [data-testid="message-context"]');
+          return c[1].nextElementSibling.textContent.indexOf('good page') !== -1; }"""
+    )
+
+
+def test_every_route_the_drawer_can_be_on_gives_a_descriptor_the_server_accepts(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    from the_one.gleepglorp.page import build_line, validate_descriptor
+
+    base, agent = app_with_agent.base_url, app_with_agent.agent_name
+    _ready(app_with_agent)
+    _boot(page, base, "agents")
+    tabs = ["general", "rules-and-notes", "knowledge", "tools", "routines", "self-configuration"]
+    routes = ["agents", "agents/~new", f"agents/{_nav.seg(agent)}"]
+    routes += [f"agents/{_nav.seg(agent)}/{t}" for t in tabs]
+    routes.append("library")
+    for group in ["providers", "knowledge", "mcp", "connectors", "secrets"]:
+        routes.append(f"library/{group}/~new")
+    routes.append(f"library/providers/{app_with_agent.provider_id}")
+    for section in [
+        "gleepglorp",
+        "appearance",
+        "date-and-time",
+        "prompts",
+        "encryption",
+        "tools",
+        "knowledge-indexing",
+    ]:
+        routes.append(f"settings/{section}")
+    routes.append("settings/tools/web_search")
+    for route in routes:
+        _nav.set_route(page, route)
+        page.wait_for_function(
+            "(r) => App.router.current() && App.router.current().route.indexOf(r) === 0",
+            arg=route.split("/")[0],
+            timeout=8000,
+        )
+        page.wait_for_timeout(150)
+        d = page.evaluate("() => App.gleepglorpDrawerChat.pageContext()")
+        assert d is not None, route
+        checked, error = validate_descriptor(d)
+        assert error is None, (route, d, error)
+        assert build_line(checked), route

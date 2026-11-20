@@ -55,4 +55,18 @@ async def snapshot_frame(
     except Exception:  # noqa: BLE001
         logger.warning("proposals_snapshot read failed", exc_info=True)
         return None
-    return {"type": PROPOSALS_SNAPSHOT, "session_id": session_id, "proposals": views}
+    # M36 F3 L5: the chat's form fills ride along under their own key, read in their own try so
+    # a fills failure never drops the proposals (and proposal-cards.js never sees a fill).
+    try:
+        from the_one.gleepglorp.fill.events import snapshot_fills
+
+        fills = await snapshot_fills(conn, session_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("fills snapshot read failed", exc_info=True)
+        fills = []
+    return {
+        "type": PROPOSALS_SNAPSHOT,
+        "session_id": session_id,
+        "proposals": views,
+        "fills": fills,
+    }

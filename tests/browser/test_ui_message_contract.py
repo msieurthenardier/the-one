@@ -384,6 +384,67 @@ def test_attribution_without_copy_has_no_button_and_a_live_node_is_optional(
     )
 
 
+def test_context_is_a_quiet_sibling_line_set_with_textcontent(engine_page: Page) -> None:
+    page = engine_page
+    _load(page)
+    # The hostile text is text, never markup: no element is created from it.
+    line = "Library › MCP servers › <b>New</b> [x]"
+    page.evaluate(
+        """(line) => {
+          const frame = document.getElementById('frame');
+          const c = App.ui.message.context({text: line, testid: 'message-context'});
+          frame.appendChild(c.el);
+          frame.appendChild(App.ui.message({role: 'user', text: 'Hi', testid: 'm-root'}).el);
+        }""",
+        line,
+    )
+    chip = page.get_by_test_id("message-context")
+    expect(chip).to_have_text(line)
+    assert (
+        page.evaluate(
+            "() => document.querySelector('[data-testid=\"message-context\"]').children.length"
+        )
+        == 0
+    )
+    assert (
+        page.evaluate("() => document.querySelector('[data-testid=\"message-context\"]').className")
+        == "ui-message-context"
+    )
+    # A sibling, not a bubble: not a .ui-message, and a bubble count does not see it.
+    assert page.locator(".ui-message").count() == 1
+    assert page.locator('[data-testid="m-root"]').count() == 1
+    assert (
+        page.evaluate("() => document.getElementById('frame').firstElementChild.className")
+        == "ui-message-context"
+    )
+    # Right-aligned like a user bubble (a flex-end item of the column).
+    assert (
+        page.evaluate(
+            "() => getComputedStyle(document.querySelector('.ui-message-context')).alignSelf"
+        )
+        == "flex-end"
+    )
+
+
+def test_context_validates_its_text(engine_page: Page) -> None:
+    page = engine_page
+    _load(page)
+    for bad in ("", None, 5):
+        err = page.evaluate(
+            "(bad) => { try { App.ui.message.context({text: bad}); return null; } catch (e) { return e.message; } }",
+            bad,
+        )
+        assert err and "text" in err
+    assert page.evaluate(
+        "() => { try { App.ui.message.context(); return null; } catch (e) { return e.message; } }"
+    )
+    # No testid given: none placed.
+    page.evaluate(
+        "() => document.getElementById('frame').appendChild(App.ui.message.context({text: 'x'}).el)"
+    )
+    assert page.locator(".ui-message-context[data-testid]").count() == 0
+
+
 def test_marker_chip_on_any_role_and_validation(engine_page: Page) -> None:
     page = engine_page
     _load(page)

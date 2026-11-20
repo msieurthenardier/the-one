@@ -61,6 +61,14 @@ EXEMPT = {
         "POST",
         "/api/gleepglorp/proposals/{proposal_id}/dismiss",
     ): "dismisses a proposal by id; writes no configuration",
+    (
+        "POST",
+        "/api/gleepglorp/fills/{fill_id}/claim",
+    ): "claims a fill by id; changes only the fill's own status, no name",
+    (
+        "POST",
+        "/api/gleepglorp/fills/{fill_id}/outcome",
+    ): "reports a coded outcome for a fill by id; no name, no configuration",
     ("PUT", "/api/agents/{name}"): "the name is forced from the path of an existing row",
     (
         "PUT",

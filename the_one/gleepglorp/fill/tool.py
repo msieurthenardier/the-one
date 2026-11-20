@@ -1,0 +1,142 @@
+"""``fill_form``: GleepGlorp's fill tool (Mission 36 F3 L5, DD6).
+
+It records a fill in ``gleepglorp_fills`` and sends it to the operator's screen, where the
+drawer that sent the turn writes the values into the agent editor as *unsaved edits*. It
+changes nothing in the app's configuration. It works only in a turn sent from the drawer (the
+turn carries a page); anywhere else GleepGlorp proposes instead. The result is shipped text,
+so the tool is in ``TRUSTED_TOOL_NAMES``; the fill carries the same taint flag a proposal does.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from the_one.agent._context import current_chat_session_id, current_tool_call_id, current_turn
+from the_one.agent.taint import compute_taint
+from the_one.gleepglorp.fill.events import push_fill_changed, push_fill_requested
+from the_one.gleepglorp.fill.store import GleepGlorpFillRepository, NewFill, fill_view
+from the_one.gleepglorp.proposals import guard, shape
+from the_one.tools.base import Tool
+
+logger = logging.getLogger(__name__)
+
+FILL_FORM_TOOL_NAME = "fill_form"
+
+NEEDS_CHAT = "Filling needs a chat."
+NEEDS_PAGE = (
+    "Filling works only when the operator asks from the drawer on an app page. "
+    "Propose the change with propose_change instead."
+)
+NO_NOTES = "notes_enabled can't be filled: notes save at once and are not a form field."
+FAILED = "Could not fill the form right now."
+
+
+class FillFormTool(Tool):
+    """Fill the operator's agent editor with unsaved values."""
+
+    name = FILL_FORM_TOOL_NAME
+    summary = "Fills the open agent editor with unsaved values; saves nothing itself."
+    description = (
+        "Fill the agent editor on the operator's screen with unsaved edits; they click Save. "
+        "Only when asked from the drawer; otherwise use propose_change. "
+        "action create: changes holds name and the fields. action change: agent names the "
+        "agent. Fields as propose_change for an agent, except notes_enabled."
+    )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "kind": {"type": "string", "enum": ["agent"]},
+            "action": {"type": "string", "enum": list(shape.ACTIONS)},
+            "agent": {"type": ["string", "null"]},
+            "changes": {"type": "object"},
+        },
+        "required": ["kind", "action", "changes"],
+    }
+
+    def __init__(self, agent_name: str | None = None) -> None:
+        super().__init__(agent_name=agent_name)
+        self._agent: Any = None
+
+    def bind_agent(self, agent: Any) -> None:
+        """Bind the owning Agent (the factory does, after construction). Unbound fails closed:
+        every fill is flagged "unknown position"."""
+        self._agent = agent
+
+    async def execute(  # type: ignore[override]
+        self,
+        kind: Any = None,
+        action: Any = None,
+        agent: Any = None,
+        changes: Any = None,
+        **_extra: Any,
+    ) -> str:
+        turn = current_turn.get()
+        session_id = (turn.session_id if turn else None) or current_chat_session_id.get()
+        if not session_id:
+            return NEEDS_CHAT
+        if turn is None or turn.page is None:
+            return NEEDS_PAGE
+        try:
+            return await self._fill(session_id, turn, kind, action, agent, changes)
+        except shape.ShapeError as e:
+            return str(e)
+        except Exception:  # noqa: BLE001 - the tool never raises into the loop
+            logger.warning("fill_form failed", exc_info=True)
+            return FAILED
+
+    async def _fill(
+        self, session_id: str, turn: Any, kind: Any, action: Any, agent: Any, changes: Any
+    ) -> str:
+        from the_one import time_zones
+        from the_one.config import settings
+        from the_one.db.connection import get_connection
+        from the_one.encryption import get_encryptor
+
+        if kind != "agent":
+            raise shape.ShapeError("Only kind agent can be filled.")
+        if isinstance(changes, dict) and "notes_enabled" in changes:
+            return NO_NOTES
+        conn = await get_connection()
+        eff = await time_zones.load_effective_zone(conn)
+        enc = get_encryptor(settings.data_dir)
+        norm = await shape.normalize(
+            kind,
+            action,
+            {"agent": agent},
+            changes,
+            conn=conn,
+            now=time_zones.utcnow(),
+            zone=eff.tzinfo,
+            enc=enc,
+        )
+        refusal = await guard.check(conn, enc, norm.changes)
+        if refusal is not None:
+            return refusal
+        untrusted, sources = compute_taint(self._agent, current_tool_call_id.get(), turn)
+        repo = GleepGlorpFillRepository(conn)
+        fill_id, replaced = await repo.insert(
+            NewFill(
+                session_id=session_id,
+                kind=norm.kind,
+                action=norm.action,
+                agent_name=norm.agent_name,
+                target_key=norm.target_key,
+                changes=norm.changes,
+                base=norm.base,
+                tool_call_id=current_tool_call_id.get(),
+                untrusted=untrusted,
+                untrusted_sources=sources,
+            )
+        )
+        for old_id in replaced:
+            old = await repo.get(old_id)
+            if old is not None:
+                await push_fill_changed(session_id, await fill_view(conn, old))
+        stored = await repo.get(fill_id)
+        if stored is not None:
+            await push_fill_requested(session_id, await fill_view(conn, stored))
+        return (
+            f"Fill {fill_id} is on the operator's screen as unsaved edits in the agent editor. "
+            "Nothing is saved until they click Save."
+        )
