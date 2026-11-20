@@ -1932,6 +1932,33 @@
     border-top: 1px solid var(--border);
   }
 
+  /* === App.ui.cornerButton (M36 F3 L2) ===
+     A 48px --accent-fill tile with a white icon, anchored 24px from the bottom-right of the
+     nearest positioned ancestor (the app shell row). z-index 9: under the overlay drawer (10),
+     menus and modals (20-50). Hover darkens the fill; the focus ring is the house ring. The
+     [hidden] attribute wins through base.css's global reset. */
+  .ui-corner-button {
+    position: absolute;
+    right: 24px;
+    bottom: 24px;
+    z-index: 9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    border: 0;
+    border-radius: 12px;
+    background: var(--accent-fill);
+    color: var(--fg-on-accent-fill);
+    box-shadow: var(--shadow-popover);
+    cursor: pointer;
+  }
+  .ui-corner-button:hover { background: var(--accent-fill-hover); }
+  .ui-corner-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .ui-corner-button svg { width: 24px; height: 24px; flex: none; }
+
 
   /* === App.ui.icon (M31 F1 L2, DD6) ===
      The icon table in icons.js stays as data; the control returns an
@@ -2840,15 +2867,15 @@
 
   /* === Chat controls (M31 F6 L04): notice, thinking, trace, telemetry, message, composer ===
      Each rule reproduces the matching chat.css rule under a ui-* name, without the
-     .area-chat ancestor. The old rules stay live until legs 05a-05c move the consumers.
-     Cascade notes for those legs (the old look leaned on .area-chat specificity):
+     .chat-instance ancestor. The old rules stay live until legs 05a-05c move the consumers.
+     Cascade notes for those legs (the old look leaned on .chat-instance specificity):
        - .msg.user.msg-from-peer beat .msg.user by source order; here the peer and api looks
          are compound selectors (.ui-message--user.ui-message--peer), so order does not matter.
        - the tool-row override inside the work group (.ui-turn-work-tool .ui-message--tool,
          0,2,0) ties .ui-message.ui-message--operator-only (0,2,0) and is declared AFTER it
          to win.
        - the markdown descendant rules are scoped under .ui-message--assistant only.
-       - no @layer areas rule targets an element inside .area-chat, so none beats these. */
+       - no @layer areas rule targets an element inside .chat-instance, so none beats these. */
 
   /* --- Notice --- */
   .ui-notice {

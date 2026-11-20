@@ -352,6 +352,31 @@ caught — but it cannot see where the attribute is emitted.
 | `knowledge-reconcile-interval-echo` | admin | Knowledge settings panel — the interval echoed in words beside the field, empty when invalid (A22, M31 F4 L10) |
 | `knowledge-settings-chunking-section` | admin | Knowledge settings panel — Chunking section container (M24 F06 L04) |
 | `knowledge-settings-embedding-section` | admin | Knowledge settings panel — Embedding (read-only) section container (M24 F06 L04) |
+| `gg-corner-button` | shell | The GleepGlorp corner button "Ask GleepGlorp" (`App.ui.cornerButton`, `id="gleepglorp-corner-button"`), last child of `.app-shell-row`; `aria-expanded`/`aria-controls="gleepglorp-drawer"`; hidden on Chats, while GleepGlorp is off and until its state is known (M36 F3 L2) |
+| `gg-drawer` | shell | The GleepGlorp drawer `<aside id="gleepglorp-drawer" aria-label="GleepGlorp">` after `#chat-drawer` (also set by `App.ui.drawer`'s test id option in `gleepglorp-drawer/shell.js`): 360px, push at 1280px and wider, overlay below; closed by default (M36 F3 L2) |
+| `gg-drawer-actions` | shell | The header slot holding New chat and Open in Chats, before Close (M36 F3 L2, L3) |
+| `gg-drawer-body` | shell | The body slot the drawer chat mounts into (`App.gleepglorpDrawer.bodySlot()`; carries `.chat-instance`; M36 F3 L3) |
+| `gg-drawer-close` | shell | The header's labelled Close button (`aria-keyshortcuts="Escape"`) |
+| `gg-drawer-context` | shell | The "Looking at" line under the header: the current page from `App.router.onRouteChange` parts, joined by " › " |
+| `gg-drawer-setup` | shell | The setup block shown while GleepGlorp needs a model or lost its provider: the chat banner's sentence and the link below |
+| `gg-drawer-setup-action` | shell | The setup block's primary "Choose a model" link to `#settings/gleepglorp` |
+| `gg-drawer-title` | shell | The drawer's `h2` "GleepGlorp" (`tabindex="-1"`): the open focus fallback (the setup link while the setup block shows, else the composer, else this; M36 F3 L3) |
+| `gg-drawer-new-chat` | shell | The header's icon-only "New chat" button: a fresh pending GleepGlorp chat, the stored id cleared, focus to the composer (M36 F3 L3) |
+| `gg-drawer-open-in-chats` | shell | The header's icon-only "Open in Chats" button, shown only while a conversation is joined: a guarded go to `#chats/{id}` (M36 F3 L3) |
+| `gg-drawer-empty` | shell | The drawer chat's empty state (a pending chat): the lead, the quiet "Nothing is saved until you click." line and the suggestion (M36 F3 L3) |
+| `gg-drawer-suggestion` | shell | The empty state's "What does this page do?" button; sends that text, disabled while the composer is blocked (M36 F3 L3) |
+| `gg-new-state` | shell | The drawer chat pane's new-chat state container (holds the empty state; `chat-pane.js` drawer mode, M36 F3 L3) |
+| `gg-chat-input` | shell | The drawer chat's message box (`App.ui.composer`, the `chat-input` of the drawer profile; M36 F3 L3) |
+| `gg-chat-attach-btn` | shell | The drawer composer's Attach images button (M36 F3 L3) |
+| `gg-chat-image-input` | shell | The drawer composer's hidden image file input (M36 F3 L3) |
+| `gg-chat-model` | shell | The drawer composer's model id (M36 F3 L3) |
+| `gg-chat-stop-btn` | shell | The drawer composer's Stop button (M36 F3 L3) |
+| `gg-chat-send-btn` | shell | The drawer composer's Send button (M36 F3 L3) |
+| `gg-chat-attachments` | shell | The drawer composer's staged-image row (M36 F3 L3) |
+| `gg-chat-attachments-status` | shell | The drawer composer's staged-image live status (M36 F3 L3) |
+| `gg-pending-queued-region` | shell | The drawer composer's queued-message region (M36 F3 L3) |
+| `gg-chat-telemetry` | shell | The drawer chat's telemetry readout, shown only while joined (M36 F3 L3) |
+| `gg-chat-copy-status` | shell | The drawer chat's visually hidden "Copy reply" status node (M36 F3 L3) |
 | `gleepglorp-behavior-section` | admin | GleepGlorp page — the Behavior `App.ui.section` (the three switches and "Keep chats for"; M36 F1 L03) |
 | `gleepglorp-cancel-btn` | admin | GleepGlorp page — Cancel in the page header; patches the fields back to the baseline (M36 F1 L03) |
 | `gleepglorp-enabled` | admin | GleepGlorp page — the "GleepGlorp" switch (on the native input; M36 F1 L03) |

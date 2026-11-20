@@ -64,6 +64,7 @@
         statusEl = document.createElement('span');
         statusEl.className = 'visually-hidden';
         statusEl.setAttribute('data-testid', 'pending-queued-status');
+        ctx.prefixTestids(statusEl);
         pendingQueuedRegionEl.appendChild(statusEl);
       }
       statusEl.textContent = n === 0 ? '' : (n === 1 ? '1 message queued' : n + ' messages queued');
@@ -111,6 +112,7 @@
         dataset: { index: String(index) }
       });
       chip.setAttribute('aria-live', 'off');
+      ctx.prefixTestids(chip);
       return chip;
     }
 
@@ -131,7 +133,7 @@
       refresh();
       if (!hadFocus) return;
       var target = chipEls[index] || chipEls[index - 1];
-      var btn = target && target.querySelector('[data-testid="pending-queued-cancel"]');
+      var btn = target && target.querySelector('[data-testid$="pending-queued-cancel"]');
       if (btn) btn.focus();
       else if (ctx.composer.input) ctx.composer.input.focus();
     }
@@ -157,6 +159,7 @@
       fullEl.className = 'pending-queued-full';
       fullEl.setAttribute('role', 'status');
       fullEl.setAttribute('data-testid', 'pending-queued-full');
+      ctx.prefixTestids(fullEl);
       host.insertBefore(fullEl, ctx.composer.el.nextSibling);
       // A status node inserted with its text may stay silent: insert empty, write next tick.
       var node = fullEl;
@@ -176,6 +179,7 @@
       discardAll: discardAll,
       refresh: refresh,
       showFull: showFull,
+      destroy: hideFull,
       showPendingQueued: showPendingQueued,
       clearPendingQueued: clearPendingQueued,
       cancelPendingQueued: cancelPendingQueued

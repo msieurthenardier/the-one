@@ -396,3 +396,47 @@ def test_without_reserve_header_end_the_overlay_header_keeps_its_padding(engine_
     assert p.evaluate(
         "() => [getComputedStyle(window.__d.el.querySelector('.ui-drawer-header')).paddingRight, window.__d.el.className]"
     ) == ["16px", "ui-drawer ui-drawer--overlay"]
+
+
+# ── beforeClose (M36 F3 L2): runs before focus returns, never on a no-op close ──
+
+
+def test_before_close_lets_a_hidden_opener_be_shown_in_time_to_take_focus(
+    engine_page: Page,
+) -> None:
+    p = engine_page
+    _mount(
+        p,
+        "{beforeClose: () => { window.__opener.hidden = false; window.__calls.push('before'); }}",
+    )
+    p.evaluate("() => { window.__calls = []; }")
+    # The opener is hidden while the drawer is open (as the GleepGlorp corner button is).
+    p.evaluate("() => { window.__d.open(window.__opener); window.__opener.hidden = true; }")
+    p.evaluate("() => window.__d.el.querySelector('[data-testid=d-footer-btn]').focus()")
+    p.keyboard.press("Escape")
+    expect(p.get_by_test_id("d-root")).to_be_hidden()
+    assert _active(p) == "d-opener"
+    assert p.evaluate("() => window.__calls") == ["before"]
+
+
+def test_before_close_runs_for_close_and_toggle_but_not_when_already_hidden(
+    engine_page: Page,
+) -> None:
+    p = engine_page
+    _mount(p, "{beforeClose: () => { window.__calls.push('before'); }}")
+    p.evaluate("() => { window.__calls = []; }")
+    p.evaluate("() => window.__d.close()")  # hidden already: a no-op
+    assert p.evaluate("() => window.__calls") == []
+    p.evaluate(
+        "() => { window.__d.open(); window.__d.close(); window.__d.open(); window.__d.toggle(); }"
+    )
+    assert p.evaluate("() => window.__calls") == ["before", "before"]
+    assert p.evaluate("() => window.__changes") == [True, False, True, False]
+
+
+def test_a_throwing_before_close_never_keeps_the_drawer_open(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p, "{beforeClose: () => { throw new Error('nope'); }}")
+    p.evaluate("() => { window.__d.open(); window.__d.close(); }")
+    expect(p.get_by_test_id("d-root")).to_be_hidden()
+    assert p.evaluate("() => window.__changes") == [True, False]

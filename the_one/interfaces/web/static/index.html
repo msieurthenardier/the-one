@@ -18,6 +18,7 @@
 <link rel="stylesheet" href="/static/css/chat.css">
 <link rel="stylesheet" href="/static/css/studio.css">
 <link rel="stylesheet" href="/static/css/admin.css">
+<link rel="stylesheet" href="/static/css/gleepglorp-drawer.css">
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -27,6 +28,7 @@
   <aside id="app-sidebar" aria-label="Sidebar"></aside>
   <main id="main-content" tabindex="-1"></main>
   <aside id="chat-drawer" aria-label="This chat's agent" data-testid="chat-drawer" hidden></aside>
+  <aside id="gleepglorp-drawer" aria-label="GleepGlorp" data-testid="gg-drawer" hidden></aside>
 </div>
 
 <script src="/static/js/perf.js"></script>
@@ -62,6 +64,7 @@
 <script src="/static/js/ui/page.js"></script>
 <script src="/static/js/ui/editor.js"></script>
 <script src="/static/js/ui/drawer.js"></script>
+<script src="/static/js/ui/corner-button.js"></script>
 <script src="/static/js/ui/notice.js"></script>
 <script src="/static/js/ui/change-table.js"></script>
 <script src="/static/js/ui/thinking.js"></script>
@@ -85,6 +88,7 @@
 <script src="/static/js/gleepglorp.js"></script>
 <script src="/static/js/tool-categories.js"></script>
 <script src="/static/js/jump-to.js"></script>
+<script src="/static/js/gleepglorp-drawer/shell.js"></script>
 <script src="/static/js/areas/shared/tool-config-fields.js"></script>
 <script src="/static/js/areas/shared/tool-override-state.js"></script>
 <script src="/static/js/areas/chat/agent-kind.js"></script>
@@ -105,8 +109,12 @@
 <script src="/static/js/areas/chat/sign-in.js"></script>
 <script src="/static/js/areas/chat/turn-frames.js"></script>
 <script src="/static/js/areas/chat/session-flow.js"></script>
+<script src="/static/js/areas/chat/window-frames.js"></script>
 <script src="/static/js/areas/chat/socket.js"></script>
+<script src="/static/js/areas/chat/instance-render.js"></script>
+<script src="/static/js/areas/chat/instance.js"></script>
 <script src="/static/js/areas/chat.js"></script>
+<script src="/static/js/gleepglorp-drawer/chat.js"></script>
 <script src="/static/js/areas/studio/studio-event-bus.js"></script>
 <script src="/static/js/areas/studio/knowledge-shared.js"></script>
 <script src="/static/js/areas/studio/knowledge-create.js"></script>

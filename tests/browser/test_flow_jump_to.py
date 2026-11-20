@@ -963,6 +963,10 @@ def test_gleepglorp_is_a_built_in_candidate_first_among_the_agents(
     _boot(page, base, "agents", gleepglorp=True)
     _open_with_keys(page)
     expect(page.locator(f'{RESULT}[data-kind="gleepglorp"]')).to_be_visible()
+    # M36 F3 L2: the drawer shell loads GleepGlorp's settings at boot, so that candidate shows
+    # before the palette's own store loads land; wait for the agent and chat rows too.
+    expect(page.locator(f'{RESULT}[data-kind="agent"]')).to_be_visible()
+    expect(page.locator(f'{RESULT}[data-kind="chat"]')).to_be_visible()
     kinds = page.evaluate("() => App.jumpTo.candidates().map((c) => [c.kind, c.label, c.where])")
     order = [k for k in kinds if k[0] in ("gleepglorp", "agent", "chat")]
     assert order == [

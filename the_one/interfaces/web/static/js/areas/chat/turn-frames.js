@@ -121,9 +121,9 @@
       }
       else if (data.type === 'proposal_changed') ctx.proposalCards.onChanged(data);
       else if (data.type === 'proposals_snapshot') ctx.proposalCards.onSnapshot(data);
-      else if (data.type === 'auth_required') ctx.signIn.onAuthRequired(data);
-      else if (data.type === 'auth_resolved') ctx.signIn.onAuthResolved(data);
-      else if (data.type === 'auth_failed') ctx.signIn.onAuthFailed(data);
+      else if (data.type === 'auth_required') { if (ctx.signIn) ctx.signIn.onAuthRequired(data); }
+      else if (data.type === 'auth_resolved') { if (ctx.signIn) ctx.signIn.onAuthResolved(data); }
+      else if (data.type === 'auth_failed') { if (ctx.signIn) ctx.signIn.onAuthFailed(data); }
       else if (data.type === 'step_limit') {
         // DD8 F2: arrives immediately before `done`. The work group folds and reads "Paused at
         // the step limit"; the `done` that follows promotes nothing. A muted line follows.

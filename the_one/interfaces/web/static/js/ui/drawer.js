@@ -29,6 +29,10 @@
   //   testid     placed on the <aside>
   //   onOpenChange(open)  after every change of the open state, however it
   //              was made (open, close, toggle, Escape)
+  //   beforeClose()  M36 F3 L2: called at the start of every close that will happen (close(),
+  //              toggle, Escape), BEFORE focus returns to the opener and never when the drawer
+  //              is already hidden; an exception is swallowed. It lets a caller show an opener
+  //              it hid while the drawer was open.
   //
   // Behaviour:
   //   - Built closed (`hidden`) in push mode. open() never moves focus (a
@@ -102,6 +106,15 @@
 
     function close() {
       if (root.hidden) return;
+      // beforeClose runs first, before focus is returned, so a caller can show the opener
+      // (hidden while the drawer was open) in time to take focus. Never on a no-op close.
+      if (typeof opts.beforeClose === 'function') {
+        try {
+          opts.beforeClose();
+        } catch (e) {
+          /* a caller's hook must never keep the drawer open */
+        }
+      }
       var active = document.activeElement;
       // contains() is true for the <aside> itself too.
       if (active && root.contains(active)) {

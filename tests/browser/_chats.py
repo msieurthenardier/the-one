@@ -88,7 +88,11 @@ _PICKER = '[data-testid="agent-picker"]'
 _PICKER_SEARCH = '[data-testid="agent-picker-search"]'
 _PICKER_ROW = '[data-testid="agent-picker-row"]'
 _INPUT = '[data-testid="chat-input"]'
-_USER_MSG = '[data-testid="message"].ui-message--user'
+# The Chats content panel (M36 F3 L3): the GleepGlorp drawer holds a second chat whose messages
+# carry the same per-message testids, so every page-wide message and turn locator here is scoped
+# to exclude the drawer (a suffix, so the selector still composes under a scoped locator).
+_NOT_DRAWER = ":not(#gleepglorp-drawer *)"
+_USER_MSG = '[data-testid="message"].ui-message--user' + _NOT_DRAWER
 
 # The chat area's current session id (null before the area is initialised).
 _SESSION_ID_JS = (
@@ -152,6 +156,7 @@ def message_sel(role: str, *modifiers: str) -> str:
         '[data-testid="message"].ui-message--'
         + role
         + "".join(".ui-message--" + m for m in modifiers)
+        + _NOT_DRAWER
     )
 
 
@@ -164,13 +169,13 @@ def turn_groups(page: Page) -> Locator:
     """Every turn work group in the log (``turn-work``, ``App.ui.turnWork``, sortie 16 L02).
     A turn has at most one; a plain reply has none. Tests name a group through these helpers,
     never through the control's classes."""
-    return page.locator('[data-testid="turn-work"]')
+    return page.locator('[data-testid="turn-work"]' + _NOT_DRAWER)
 
 
 def working_turns(page: Page) -> Locator:
     """The turn work groups still running (``data-state="working"``): the "in flight" signal
     that replaced the old "Thinking" line."""
-    return page.locator('[data-testid="turn-work"][data-state="working"]')
+    return page.locator('[data-testid="turn-work"][data-state="working"]' + _NOT_DRAWER)
 
 
 def turn_group(page: Page, nth: int = -1) -> Locator:

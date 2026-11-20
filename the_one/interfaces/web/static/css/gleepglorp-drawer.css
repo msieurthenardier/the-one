@@ -1,0 +1,141 @@
+/* The GleepGlorp assistant drawer shell (M36 F3 L2, flight DD1).
+   The corner button's own look is the App.ui.cornerButton control's (components.css); this file
+   holds the drawer's width, its header row, the "Looking at" line, the setup block and the
+   content padding that keeps the button off the last control. */
+@layer areas {
+  /* --drawer-w stays 320px for the Chats drawer; this drawer is 360px. The areas layer follows
+     components, so this id rule wins over .ui-drawer's width. */
+  #gleepglorp-drawer { width: 360px; }
+
+  /* The drawer's body is a column: the context line, the setup block, then the chat slot (Leg 3).
+     The slot scrolls, not the drawer body, so the header and context line stay put. */
+  #gleepglorp-drawer .ui-drawer-body {
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  #gleepglorp-drawer .gg-drawer-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #gleepglorp-drawer .gg-drawer-slot { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+  /* The chat instance (Leg 3) fills the slot as a column; its own message log scrolls and the
+     composer stays at the bottom (the slot carries .chat-instance for chat.css's rules). */
+  #gleepglorp-drawer .gg-drawer-slot.chat-instance {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* The empty state (a pending chat): the lead, the quiet line and the suggestion. */
+  #gleepglorp-drawer .gg-drawer-empty {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    text-align: center;
+  }
+  #gleepglorp-drawer .gg-drawer-empty-lead {
+    margin: 0;
+    font-size: var(--font-size-body-lg);
+    line-height: var(--line-height-normal);
+    color: var(--fg);
+  }
+  #gleepglorp-drawer .gg-drawer-empty-note {
+    margin: 0;
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+  }
+
+  /* Header: robot tile, title, the actions slot (Leg 3), then the labelled Close. */
+  #gleepglorp-drawer .gg-drawer-head {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  #gleepglorp-drawer .gg-drawer-tile {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-md);
+    background: var(--accent-fill);
+    color: var(--fg-on-accent-fill);
+  }
+  #gleepglorp-drawer .gg-drawer-tile svg { width: 16px; height: 16px; }
+  #gleepglorp-drawer .gg-drawer-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    margin: 0;
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* The title takes focus when the drawer opens (programmatic only, tabindex -1). */
+  #gleepglorp-drawer .gg-drawer-title:focus-visible,
+  #gleepglorp-drawer .gg-drawer-title:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  #gleepglorp-drawer .gg-drawer-actions { flex: none; display: flex; align-items: center; gap: var(--space-1); }
+  #gleepglorp-drawer .gg-drawer-actions:empty { display: none; }
+
+  /* The "Looking at" line under the header. */
+  #gleepglorp-drawer .gg-drawer-context {
+    flex: none;
+    margin: 0;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+    overflow-wrap: anywhere;
+  }
+  #gleepglorp-drawer .gg-drawer-context-label {
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg-tertiary);
+  }
+
+  /* The setup state: the sentence and one primary link to Settings. */
+  #gleepglorp-drawer .gg-drawer-setup {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: 16px;
+  }
+  #gleepglorp-drawer .gg-drawer-setup-text { margin: 0; color: var(--fg); font-size: var(--font-size-body-sm); }
+  #gleepglorp-drawer .gg-drawer-setup-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 0 12px;
+    border-radius: var(--radius-md);
+    background: var(--accent-fill);
+    color: var(--fg-on-accent-fill);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    text-decoration: none;
+  }
+  #gleepglorp-drawer .gg-drawer-setup-link:hover { background: var(--accent-fill-hover); }
+  #gleepglorp-drawer .gg-drawer-setup-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* While the corner button shows, the destinations' scroll containers keep 72px clear at the
+     bottom, so their last control scrolls out from under the 48px button (24px + 48px). */
+  .app-shell-row.gg-corner-on .area-studio .studio-editor,
+  .app-shell-row.gg-corner-on .area-studio .studio-section-content,
+  .app-shell-row.gg-corner-on .area-admin .admin-content { padding-bottom: 72px; }
+}
