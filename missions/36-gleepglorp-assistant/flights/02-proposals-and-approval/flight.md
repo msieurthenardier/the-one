@@ -1,6 +1,6 @@
 # Flight: Proposals and approval
 
-**Status**: landed
+**Status**: completed
 **Mission**: [GleepGlorp, the In-App Assistant](../../mission.md)
 
 ## Contributing to Criteria

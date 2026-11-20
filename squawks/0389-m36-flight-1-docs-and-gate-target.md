@@ -37,3 +37,14 @@ After Mission 36 Flight 1, three documents lag the code:
 **Reviewer**: Reviewer agent (Sonnet), batch review of squawks 0386-0390
 **Verdict**: confirmed (docs match the shipped code). The quiet-host re-measure of the full-gate total and lane budgets did not happen: the host was loaded (1.39). CLAUDE.md records it as owed, for the next quiet full gate.
 **Commit**: `squawk: turnaround 2026-11-19` on flight/01-gleepglorp-exists-and-answers (PR #380)
+
+**Note (2026-11-19, M36 F2 debrief):** the quiet re-measure is still owed. The
+Flight 2 debrief's fresh gate at `5f749e85`: unit 11031 passed, 15 skipped,
+343.52 s pytest time (374 s wall), start load 0.08; browser
+`PARALLEL_RESULT rc=0 total=2459s lanes=20 failed=-`, start load 1.46 (residual
+from the unit run, so not valid for budgets). Full gate about 47 minutes against
+the 43-minute target, and the unit tier has about 2% headroom on 350 s. Lanes over
+budget on that loaded run: `mcp` 391/330, `agent-routines` 345/300,
+`chats-transcript` 541/540. See
+`missions/36-gleepglorp-assistant/flights/02-proposals-and-approval/flight-debrief.md`
+"Test Metrics".
