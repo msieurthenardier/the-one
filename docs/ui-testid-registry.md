@@ -65,6 +65,7 @@ caught — but it cannot see where the attribute is emitted.
 | `agent-picker-row` | chat | One agent option in the picker (`role=option`, `data-agent`; the `searchList` `rowTestid`; an agent in both "Recently used" and "All agents" has two, M25 F4 L4a) |
 | `agent-picker-search` | chat | The agent picker's search input ("Find an agent"; the `searchList` `inputTestid`, focused on open, M25 F4 L4a) |
 | `agent-rich-visuals-toggle` | studio | Agent editor General tab, Behavior section — the native `input[role=switch]` of the "Rich visuals" `App.ui.toggle` (`data-field="rich_visuals"`; a form field saved by Save, collected as a boolean; M35 F1 L03) |
+| `agent-approved-change-note` | studio | Agent editor General tab — a quiet caption under each control that holds a value from an approved GleepGlorp proposal ("Changed by a change you approved in a GleepGlorp chat · {time} · Open chat"); `data-field` is the stored field (`description`, `llm_model` for the provider and model pair, `system_prompt`, `max_iterations`, `chat_history_retention_days`, `rich_visuals`). Drawn from `App.approvals` at every mount, patch and live apply; cleared by Save and Cancel (M36 F2 L7). L8: also on the Tools, MCP and Knowledge tabs under a changed item (`data-field` is `tools`, `mcp_source_ids` or `kb_ids`, `data-item` the tool name, MCP source id or KB id) and at the top of the Rules and Routines lists (`data-field` `rules` / `routines`, no `data-item`) |
 | `agent-stored-value-changed` | studio | Agent editor General tab — a `App.ui.status` note (hidden unless set) shown when a self-configuration approval or restore changed the stored description or system prompt while the operator had typed over that field: "The stored description changed. Save will replace it with your text." (or "system prompt"). Cleared by Save, Cancel and a new editor identity, and hidden once the field is clean again (M31 F2 L10a) |
 | `agent-select-empty` | studio | Agents start page node WITH agents (the description plus "Pick an agent from the list to edit it."; M25 F3 L3, copy changed in M25 F6 L4c) |
 | `agents-filter` | studio | Agents list filter input ("Filter agents"; matches name, model id and provider type slug) (M25 F3 L3) |
@@ -141,6 +142,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-agent-line` | chat | The chat header's "with {agent}" line (12px, `--fg-muted`; "Default agent" for a null agent; blank while a cold `#chats/~new/{agent}` validates the agent) (M25 F4 L4b) |
 | `chat-agent-error` | chat | An agent error in the log (M31 F6 L05c, A4): an `App.ui.notice` danger line, "The agent couldn't finish this reply.", for a `system` frame whose content starts "Agent error: "; holds `chat-agent-error-details` |
 | `chat-agent-error-details` | chat | The agent error's collapsed "Technical details" (`App.ui.disclosure`, plain variant); its body is the raw text after the "Agent error: " prefix (M31 F6 L05c) |
+| `chat-approval-line` | chat | The muted line for an approved proposal in place of the marked user message (M36 F2 L6, DD8, board option B): "You approved this change. GleepGlorp is continuing." (`approved`) or "You approved this change." (`approved_no_turn`), an `App.ui.notice`, drawn live and on replay; a dismissal draws nothing; it is a boundary for card placement |
 | `chat-attach-btn` | chat | The composer's Attach images (`btn-ghost btn-sm btn-icon`, the paperclip icon, `aria-label="Attach images"`); opens the hidden `chat-image-input` (M25 F4 L5; a plus-icon `btn-outlined-primary` "Attach image" before) |
 | `chat-attachment` | chat | one per staged-image chicklet (chat-attachments row) |
 | `chat-attachment-remove` | chat | one per chicklet — removes just that image |
@@ -192,6 +194,23 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-stopped` | chat | The muted "Stopped." line after a `cancelled` frame; never stored, so a re-join shows none (M31 F6 L05c, B9) |
 | `chat-step-limit` | chat | The muted step-limit line after a `step_limit` frame; never stored, so a re-join shows none (M31 F6 L06, DD8) |
 | `chat-step-limit-link` | chat | Its "max iterations" link to `#agents/{name}`; absent for the default or a deleted agent (M31 F6 L06) |
+| `proposal-card` | chat | The GleepGlorp proposal card, a `<section>` with `data-proposal-id`, `data-state` (`pending`, `applying`, `applied`, `dismissed`, `failed`, `stale`, `withdrawn`) and `aria-label` "Proposed change: {title}"; `aria-busy` while applying. Placed after the turn that made it (M36 F2 L6, DD6). Part of the behavior tests' contract (DD14): a change here re-authors `tests/behavior/gleepglorp-proposal-*.md` |
+| `proposal-title` | chat | The card's title `h3` ("Create agent “X”", "Change rule N of “X”", ...) |
+| `proposal-table` | chat | The card's `App.ui.changeTable` (the fields; two columns for a change; or the stale panel's Current and Proposed); a long value's Show all button is `proposal-table-more` (one column) or `proposal-table-more-now` / `proposal-table-more-proposed` (two columns, `data-column`, named "Show all {label} (now|proposed)") |
+| `proposal-announce` | chat | The card's one polite `role=status` node (visually hidden), which speaks "GleepGlorp proposed a change: {title}." on a live arrival and then each resolved state once; the card root is `aria-live="off"` |
+| `proposal-approve` | chat | Approve (primary); `aria-disabled="true"` (focusable, never the native attribute) while a turn runs or the request is out ("Approving…") |
+| `proposal-dismiss` | chat | Dismiss (secondary) |
+| `proposal-approve-anyway` | chat | Approve anyway (primary), shown in the stale state; approves with `?override=true` |
+| `proposal-try-again` | chat | Try again (primary), shown in the failed state; approves again |
+| `proposal-error` | chat | The failed state's `App.ui.status` (danger, `role=alert`, no LED): "Couldn't apply this change." then each error with its field label |
+| `proposal-notice` | chat | A neutral status line in an open card: "GleepGlorp is still working. Try again when it finishes." (a 409 busy) or "Couldn't reach the app. Try again." (holds `proposal-notice-details`, the raw message) |
+| `proposal-notice-details` | chat | The "Technical details" disclosure under an unreachable-app notice |
+| `proposal-stale` | chat | The stale state's warning `App.ui.banner` (`role=alert`): "{Fields} changed after GleepGlorp proposed this. Approving anyway replaces the current value below." |
+| `proposal-flag` | chat | The "Check this proposal" `App.ui.noteFlag` (warning triangle) on a proposal made after untrusted content |
+| `proposal-source-hint` | chat | "Proposed after GleepGlorp read content not from you: {sources}. Read every field before you approve." under the head, with `proposal-flag` |
+| `proposal-details` | chat | The folded (applied or dismissed) card's "Details" `App.ui.disclosure` (plain), holding the table |
+| `proposal-open-agent` | chat | The applied line's "Open agent" link to `#agents/{name}` (`/rules-and-notes` or `/routines` for a rule or routine) |
+| `proposal-status-line` | chat | The folded line of an applied, dismissed or withdrawn card |
 | `chat-step-limit-continue` | chat | The step-limit notice's Continue button: sends `continue` through `send.sendText`; only the latest notice carries one, a new user message or log wipe removes it (M31 F6 L10d) |
 | `chat-telemetry` | chat | The context-usage readout (`App.ui.telemetry`) in the composer's telemetry row; `role=status`, `tabindex=0`, shown only while a chat is joined; the chat area's `_telemetry()` is its handle (M31 F6 L05c) |
 | `chat-send-btn` | chat | The composer's Send (`btn-filled-primary`, the send icon and label, `aria-keyshortcuts="Enter"`), at the toolbar's end |
@@ -561,6 +580,7 @@ caught — but it cannot see where the attribute is emitted.
 | `rules-row-down` | studio | rule Move down; disabled on the last row (M27 F1 L2) |
 | `rules-row-edit` | studio | rule Edit (opens the inline textarea); `data-rule-id` (M27 F1 L2) |
 | `rules-row-edit-input` | studio | the inline edit textarea (M27 F1 L2) |
+| `rules-row-changed-note` | studio | the caption under an open inline edit whose stored rule changed after an approval: "This rule changed. Save will replace it with your text." (M36 F2 L8) |
 | `rules-row-save` | studio | inline edit Save (M27 F1 L2) |
 | `rules-row-text` | studio | the rule's text paragraph (M27 F1 L2) |
 | `rules-row-toggle` | studio | the rule's on/off `App.ui.toggle` input (`role=switch`, name "Rule N enabled") (M27 F1 L2) |

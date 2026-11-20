@@ -167,6 +167,12 @@ App.studio.agentData = {
       });
     }
 
+    // The agent as stored now, for the editor that follows an approved change (M36 F2 L7). A
+    // sibling of the refresh above that only reads: the caller decides what to patch.
+    function fetchAgentFresh(name) {
+      return App.api.fetchJson('/api/agents/' + encodeURIComponent(name));
+    }
+
     function enableSelfConfiguration(name) {
       return fetch('/api/agents/' + encodeURIComponent(name) + '/self-configuration', { method: 'POST' })
         .then(function (r) {
@@ -551,6 +557,7 @@ App.studio.agentData = {
       clearNotes: clearNotes,
       fetchSelfConfigurationStatus: fetchSelfConfigurationStatus,
       _refreshAgentAfterSelfConfigurationChange: _refreshAgentAfterSelfConfigurationChange,
+      fetchAgentFresh: fetchAgentFresh,
       enableSelfConfiguration: enableSelfConfiguration,
       disableSelfConfiguration: disableSelfConfiguration,
       setSelfConfigurationApprovalMode: setSelfConfigurationApprovalMode,

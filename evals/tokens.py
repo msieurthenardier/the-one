@@ -203,14 +203,18 @@ def gleepglorp_prompt_sections(text: str) -> list[tuple[str, str]]:
     from the_one.gleepglorp import prompt as gp
 
     s = gp.active_sections()  # the shipped text, or an eval candidate's (``--prompt-file``)
-    answerings = [s["ANSWERING_TOOLS"], s["ANSWERING_TOOL_FREE"]]
+    # (answering, limits): the tool-free variant carries its own limits text (it names no tool)
+    variants = [
+        (s["ANSWERING_TOOLS"], s["LIMITS"]),
+        (s["ANSWERING_TOOL_FREE"], gp.LIMITS_TOOL_FREE),
+    ]
     if "WEB_OFF_ANSWERING" in s:
-        answerings.append(s["WEB_OFF_ANSWERING"])
-    for answering in answerings:
+        variants.append((s["WEB_OFF_ANSWERING"], s["LIMITS"]))
+    for answering, limits in variants:
         named = [
             ("identity", s["IDENTITY"]),
             ("scope", s["SCOPE"]),
-            ("limits", s["LIMITS"]),
+            ("limits", limits),
             ("secrets", s["SECRETS"]),
             ("answering", answering),
             ("links", s["LINKS"]),

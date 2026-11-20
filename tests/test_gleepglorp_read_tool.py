@@ -7,9 +7,15 @@ import json
 import pytest
 
 from tests._gleepglorp_seed import SEEDS, seed
-from the_one.agent.taint import TRUSTED_TOOL_NAMES
+from the_one.agent.taint import OPERATOR_TYPED_MARK, TRUSTED_TOOL_NAMES
 from the_one.gleepglorp import views
 from the_one.gleepglorp.read_tool import READ_APP_CONFIG_TOOL_NAME, ReadAppConfigTool
+
+
+def body(text: str) -> str:
+    """A result without its operator-typed mark line (M36 F2 L3), if it has one."""
+    first, _, rest = text.partition("\n")
+    return rest if first == OPERATOR_TYPED_MARK else text
 
 
 @pytest.fixture
@@ -32,7 +38,7 @@ def test_shape() -> None:
     schema = t.to_schema()
     assert schema["name"] == "read_app_config" == READ_APP_CONFIG_TOOL_NAME
     props = schema["parameters"]["properties"]
-    assert props["kind"]["enum"] == list(views.KINDS) and len(props["kind"]["enum"]) == 10
+    assert props["kind"]["enum"] == list(views.KINDS) and len(props["kind"]["enum"]) == 11
     assert schema["parameters"]["required"] == ["kind"]
     assert "name" in props
     assert len(t.description) < 600  # short: Leg 7 measures it
@@ -41,14 +47,15 @@ def test_shape() -> None:
 
 
 async def test_list_and_detail_are_compact_json(tool) -> None:
-    listing = await tool.execute(kind="agents")
+    listing = body(await tool.execute(kind="agents"))
     assert ", " not in listing.split('"summary"')[0]  # compact separators
     data = json.loads(listing)
     assert {e["name"] for e in data} == {"plain", "wide"}
-    detail = json.loads(await tool.execute(kind="agents", name="wide"))
+    detail = json.loads(body(await tool.execute(kind="agents", name="wide")))
     assert detail["name"] == "wide"
-    assert json.loads(await tool.execute(kind="overview", name="ignored"))["counts"]["agents"] == 2
-    assert json.loads(await tool.execute(kind="routines", name="wide"))["agent"] == "wide"
+    overview = json.loads(body(await tool.execute(kind="overview", name="ignored")))
+    assert overview["counts"]["agents"] == 2
+    assert json.loads(body(await tool.execute(kind="routines", name="wide")))["agent"] == "wide"
 
 
 async def test_bad_input_is_a_plain_message_never_an_exception(tool) -> None:
@@ -60,14 +67,14 @@ async def test_bad_input_is_a_plain_message_never_an_exception(tool) -> None:
     assert "Valid names" in unknown and "Docs server" in unknown
     assert "agent name" in await tool.execute(kind="routines")
     # An empty name is no name: the list.
-    assert json.loads(await tool.execute(kind="agents", name=""))[0]["name"]
+    assert json.loads(body(await tool.execute(kind="agents", name="")))[0]["name"]
 
 
 async def test_the_tool_never_raises_when_a_view_does(tool, monkeypatch) -> None:
     async def boom(*_a, **_k):
         raise RuntimeError(f"explodes with {SEEDS['library_secret_value']}")
 
-    monkeypatch.setattr(views, "read", boom)
+    monkeypatch.setattr(views, "read_with_provenance", boom)
     out = await tool.execute(kind="agents")
     assert out == "Could not read agents right now."
     assert SEEDS["library_secret_value"] not in out  # the exception text is not echoed
@@ -80,7 +87,7 @@ async def test_secret_parity_through_the_tool(tool) -> None:
         listing = await tool.execute(kind=kind)
         outputs.append(listing)
         try:
-            names = [e["name"] for e in json.loads(listing)]
+            names = [e["name"] for e in json.loads(body(listing))]
         except (ValueError, TypeError):
             names = []
         if kind == "routines":

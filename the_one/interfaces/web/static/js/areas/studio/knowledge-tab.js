@@ -164,6 +164,32 @@
         }
         patchRows(a);
       },
+      // The follow-through for an approved change (M36 F2 L8). followMap is null while the list
+      // has not loaded: nothing is set and the next load takes the stored value.
+      followMap: function () {
+        if (!builtLoaded) return null;
+        var m = {};
+        Object.keys(rows).forEach(function (id) { m[id] = !!rows[id].toggle.control.checked; });
+        return m;
+      },
+      followMapFor: function (cfg) {
+        var on = {};
+        ((cfg && cfg.kb_ids) || []).forEach(function (id) { on[id] = true; });
+        var m = {};
+        Object.keys(rows).forEach(function (id) { m[id] = on[id] === true; });
+        return m;
+      },
+      followSet: function (map, names) {
+        Object.keys(rows).forEach(function (id) {
+          if (Object.prototype.hasOwnProperty.call(map, id)) rows[id].toggle.setChecked(!!map[id]);
+          if (names) setToolName(rows[id].toolNameEl, names[id]);
+        });
+      },
+      followPlace: function (id, note) {
+        var r = rows[id];
+        var row = r && r.toggle.el.parentNode;
+        if (row && row.parentNode) row.parentNode.insertBefore(note, row.nextSibling);
+      },
       destroy: function () { panel.textContent = ''; rows = {}; }
     };
   }

@@ -121,6 +121,7 @@ def test_contracts_chat_lane_is_the_chat_control_files(lanes: dict[str, set[str]
             "chart",
             "visual_notice",
             "turn_work",
+            "change_table",
         )
     }
     assert lanes["contracts-chat"] == chat

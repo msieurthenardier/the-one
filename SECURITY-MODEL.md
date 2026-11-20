@@ -1294,6 +1294,57 @@ provider's request or any log it writes.
   Library secret or the server's credential fields instead.
 - **A row that cannot be decrypted** (a changed key) reads as unreadable and never fails the
   tool.
+- **Provenance and the operator-typed mark (M36 F2 L3, flight DD9).** A tool result is trusted by
+  the taint rule per result, not per name (`the_one/agent/taint.py::is_trusted_result`):
+  `read_app_config` stays out of `TRUSTED_TOOL_NAMES`, and a result is trusted only when its
+  first line is exactly `[Settings you entered, no outside text.]`. The tool adds that line
+  when a walk of the final output finds no non-empty value on an `outside` path. Who can write a
+  value decides its path: `outside` when an agent (self-configuration, routine tools) or a server
+  (MCP reports) can write it (an agent's description, system prompt and rule text; `mcp__...`
+  entries in its tool lists; a routine's name and prompt; MCP tool names and descriptions and
+  every cached `connection` protocol value); `operator` when only the credential-gated routes can,
+  free text included. The tables are `OPERATOR_PATHS` and `OUTSIDE_PATHS` in
+  `the_one/gleepglorp/view_core.py`, dotted per kind (`agents.detail.rules[].text`), and any
+  path in neither is treated as outside (fail closed); a test pins that no path is in both and
+  that every path the views emit is declared. Only position 0 of the result counts, and the JSON
+  body begins with `{` or `[`, so a value that quotes the mark (a description that starts with it)
+  cannot forge it, and its own detail read is unmarked anyway. The agents list summary is built
+  from operator fields only, and `fields_only` returns an agent without its free text, so
+  GleepGlorp can read what it needs to propose with no flag. **Accepted residual:** a field
+  written by an approved proposal is operator-written from then on, including one made after
+  untrusted content (an agent's name, model, tools or attachments, and rule text at the edit);
+  the operator's approval click is the control, as with the DD9 residual for rules and prompts.
+  Agent names also pass the naming rule (no control or bidi characters, at most 64).
+- **The proposal secret guard (M36 F2 L3).** `propose_change` refuses a proposal whose strings
+  (names included, nested lists too) contain a stored secret or a key-shaped string, before
+  anything is recorded (`the_one/gleepglorp/proposals/guard.py`). A stored secret is any value of
+  at least 8 characters from `encryption_corpora.secret_leaves`, chosen per column (the provider
+  `api_key`; every string of the provider, MCP, connector and tool-config `secrets` blobs except
+  an OAuth `token_type`, `scope`, `scopes` and the public `dcr_credentials.client_id`; Library
+  secret values; the secret of an external credential, never its identifier; an agent's
+  override headers, environment values and `bearer_token`, minus values the operator marked
+  plain (never `Authorization` or `bearer_token`); and the fields a tool's Config marks secret in
+  an agent's tool overrides), found by containment after trimming. A key-shaped string is a
+  prefix from `KEY_PREFIXES` (`sk-`, `sk-ant-`, `ghp_`, `gho_`, `github_pat_`, `xox`, `AKIA`,
+  `AIza`, `glpat-`, `hf_`) followed by at least 16 key characters, or a run of at least
+  `KEY_MIN_LEN` (32) base64url characters with Shannon entropy of at least `KEY_MIN_ENTROPY`
+  (4.0 bits per character), or a run of at least `HEX_KEY_MIN_LEN` (32) hex characters bounded
+  by non-alphanumerics (hex alone cannot reach the entropy bar); a canonical hyphenated UUID is
+  exempt, a bare 32-hex run is not, so a 40-character git SHA or a hex digest in a prompt is
+  refused (accepted trade-off). The refusal is one fixed sentence that
+  never echoes the value, and the corpora are decrypted fresh once per proposal (rare, so the
+  cost is accepted). **Trade-offs:** a stored secret shorter than 8 characters is not searched;
+  a value that fails to decrypt is skipped (the key-shape rule still applies); and an
+  unbroken random-looking run of 32 or more characters in an ordinary prompt can be a false
+  positive.
+- **Approving a proposal is operator-only (M36 F2 L4).** The three proposal routes
+  (`GET`/`POST /api/gleepglorp/proposals…`) sit behind the credential gate like every other
+  route, writes are POST only, and no GleepGlorp tool reaches them (`propose_change` only
+  records; it cannot approve, dismiss or retry). The apply runs the stored change through the
+  same services and validation as the operator's own forms, so a proposal gets no authority
+  the operator lacks; it never touches the operator-only fields. The status mark rides in the
+  write's transaction, so a double approve applies once, and a proposal made after untrusted
+  content keeps its routine flag when applied (the routine is stored `untrusted`).
 
 ### GleepGlorp's notes and web tools (M36 F1 L06)
 

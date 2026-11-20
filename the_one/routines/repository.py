@@ -17,7 +17,7 @@ import json
 import sqlite3
 import uuid
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal, Protocol
 
 import aiosqlite
 
@@ -33,8 +33,14 @@ from the_one.routines.models import Routine, RoutineRun
 REASON_STILL_RUNNING = "still_running"
 MSG_STILL_RUNNING = "The previous run was still going."
 
-if TYPE_CHECKING:
-    from the_one.routines.proposals import ProposalOp
+
+class ProposalRunner(Protocol):
+    """What a routine mutator needs of a proposal write: one awaitable that runs inside the
+    mutator's transaction (``ProposalOp`` satisfies it; Mission 36 F2 L1 widened the
+    ``proposal`` parameter so the agent proposal ops can too)."""
+
+    async def run(self, conn: aiosqlite.Connection, routine_id: str | None) -> None: ...
+
 
 Flag = tuple[Literal["merge"], list[str]] | Literal["clear"] | None
 
@@ -174,7 +180,7 @@ class AgentRoutineRepository:
         *,
         precheck: Callable[[Routine | None], None] | None = None,
         flag: Flag = None,
-        proposal: ProposalOp | None = None,
+        proposal: ProposalRunner | None = None,
     ) -> Routine:
         """Insert a routine for agent *name*. *fields* holds ``name``, ``prompt``,
         ``schedule`` (dict) and optionally the other columns.
@@ -256,7 +262,7 @@ class AgentRoutineRepository:
         *,
         precheck: Callable[[Routine | None], None] | None = None,
         flag: Flag = None,
-        proposal: ProposalOp | None = None,
+        proposal: ProposalRunner | None = None,
     ) -> Routine:
         unknown = set(fields) - _UPDATABLE
         if unknown:
@@ -298,7 +304,7 @@ class AgentRoutineRepository:
         routine_id: str,
         *,
         precheck: Callable[[Routine | None], None] | None = None,
-        proposal: ProposalOp | None = None,
+        proposal: ProposalRunner | None = None,
     ) -> None:
         async with write_transaction(self.conn):
             cur_row = await self.get(name, routine_id)

@@ -631,6 +631,35 @@
         if (name !== undefined && name !== null) agentName = name;
         reconcile();
       },
+      // The follow-through for an approved change (M36 F2 L8): the attach switches only. A tile
+      // with unsaved credential edits is untouched apart from its master.
+      followMap: function () {
+        var m = {};
+        Object.keys(entries).forEach(function (id) {
+          m[id] = !!(entries[id].tile.toggle && entries[id].tile.toggle.control.checked);
+        });
+        return m;
+      },
+      followMapFor: function (cfg) {
+        var on = {};
+        ((cfg && cfg.mcp_source_ids) || []).forEach(function (id) { on[id] = true; });
+        var m = {};
+        Object.keys(entries).forEach(function (id) { m[id] = on[id] === true; });
+        return m;
+      },
+      followSet: function (map) {
+        Object.keys(entries).forEach(function (id) {
+          if (Object.prototype.hasOwnProperty.call(map, id)) {
+            entries[id].tile.setMaster(map[id] ? 'on' : 'off');
+          }
+        });
+      },
+      followPlace: function (id, note) {
+        var e = entries[id];
+        if (!e) return;
+        var row = e.tile.el.firstChild;
+        e.tile.el.insertBefore(note, row ? row.nextSibling : null);
+      },
       // True while any tile is unlocked with unsaved credential edits (the leave guard).
       anyDirty: function () {
         return Object.keys(entries).some(function (id) { return entries[id].cred.isDirty(); });

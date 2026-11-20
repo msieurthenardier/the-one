@@ -18,7 +18,7 @@
 // Exposes (all but create are called by other chat modules; names in the flight log):
 //   begin, onText, onThinking, onToolCall, onToolResult, onDone, onCancelled, onSystemEnd,
 //   onStepLimit, onAuthRequired, onAuthResolved, onUserEvent, stopClicked, dropEmpty,
-//   hideForLoading, groupEl, replay, reset.
+//   hideForLoading, groupEl, isOpen, replay, reset.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -408,6 +408,11 @@
       if (open && open.h.isEmpty()) open.h.el.hidden = true;
     }
 
+    // True while a turn's work group is open (a turn is running, whoever started it).
+    function isOpen() {
+      return !!open;
+    }
+
     function groupEl() {
       if (open) return open.h.el;
       return lastGroup ? lastGroup.h.el : null;
@@ -526,6 +531,7 @@
       dropEmpty: dropEmpty,
       hideForLoading: hideForLoading,
       groupEl: groupEl,
+      isOpen: isOpen,
       replay: replay,
       reset: reset,
       previewFor: previewFor

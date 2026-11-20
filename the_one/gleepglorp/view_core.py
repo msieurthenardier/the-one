@@ -31,6 +31,7 @@ KINDS: tuple[str, ...] = (
     "secrets",
     "built_in_tools",
     "settings",
+    "fields",
 )
 
 # A list is capped so a very large configuration stays short; details are whole.
@@ -76,7 +77,7 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
                 "self_configuration",
             }
         ),
-        "nested": frozenset({"text", "enabled"}),
+        "nested": frozenset({"number", "text", "enabled"}),
     },
     "mcp_servers": {
         "list": _LIST_KEYS,
@@ -165,6 +166,233 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
             }
         ),
     },
+    # Generated from the proposal shape (M36 F2 L2): a field description, never a stored value.
+    "fields": {
+        "list": _LIST_KEYS,
+        "detail": frozenset({"name", "fields"}),
+        "nested": frozenset(
+            {
+                "name",
+                "label",
+                "type",
+                "required_on_create",
+                "create_only",
+                "min",
+                "max",
+                "hint",
+                "reference",
+            }
+        ),
+    },
+}
+
+# --- provenance, per output path (M36 F2 L3, DD9) ----------------------------------------
+# Who can write a value decides whether it is operator-typed: ``outside`` when an agent
+# (self-configuration, routine tools) or a server (MCP reports, catalog data) can write it,
+# ``operator`` when only the operator's credential-gated routes can, free text included.
+# Paths are dotted: ``{kind}.{list|detail}.{key}[.{nested}]``, with ``[]`` for each list
+# level. A path matches itself and everything beneath it (the longest declared match wins);
+# a path in neither table is treated as outside (fail closed). ``tests/
+# test_gleepglorp_views_provenance.py`` pins that no path is in both and that every path the
+# views emit is declared.
+OPERATOR_PATHS: dict[str, frozenset[str]] = {
+    "overview": frozenset(
+        {
+            "overview.detail.time_zone",
+            "overview.detail.gleepglorp.state",
+            "overview.detail.gleepglorp.model",
+            "overview.detail.gleepglorp.provider",
+            "overview.detail.gleepglorp.web_access",
+            "overview.detail.gleepglorp.memory",
+            "overview.detail.counts.agents",
+            "overview.detail.counts.mcp_servers",
+            "overview.detail.counts.providers",
+            "overview.detail.counts.knowledge_bases",
+            "overview.detail.counts.connectors",
+            "overview.detail.counts.secrets",
+            "overview.detail.counts.built_in_tools",
+            "overview.detail.names.agents",
+            "overview.detail.names.mcp_servers",
+            "overview.detail.names.providers",
+            "overview.detail.names.knowledge_bases",
+            "overview.detail.names.connectors",
+            "overview.detail.names.secrets",
+        }
+    ),
+    "agents": frozenset(
+        {
+            "agents.list.name",
+            "agents.list.summary",
+            "agents.detail.name",
+            "agents.detail.model",
+            "agents.detail.provider",
+            "agents.detail.enabled_tools",
+            "agents.detail.disabled_tools",
+            "agents.detail.tools_with_overrides",
+            "agents.detail.rules[].number",
+            "agents.detail.rules[].enabled",
+            "agents.detail.mcp_servers",
+            "agents.detail.knowledge_bases",
+            "agents.detail.routines_count",
+            "agents.detail.notes_count",
+            "agents.detail.rich_visuals",
+            "agents.detail.self_configuration",
+        }
+    ),
+    "mcp_servers": frozenset(
+        {
+            "mcp_servers.list.name",
+            "mcp_servers.list.summary",
+            "mcp_servers.detail.name",
+            "mcp_servers.detail.type",
+            "mcp_servers.detail.command",
+            "mcp_servers.detail.args",
+            "mcp_servers.detail.working_directory",
+            "mcp_servers.detail.address",
+            "mcp_servers.detail.header_names",
+            "mcp_servers.detail.env_names",
+            "mcp_servers.detail.connection.status",
+            "mcp_servers.detail.connection.checked_at",
+            "mcp_servers.detail.tool_count",
+            "mcp_servers.detail.signed_in",
+            "mcp_servers.detail.agents",
+        }
+    ),
+    "providers": frozenset(
+        {
+            "providers.list.name",
+            "providers.list.summary",
+            "providers.detail.name",
+            "providers.detail.type",
+            "providers.detail.address",
+            "providers.detail.oauth_active",
+            "providers.detail.agents",
+            "providers.detail.used_by_gleepglorp",
+        }
+    ),
+    "knowledge_bases": frozenset(
+        {
+            "knowledge_bases.list.name",
+            "knowledge_bases.list.summary",
+            "knowledge_bases.detail.name",
+            "knowledge_bases.detail.description",
+            "knowledge_bases.detail.folders",
+            "knowledge_bases.detail.items.pending",
+            "knowledge_bases.detail.items.indexing",
+            "knowledge_bases.detail.items.indexed",
+            "knowledge_bases.detail.items.failed",
+            "knowledge_bases.detail.latest_indexed",
+            "knowledge_bases.detail.indexer",
+            "knowledge_bases.detail.agents",
+        }
+    ),
+    "connectors": frozenset(
+        {
+            "connectors.list.name",
+            "connectors.list.summary",
+            "connectors.detail.name",
+            "connectors.detail.type",
+            "connectors.detail.enabled",
+            "connectors.detail.default_agent",
+            "connectors.detail.channel_bindings[].channel",
+            "connectors.detail.channel_bindings[].agent",
+        }
+    ),
+    "routines": frozenset(
+        {
+            "routines.detail.agent",
+            "routines.detail.routines[].schedule",
+            "routines.detail.routines[].next_run",
+            "routines.detail.routines[].enabled",
+        }
+    ),
+    "secrets": frozenset(
+        {
+            "secrets.list.name",
+            "secrets.list.summary",
+            "secrets.detail.name",
+            "secrets.detail.description",
+            "secrets.detail.keys",
+            "secrets.detail.allowed_tools",
+            "secrets.detail.agents",
+        }
+    ),
+    "built_in_tools": frozenset(
+        {
+            "built_in_tools.list.name",
+            "built_in_tools.list.summary",
+            "built_in_tools.detail.name",
+            "built_in_tools.detail.enabled",
+            "built_in_tools.detail.summary",
+            # The one dynamic map: a tool's own non-secret Config field names (no fixed key
+            # set), so the prefix stays. Values are operator-set tool settings.
+            "built_in_tools.detail.settings",
+        }
+    ),
+    "settings": frozenset(
+        {
+            "settings.detail.time_zone.mode",
+            "settings.detail.time_zone.zone",
+            "settings.detail.time_zone.effective",
+            "settings.detail.knowledge_indexing.chunking.size_chars",
+            "settings.detail.knowledge_indexing.chunking.overlap_chars",
+            "settings.detail.knowledge_indexing.monitoring.watch_enabled",
+            "settings.detail.knowledge_indexing.monitoring.reconcile_interval_seconds",
+            "settings.detail.knowledge_indexing.embedding.backend",
+            "settings.detail.knowledge_indexing.embedding.model_id",
+            "settings.detail.knowledge_indexing.embedding.dim",
+        }
+    ),
+    "fields": frozenset(
+        {
+            "fields.list.name",
+            "fields.list.summary",
+            "fields.detail.name",
+            "fields.detail.fields[].name",
+            "fields.detail.fields[].label",
+            "fields.detail.fields[].type",
+            "fields.detail.fields[].required_on_create",
+            "fields.detail.fields[].create_only",
+            "fields.detail.fields[].min",
+            "fields.detail.fields[].max",
+            "fields.detail.fields[].hint",
+            "fields.detail.fields[].reference",
+        }
+    ),
+}
+
+OUTSIDE_PATHS: dict[str, frozenset[str]] = {
+    "overview": frozenset(),
+    "agents": frozenset(
+        {
+            "agents.detail.description",
+            "agents.detail.system_prompt",
+            "agents.detail.rules[].text",
+        }
+    ),
+    "mcp_servers": frozenset(
+        {
+            "mcp_servers.detail.tools",
+            "mcp_servers.detail.connection.protocol_version",
+            "mcp_servers.detail.connection.auth_posture",
+            "mcp_servers.detail.connection.protocol_fallback",
+        }
+    ),
+    "providers": frozenset(),
+    "knowledge_bases": frozenset(),
+    "connectors": frozenset(),
+    "routines": frozenset({"routines.detail.routines[].name", "routines.detail.routines[].prompt"}),
+    "secrets": frozenset(),
+    "built_in_tools": frozenset(),
+    "settings": frozenset(),
+    "fields": frozenset(),
+}
+
+# A value under an otherwise operator path is outside when it starts with the prefix: an MCP
+# tool name in an agent's tool lists was named by the server (built-in names stay operator).
+OUTSIDE_VALUE_PREFIXES: dict[str, str] = {
+    "agents.detail.enabled_tools[]": "mcp__",
+    "agents.detail.disabled_tools[]": "mcp__",
 }
 
 # Kinds whose output is a list of ``{name, summary}`` without a name, a detail with one.
@@ -177,10 +405,12 @@ LIST_KINDS = frozenset(
         "connectors",
         "secrets",
         "built_in_tools",
+        "fields",
     }
 )
 
 _SINGULAR = {
+    "fields": "proposable kind",
     "agents": "agent",
     "mcp_servers": "MCP server",
     "providers": "model provider",
@@ -208,6 +438,8 @@ class UndeclaredKeyError(RuntimeError):
 class Ctx:
     conn: Any
     enc: Any
+    # Only ``agents_view`` reads it: the detail without free text (M36 F2 L3).
+    fields_only: bool = False
 
 
 def _emit(kind: str, level: str, data: dict[str, Any]) -> dict[str, Any]:

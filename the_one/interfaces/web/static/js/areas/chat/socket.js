@@ -93,6 +93,8 @@
           ctx.holdQueue.clearPendingQueued();
           ctx.send.updateStopControl();
           ctx.applyComposerState();
+          // M36 F2 L6: the turn is gone with the socket, so a held proposal card lands.
+          ctx.proposalCards.turnEnded();
         }
         reconnectTimer = setTimeout(connect, 2000);
       };
@@ -109,6 +111,13 @@
           state.sessions = data.sessions || [];
           ctx.sessionFlow.pruneDrafts(state.sessions.map(function (s) { return s.id; }));
           App.store.prime('sessions', state.sessions.map(toSessionSummary));
+          return;
+        }
+
+        if (data.type === 'config_changed') {
+          // An approved GleepGlorp change reached the stored configuration (any window, any
+          // state, so before the gate): the editors, list and drawer follow it (M36 F2 L7).
+          App.approvals.record(data);
           return;
         }
 

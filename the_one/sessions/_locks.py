@@ -97,6 +97,17 @@ async def track_turn(session_id: str) -> AsyncIterator[TurnHandle]:
             _notify_sessions_changed()
 
 
+@asynccontextmanager
+async def hold_session_lock(session_id: str) -> AsyncIterator[None]:
+    """Hold the session lock for a short write that is not a turn (M36 F2 L5).
+
+    The same lock object a turn takes, but no ``sessions_changed`` push and no turn count: a
+    message appended with no turn must not make the chat flash busy.
+    """
+    async with session_locks[session_id]:
+        yield
+
+
 def clear_locks_for_test() -> None:
     """Drop all locks. Test fixtures only — production code never
     calls this. Mirrors the pre-existing ``_clear_for_test`` on the

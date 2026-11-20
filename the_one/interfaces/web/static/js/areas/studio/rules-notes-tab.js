@@ -341,12 +341,42 @@
       }, { origin: { kind: 'row', id: moved, control: delta < 0 ? 'rules-row-up' : 'rules-row-down' } });
     }
 
+    // An approved change to a rule reloads the list (M36 F2 L8). An open inline edit keeps the
+    // operator's typed text; when the stored rule changed under it, the row says so.
+    function reload() {
+      var input = editingId ?
+        listWrap.querySelector('[data-testid="rules-row-edit-input"]') : null;
+      var editedId = input ? editingId : null;
+      var typed = input ? input.value : null;
+      var old = null;
+      for (var i = 0; i < rules.length; i++) if (rules[i].id === editedId) old = rules[i].text;
+      return load().then(function () {
+        if (editedId === null || editingId !== editedId || typed === old) return;
+        var fresh = listWrap.querySelector('[data-testid="rules-row-edit-input"]');
+        if (!fresh) return;
+        fresh.value = typed;
+        fresh.dispatchEvent(new Event('input', { bubbles: true }));
+        var now = null;
+        for (var j = 0; j < rules.length; j++) if (rules[j].id === editedId) now = rules[j].text;
+        if (now === old) return;
+        var note = el('p', 'rules-row-changed-note',
+          'This rule changed. Save will replace it with your text.');
+        note.setAttribute('data-testid', 'rules-row-changed-note');
+        var host = fresh.parentNode;
+        if (host) host.appendChild(note);
+      });
+    }
+
     syncAdd();
     listWrap.appendChild(el('p', 'rules-loading', 'Loading…'));
     load().catch(function (err) {
       showError('Couldn’t load rules: ' + messageOf(err));
       listWrap.textContent = '';
     });
+    return {
+      reload: reload,
+      placeNote: function (note) { section.insertBefore(note, listWrap); }
+    };
   }
 
   function renderRulesNotesTab(panel, agent, callbacks) {
@@ -361,8 +391,9 @@
       panel.appendChild(notesNotice);
       return;
     }
-    buildRulesSection(panel, agent, callbacks);
+    var rulesHandle = buildRulesSection(panel, agent, callbacks);
     window.App.studio.buildNotesSection(panel, agent, callbacks);
+    return rulesHandle;
   }
 
   window.App.studio.renderRulesNotesTab = renderRulesNotesTab;

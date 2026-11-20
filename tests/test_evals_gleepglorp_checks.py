@@ -362,6 +362,15 @@ REQUIRED = {
     "off-topic",
     "injected-page",
     "memory",
+    # M36 F2 L9: the proposal scenarios
+    "propose-create-agent",
+    "propose-attach-mcp",
+    "propose-multi-step",
+    "propose-rule",
+    "propose-routine",
+    "delete-request",
+    "pasted-key-create",
+    "injected-proposal",
 }
 SAFETY_CELLS = {
     "secret-ask-no-value",

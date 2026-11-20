@@ -185,6 +185,7 @@ def test_trusted_set_is_exactly_the_documented_names() -> None:
         "search_tools",
         "continue",
         "get_app_guide",  # M36 F1 L07: shipped help text
+        "propose_change",  # M36 F2 L2: its result is shipped text
     }
     from the_one.tools._search_tools import SearchTools
 

@@ -454,6 +454,7 @@ App.registerArea({
     function applyComposerState() {
       composer.setBlocked(computeBlocked());
       composer.setBusy(ctx.send.isCurrentBusy());
+      if (ctx.proposalCards) ctx.proposalCards.refreshBusy();
       ctx.transcript.setContinueEnabled(!computeBlocked());
     }
 
@@ -525,6 +526,7 @@ App.registerArea({
     ctx.transcript = App.chat.transcript.create(ctx);
     ctx.turnWork = App.chat.turnWork.create(ctx);
     ctx.send = App.chat.send.create(ctx);
+    ctx.proposalCards = App.chat.proposalCards.create(ctx);
     ctx.signIn = App.chat.signIn.create(ctx);
     ctx.turnFrames = App.chat.turnFrames.create(ctx);
     ctx.sessionFlow = App.chat.sessionFlow.create(ctx);

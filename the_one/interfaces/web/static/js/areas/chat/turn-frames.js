@@ -46,6 +46,8 @@
         } else {
           ctx.transcript.addMsg('system', data.content);
         }
+        // M36 F2 L6: the turn ended, so a proposal card held for it lands now.
+        ctx.proposalCards.turnEnded();
         var errActive = chatState.activeId();
         if (errActive && state.inFlightSessions[errActive]) {
           delete state.inFlightSessions[errActive];
@@ -78,7 +80,9 @@
         // M33 F1 L7: a routine run in the bound chat is a turn in flight that this window did
         // not start: Stop works and sends are held (never ownTurn), the work group starts
         // after the bubble. Gated on the frame's own session id, like the chat's other frames.
-        if (data.source === 'routine' && data.session_id &&
+        // M36 F2 L5: so is the turn after an approved proposal (`approved` only; the
+        // `approved_no_turn` and `dismissed` marks start no turn).
+        if ((data.source === 'routine' || data.proposal_event === 'approved') && data.session_id &&
             data.session_id === chatState.boundId()) {
           state.inFlightSessions[data.session_id] = true;
           ctx.send.updateStopControl();
@@ -115,6 +119,8 @@
         App.perf.mark('telemetry-update:end');
         App.perf.measure('telemetry-update', 'telemetry-update:start', 'telemetry-update:end');
       }
+      else if (data.type === 'proposal_changed') ctx.proposalCards.onChanged(data);
+      else if (data.type === 'proposals_snapshot') ctx.proposalCards.onSnapshot(data);
       else if (data.type === 'auth_required') ctx.signIn.onAuthRequired(data);
       else if (data.type === 'auth_resolved') ctx.signIn.onAuthResolved(data);
       else if (data.type === 'auth_failed') ctx.signIn.onAuthFailed(data);
@@ -125,12 +131,15 @@
         // `done` leaves it in place.
         ctx.turnWork.onStepLimit();
         ctx.transcript.addStepLimitNotice(data.steps, state.currentAgentName);
+        ctx.proposalCards.turnEnded();
       }
       else if (data.type === 'done') {
         ctx.transcript.dropModelLoading();
         // End of agent step: the reply lands now (only from "working"), before a held
         // message is sent, so it sits above the queued message's bubble.
         ctx.turnWork.onDone();
+        // M36 F2 L6: held proposal cards land after the reply.
+        ctx.proposalCards.turnEnded();
         // AC6: the joined session (activeId); a held message goes out on
         // the joined path (performSend), never as a start.
         var sid = chatState.activeId();
@@ -178,6 +187,7 @@
           ? Math.max(state.discardedOnStop[cancelledActive] || 0, ctx.holdQueue.count(cancelledActive))
           : 0;
         if (cancelledHeld) ctx.transcript.addDiscardedNotice(cancelledHeld);
+        ctx.proposalCards.turnEnded();
         if (cancelledActive) delete state.discardedOnStop[cancelledActive];
         if (cancelledActive) {
           delete state.inFlightSessions[cancelledActive];

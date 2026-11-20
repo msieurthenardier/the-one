@@ -27,6 +27,8 @@
     // to inFlightSessions or after the session state changes.
     function updateStopControl() {
       composer.setBusy(isCurrentBusy());
+      // M36 F2 L6: the proposal cards' buttons follow the same busy state (a polled read).
+      if (ctx.proposalCards) ctx.proposalCards.refreshBusy();
     }
 
     // Normal turn-send path: optimistic user bubble, transmit, mark in-flight,

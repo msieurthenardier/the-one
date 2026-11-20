@@ -353,6 +353,38 @@
       loadNotes(info.name, viewSession(), openGen, notesState.status === 'ok');
     }
 
+    // Re-fetch the current agent's rules (an approved rule change, M36 F2 L7). No-op while the
+    // drawer is closed or the view is not a named agent; a failure keeps what is shown.
+    var rulesToken = 0;
+    function refreshRules() {
+      var info = describe();
+      if (info.kind !== 'agent' || !drawer.isOpen()) return;
+      var name = info.name;
+      var gen = openGen;
+      var token = ++rulesToken;
+      fetch('/api/agents/' + encodeURIComponent(name) + '/rules').then(function (r) {
+        if (r.status === 404) return { rules: [] };
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      }).then(function (body) {
+        if (token !== rulesToken || rulesState.gen !== gen || rulesState.agent !== name) return;
+        rulesState = { gen: gen, agent: name, status: 'ok', value: (body && body.rules) || [] };
+        render();
+      }, function () { /* keep the list shown */ });
+    }
+
+    // An approved change (M36 F2 L7): the drawer's group for it reloads, or, for the agent's own
+    // settings, the agents store is force-read (the drawer re-renders from its subscription).
+    function onConfigChanged(e) {
+      var d = e.detail;
+      var info = describe();
+      if (!d || info.kind !== 'agent' || info.name !== d.agent) return;
+      if (d.kind === 'rule') refreshRules();
+      else if (d.kind === 'routine') refreshRoutines();
+      else App.store.get('agents', { force: true }).catch(function () { /* the next load retries */ });
+    }
+    document.addEventListener(App.approvals.CONFIG_CHANGED, onConfigChanged);
+
     function viewSession() {
       return (view && view.sessionId) || null;
     }
@@ -601,6 +633,7 @@
     unsubs.push(App.gleepglorp.subscribe(function () { if (renderKey() !== lastKey) render(); }));
 
     function destroy() {
+      document.removeEventListener(App.approvals.CONFIG_CHANGED, onConfigChanged);
       for (var i = 0; i < unsubs.length; i++) unsubs[i]();
       unsubs = [];
       if (mql) {
@@ -629,6 +662,7 @@
       },
       refreshNotes: refreshNotes,
       refreshRoutines: refreshRoutines,
+      refreshRules: refreshRules,
       setSessionMetadata: setSessionMetadata,
       destroy: destroy
     };

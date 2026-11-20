@@ -1,6 +1,6 @@
 # GleepGlorp
 
-GleepGlorp is the assistant built into the app, there to explain how things work and help you set them up, and it can look but not change anything.
+GleepGlorp is the assistant built into the app, there to explain how things work and help you set them up, and it can look and propose changes, but you approve anything that changes.
 
 ## Talking to it
 
@@ -16,7 +16,7 @@ GleepGlorp isn't one of your agents, so it doesn't appear in the Agents list and
 
 ## What it can't do
 
-- It can't change anything. It can't create an agent, edit a setting, run a command, or read or write your files. When you want a change, it can explain where to go and what to press, and you make it yourself.
+- It can't change anything by itself. It can't run a command, or read or write your files. For agents, their rules and their routines it can propose a change, which takes effect only when you approve it (see "proposals"). For anything else it explains where to go and what to press, and you make the change yourself.
 - It doesn't read your conversations with other agents, your files or the app's logs.
 
 ## Privacy

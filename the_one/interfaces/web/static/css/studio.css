@@ -1269,3 +1269,21 @@
 .routine-custom-after { display: flex; align-items: center; gap: var(--space-2); }
 .routine-custom-after-text { color: var(--fg-secondary); }
 .routine-custom-actions { display: flex; gap: var(--space-2); }
+
+/* The agent editor's quiet note beside a control that holds an approved change (M36 F2 L7, board
+   option A). Static caption; the link is the global a:any-link colour. */
+.area-studio .agent-approved-change-note {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-tertiary);
+  font-size: var(--font-size-caption);
+}
+/* L8: the same caption under a tile, a row or a list, and the row-local rule caption. */
+.area-studio .agent-approved-change-note--item {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+}
+.area-studio .rules-row-changed-note {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-tertiary);
+  font-size: var(--font-size-caption);
+}

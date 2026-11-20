@@ -574,6 +574,12 @@ class AgentFactory:
             from the_one.gleepglorp.guide_tool import GetAppGuideTool
 
             registry.register(GetAppGuideTool(agent_name=name))
+            # M36 F2 L2 (DD5): the proposal tool. It records a row and changes nothing else;
+            # bound to the agent after construction (below) for the taint scan.
+            from the_one.gleepglorp.proposals.tool import ProposeChangeTool
+
+            propose_tool = ProposeChangeTool(agent_name=name)
+            registry.register(propose_tool)
 
         for provider in self.tool_providers:
             # Mission 23 Flight 1 (backend-removal leg): this used to branch
@@ -807,6 +813,8 @@ class AgentFactory:
             notes_tool.bind_agent(agent)  # type: ignore[attr-defined]
         for routine_tool in routine_tools:
             routine_tool.bind_agent(agent)  # type: ignore[attr-defined]
+        if gleepglorp:
+            propose_tool.bind_agent(agent)
         return agent
 
     async def list_agents(self) -> list[str]:

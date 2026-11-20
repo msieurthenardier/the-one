@@ -537,10 +537,13 @@ def test_note_flag_role_name_and_icon(engine_page: Page) -> None:
           document.getElementById('harness-root').appendChild(probe);
           const r = App.ui.noteFlag({sources: ['web'], subject: 'routine'});
           const n = App.ui.noteFlag({subject: 'note'});
+          const pr = App.ui.noteFlag({sources: ['web_fetch', 'file'], subject: 'proposal', testid: 'pf'});
           let err = '';
           try { App.ui.noteFlag({subject: 'rule'}); } catch (e) { err = String(e.message); }
           return {tag: f.tagName + '.' + f.className, role: f.getAttribute('role'),
                   routine: r.getAttribute('aria-label'), explicitNote: n.getAttribute('aria-label'),
+                  proposal: pr.getAttribute('aria-label'), proposalTitle: pr.title,
+                  proposalTid: pr.getAttribute('data-testid'),
                   err: err,
                   named: f.getAttribute('aria-label') === sentence && f.title === sentence,
                   plain: g.getAttribute('aria-label'), svgs: f.querySelectorAll('svg').length,
@@ -559,6 +562,12 @@ def test_note_flag_role_name_and_icon(engine_page: Page) -> None:
         == "Check this routine: it was written after content that didn't come from you (web). It may have been planted."
     )
     assert out["explicitNote"] == out["plain"]
+    # M36 F2 L6: a proposal is "made", not "written".
+    assert (
+        out["proposal"]
+        == "Check this proposal: it was made after content that didn't come from you (web_fetch, file). It may have been planted."
+    )
+    assert out["proposalTitle"] == out["proposal"] and out["proposalTid"] == "pf"
     assert "subject" in out["err"]
     assert out["svgs"] == 1 and out["svgW"] == "14px" and out["display"] == "inline-flex"
     assert out["color"] is True and out["tid"] == "nf"

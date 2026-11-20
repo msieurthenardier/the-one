@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -239,6 +239,11 @@ class Message:
     # posted (a snapshot; ``[]`` = unflagged, ``None`` = not a routine turn or a legacy
     # marker). USER-only; stored; never sent to a provider and not spread into UI events.
     routine_untrusted_sources: list[str] | None = None
+    # M36 F2 L5: GleepGlorp proposal marks. USER-only; stored and shown in UI events, never
+    # sent to a provider. ``approved`` marks a continuation turn's message,
+    # ``approved_no_turn`` an approval appended with no turn, ``dismissed`` a dismissal.
+    proposal_id: int | None = None
+    proposal_event: Literal["approved", "approved_no_turn", "dismissed"] | None = None
     # Fix: message-timestamp-on-replay. Per-message creation timestamp (ISO
     # 8601, UTC) so historical USER/ASSISTANT turns can render a "You ·
     # HH:MM UTC" / "<agent> · HH:MM UTC" attribution on session replay —

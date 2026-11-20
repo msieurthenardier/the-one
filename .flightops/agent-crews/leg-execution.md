@@ -308,6 +308,11 @@ the like) that writes a source or test file; edit source and test files only
 through the edit tool (squawk 0286). A file that had to be rebuilt is reported
 with a diff against HEAD (`git diff HEAD -- <path>`). For each new test, report
 whether it was falsified (yes or no).
+When a fix renames or deletes a selector, class, testid, symbol or path, or adds
+or removes fields in a response shape, grep the tests (every lane, plus `scripts/`
+and `tests/behavior/`) for its pins, including exact-dict assertions on that shape,
+and update them in the same fix (Mission 36 Flight 1: a HAT fix added `cleared` to
+the provider delete response and the stale `{"status": "ok"}` pin reached the gate).
 Before signalling, run `THE_ONE_TEST_NETNS=1 make test-unit` and
 the owning browser lane of every file you touched, and report both results. This
 applies to every fix pass: review fixes, HAT fixes and post-gate changes (Mission 31:

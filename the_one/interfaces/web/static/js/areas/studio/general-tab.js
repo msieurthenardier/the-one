@@ -87,12 +87,10 @@
       dataset: { field: 'description' },
       onInput: dirty
     }));
+    var descriptionField = ui.field({ label: 'Description', control: descriptionInput });
     var identity = ui.section({
       title: 'Identity',
-      children: [
-        nameField.el,
-        ui.field({ label: 'Description', control: descriptionInput }).el
-      ]
+      children: [nameField.el, descriptionField.el]
     });
 
     // ── LLM configuration ───────────────────────────────────────────
@@ -149,11 +147,12 @@
     testRow.appendChild(testButton);
     testRow.appendChild(testStatus.el);
 
+    var modelField = ui.field({ label: 'Model', control: modelSelect, host: modelWrap });
     var llm = ui.section({
       title: 'LLM configuration',
       children: [
         ui.field({ label: 'Provider', control: providerSelect }).el,
-        ui.field({ label: 'Model', control: modelSelect, host: modelWrap }).el,
+        modelField.el,
         capsEl,
         vramEl,
         testRow
@@ -171,9 +170,10 @@
       dataset: { field: 'system_prompt' },
       onInput: dirty
     }));
+    var promptField = ui.field({ label: 'System prompt', labelHidden: true, control: promptInput });
     var promptSection = ui.section({
       title: 'System prompt',
-      children: [ui.field({ label: 'System prompt', labelHidden: true, control: promptInput }).el]
+      children: [promptField.el]
     });
 
     // ── Behavior ────────────────────────────────────────────────────
@@ -205,13 +205,11 @@
       testid: 'agent-rich-visuals-toggle'
     });
     own(richVisuals.control);
+    var retentionField = ui.field({ label: 'Chat history retention (days)', control: retentionInput });
+    var iterationsField = ui.field({ label: 'Max iterations', control: iterationsInput });
     var behavior = ui.section({
       title: 'Behavior',
-      children: [
-        ui.field({ label: 'Chat history retention (days)', control: retentionInput }).el,
-        ui.field({ label: 'Max iterations', control: iterationsInput }).el,
-        richVisuals.el
-      ]
+      children: [retentionField.el, iterationsField.el, richVisuals.el]
     });
 
     // The stored-value-changed note: shown only while a field the operator edited
@@ -315,11 +313,67 @@
       return conflicts;
     }
 
+    // The fields the note can name: the two a self-configuration write changes, then the ones an
+    // approved GleepGlorp change can (M36 F2 L7; `llm_model` stands for the provider and model).
+    var NOTE_FIELDS = STORED_FIELDS.concat([
+      { key: 'llm_model', label: 'model' },
+      { key: 'max_iterations', label: 'max iterations' },
+      { key: 'chat_history_retention_days', label: 'chat history retention' },
+      { key: 'rich_visuals', label: 'rich visuals setting' }
+    ]);
+
+    // Plain setters for the follow module (M36 F2 L7): write one stored value into its control
+    // without any dirty or announcement side effect (the caller rebases the baseline).
+    function setField(key, value) {
+      var text = value === null || value === undefined ? '' : String(value);
+      if (key === 'description') descriptionInput.value = text;
+      else if (key === 'system_prompt') promptInput.value = text;
+      else if (key === 'max_iterations') iterationsInput.value = text;
+      else if (key === 'chat_history_retention_days') retentionInput.value = text;
+      else if (key === 'rich_visuals') richVisuals.setChecked(value !== false);
+    }
+
+    // The provider and model together: the model shows as the one selected option until the
+    // picker refetches the list (it reads pendingValue, see agent-model-picker.js).
+    function setModel(providerId, model) {
+      if (providerId) {
+        var known = Array.prototype.some.call(providerSelect.options, function (o) {
+          return o.value === providerId;
+        });
+        if (!known) {
+          providerSelect.appendChild(option(providerId, 'Unknown provider (' + providerId + ')',
+            { selected: true }));
+        }
+        providerSelect.value = providerId;
+      }
+      testButton.disabled = !providerSelect.value;
+      if (model) {
+        modelSelect.dataset.pendingValue = model;
+        modelSelect.replaceChildren(option(model, model, { selected: true }));
+      }
+    }
+
+    // Put the approved-change note directly under the control the key names.
+    var NOTE_HOSTS = {
+      description: descriptionField.el,
+      llm_model: modelField.el,
+      system_prompt: promptField.el,
+      max_iterations: iterationsField.el,
+      chat_history_retention_days: retentionField.el
+    };
+    function placeNote(key, note) {
+      if (NOTE_HOSTS[key]) {
+        NOTE_HOSTS[key].appendChild(note);
+      } else if (key === 'rich_visuals') {
+        richVisuals.el.parentNode.insertBefore(note, richVisuals.el.nextSibling);
+      }
+    }
+
     var noteTimer = null;
     // Show the note for the given field keys, or hide it for null / none.
     function setStoredChangeNote(fields) {
       var parts = [];
-      STORED_FIELDS.forEach(function (f) {
+      NOTE_FIELDS.forEach(function (f) {
         if (fields && fields.indexOf(f.key) !== -1) {
           parts.push('The stored ' + f.label + ' changed. Save will replace it with your text.');
         }
@@ -380,6 +434,9 @@
       setAgent: setAgent,
       setNameError: function (msg) { nameField.setError(msg || null); },
       applyStored: applyStored,
+      setField: setField,
+      setModel: setModel,
+      placeNote: placeNote,
       setStoredChangeNote: setStoredChangeNote,
       setTestResult: setTestResult,
       clearTestResult: clearTestResult

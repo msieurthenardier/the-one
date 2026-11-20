@@ -208,6 +208,11 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
     # M33 F2 L3: the flag snapshot, written whenever set (an empty list included).
     if msg.routine_untrusted_sources is not None:
         d["routine_untrusted_sources"] = list(msg.routine_untrusted_sources)
+    # M36 F2 L5: proposal marks, emitted only when set.
+    if msg.proposal_id is not None:
+        d["proposal_id"] = msg.proposal_id
+    if msg.proposal_event is not None:
+        d["proposal_event"] = msg.proposal_event
     # Fix: message-timestamp-on-replay. Emit created_at only when non-None.
     # Pre-fix rows had no created_at key; preserve that shape for back-compat
     # (mirrors the peer_name/channel_id/channel_name pattern above).
@@ -270,6 +275,12 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         routine_id=d.get("routine_id"),
         routine_name=d.get("routine_name"),
         routine_untrusted_sources=_routine_sources(d.get("routine_untrusted_sources")),
+        proposal_id=d.get("proposal_id") if isinstance(d.get("proposal_id"), int) else None,
+        proposal_event=(
+            d.get("proposal_event")
+            if d.get("proposal_event") in ("approved", "approved_no_turn", "dismissed")
+            else None
+        ),
         # Fix: message-timestamp-on-replay. created_at — None on pre-fix
         # rows without the key.
         created_at=d.get("created_at"),
@@ -394,7 +405,11 @@ def messages_to_ui_events(
         # timestamp" (chat.js addMsg falls back to render-time `Date()` only
         # on the LIVE path, which never reaches this projection).
         ts_spread = {"ts": msg.created_at} if msg.created_at is not None else {}
-        routine_spread: dict[str, str] = {}
+        routine_spread: dict[str, Any] = {}
+        if msg.proposal_id is not None:
+            routine_spread["proposal_id"] = msg.proposal_id
+        if msg.proposal_event is not None:
+            routine_spread["proposal_event"] = msg.proposal_event
         if msg.routine_id is not None:
             routine_spread["routine_id"] = msg.routine_id
         if msg.routine_name is not None:
