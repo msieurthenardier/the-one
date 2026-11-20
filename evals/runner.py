@@ -100,7 +100,9 @@ class Plan:
         turns = judge = 0
         for sp in self.specs:
             inst = sp.scenario.instantiate(sp.variant, "")
-            turns += sum(len(c) for c in inst.conversations)
+            # An approve or dismiss step is not a user message; the continuation turn an approval
+            # sends is one more model call per approve, so this stays a lower bound.
+            turns += sum(1 for c in inst.conversations for t in c if isinstance(t, str))
             judge += sum(1 for d in inst.checks if d.name == "judge")
         return turns, judge
 
@@ -265,11 +267,13 @@ def build_transcript(
             {
                 "conversation": t.conversation,
                 "user": t.user,
+                **({"step": t.step, "approve_outcome": t.approve_outcome} if t.step else {}),
                 "messages": [oc.message_to_dict(m) for m in t.messages],
             }
             for t in attempt.trace.turns
         ],
         "notes_saved": attempt.notes,
+        "proposals": attempt.trace.proposals,
         "fetch_requests": record["fetch_requests"],
         "checks": record["checks"],
         "error": f"{type(attempt.exc).__name__}: {attempt.exc}" if attempt.exc else None,

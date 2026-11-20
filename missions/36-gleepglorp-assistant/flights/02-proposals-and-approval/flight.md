@@ -878,7 +878,7 @@ merges in between, but no eval round or behavior test is run on that tree.
       2026-11-19)
   - The Tools, MCP and Knowledge tiles follow on the same mechanism.
   - The Rules reload keeps an inline edit's text, and the Routines tab reloads.
-- [ ] `09-proposal-evals-setup` (autonomous, reviewed and committed before any
+- [x] `09-proposal-evals-setup` (autonomous, reviewed and committed before any
       quota)
   - The `evals/README.md` method section.
   - Scenarios, and checks with their offline pass and fail tests.

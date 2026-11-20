@@ -749,3 +749,152 @@ by editing. Not falsified: the other six new tests.
 **Tests.** Falsified (yes): the return-path tile-note test (itemsFor removed), the busy-button test and the status-node test (native disabled restored / aria-live removed). Not falsified: the two-long-values contract test (both engines) and the silent-snapshot test. `test_a_long_value_is_clamped_in_the_card` updated to the new testid.
 
 **Results.** `THE_ONE_TEST_NETNS=1 make test-unit` 10919 passed, 15 skipped (an earlier run caught a `|` in my inventory edit, fixed). Lanes: contracts-chat 352, chats-transcript 180, agent-tabs 221, all passed. `test_flow_chat_proposals.py` and the follows-approval file also passed directly. ruff check and format clean.
+
+## Batch C checkpoint (Flight Director, commit `96f81cea`)
+- **Reviews:** the code Reviewer (Sonnet) and the Accessibility Reviewer
+  (Sonnet) both confirmed Legs 6-8.
+  - The code Reviewer ran `contracts-chat` (350) and `chats-transcript`
+    (177), plus the unit tier with `-rs`: 10919 passed and 15 skipped, which
+    is exactly the documented netns set. The 18 skips from Leg 7 did not
+    reproduce.
+- **Fixed before the commit,** then confirmed by a scoped re-review:
+  - **Return-path tile notes:** the card records its changed items.
+  - **Accessibility:**
+    - the card is not a live region; one status node speaks each state;
+    - alerts are announced once;
+    - busy buttons stay focusable with `aria-disabled`;
+    - the "Show all" names are distinct per column.
+  - **Re-review results:** guard set 428 and the two flow files 32 passed.
+  - **Developer's runs:** unit 10919/15, `contracts-chat` 352,
+    `chats-transcript` 180, `agent-tabs` 221.
+- **Accepted, low severity:**
+  - **Duplicate MCP or KB names.** A return-path tile note can mark the wrong
+    one of two items with the same name, since a proposal carries names.
+  - **A snapshot during a running turn** draws a card the live path would have
+    held back.
+  - **The approvals `seen` set** is capped at 200 per window.
+  - **The 10px eyebrow table headers** follow the project recipe.
+  - **The card's `h3`** skips a heading level inside the chat log.
+- **Possible flake to watch at the flight-end gate.**
+  `test_chat_history_purge::test_purge_loop_catch_up_sweeps_due_db` failed
+  once under heavy load in Leg 6's unit run and passed in isolation. It has
+  not failed since.
+- **Legs 6-8 completed.**
+
+## Leg 9 `proposal-evals-setup`: landed
+
+**Built (offline; no model call, no quota, plan token never read).**
+- `evals/README.md`: "### The eval method (M36 F2)" under Convention (the eight points of
+  DD13, safety versus ranking classes, qwen3-4b measured only, the Leg 10 sequence), the turn
+  types ("Approve and dismiss turns"), the proposal scenarios and checks, the baseline note
+  (`m36f2-gleepglorp.json` recorded in Leg 10; `m36-gleepglorp.json` becomes history).
+  CLAUDE.md's Prompt evals bullet gains one clause. The stale comment in
+  `measure/tools-web-on.toml` now lists `propose_change`.
+- `evals/scenario.py`: `StepTurn` (`{approve = true}` / `{dismiss = true}`), parsed with the
+  file and field in every refusal; the first turn must be a string; `expand` runs on text only.
+  `evals/runner.py`: `Plan.llm_calls` counts text turns only (a lower bound; an approve adds
+  one call); the transcript records each turn's `step` / `approve_outcome` and the run's
+  `proposals`.
+- `evals/harness.py`: `_decide` runs an approve or dismiss through the app's own
+  `apply_proposal` / `dismiss_proposal` with `continue_chat=False` and returns the
+  `continuation` text to send (`approval_text` / `dismissal_text`); a step that sends no text
+  (`none_open`, `stale`, `failed`, `gone`) ends the conversation and skips the reply and
+  first-tool-timeout rules. `_write_deps` mirrors `api._agent_write_deps` (store with the
+  encryptor, MCP, provider, secret and tool-config repositories, `validate_mcp_overrides`)
+  without importing the web layer. Proposals are read in the `finally` as plain views
+  (`RunTrace.proposals`); each turn is attributed by a before/after snapshot of
+  `list_for_session`, and its open count recorded. Cleanup (`_clean_proposal_state`) at seed
+  (after `_remove_app_rows`, before the agent snapshot) and in the `finally`: the run's
+  `gleepglorp_proposals` rows by session id, and every agent absent from the pre-seed snapshot.
+- `evals/checks.py`: `proposal_made(kind, action, fields, field, matches, turn, status)`,
+  `no_proposal(kind)`, `no_secret_in_proposal(pattern)`, `proposals_flagged_if_untrusted`,
+  `one_open_proposal` (all db-state); `CheckSpec.validate` (cross-parameter; `matches` needs
+  `field`); `TurnTrace.step/approve_outcome/proposal_id/open_proposals`; `RunTrace.proposals`;
+  `conversation_messages` skips a turn with empty `user`; `_taint_expected` on
+  `is_trusted_result(name, content)`.
+- Scenarios (18 in the set, each 4 phrasings x 5 facts = 20 variants): new
+  `propose-create-agent`, `propose-attach-mcp`, `propose-multi-step` (turns request,
+  approve, approve), `propose-rule`, `propose-routine`, `delete-request`, `pasted-key-create`,
+  `injected-proposal` (new fixtures `gg-prop-1..5.html`); `no-change-claim` rewritten (first
+  reply, "I've proposed ..." allowed, adds `proposal_made(agent, change)`; its check stays
+  `replies_not_match`, single turn, which keeps `test_evals_gleepglorp_fixes.py` unedited).
+  `--dry-run` over the set: 360 planned runs on haiku, 380 model calls (lower bound), no agent built.
+
+**Tests.** New `tests/test_evals_gleepglorp_proposals.py` (48): turn parsing (7 refusals plus
+the accepted form), the llm_calls count, the reply-check lint over the shipped set (and a planted
+failure), 4x5 variants, fixture pages, the approve step (applies, sends the approval text,
+records the applied proposal), `none_open` (conversation ends, no phantom user message, one model
+call), the dismiss step, cleanup (no proposal row, no created agent) and the retry (a leftover
+open proposal and agent from a "crash"), a create with the preset's real provider and model,
+no-sockets frames, `gone`/`stale`/`failed` outcomes of `_decide`, the safety checks proven against
+the real tool with the guard off (`no_secret_in_proposal`, pasted key) and the flag forced off
+(`injected-proposal`; a run that never read the page gives `None`), hand-built passing and failing
+traces for all five checks and every option of `proposal_made`, shared tool-call ids told apart,
+and `_taint_expected` with a marked versus unmarked `read_app_config` (also through
+`notes_from_untrusted_flagged`). `test_evals_gleepglorp_harness.py`: `PASSING` for the nine new
+or rewritten scenarios and ten new `BAD` cases (claims before approval, a key in a reply, a
+proposal on the delete request, ...). Evals tier (`tests/test_evals_*.py`): 751 passed. ruff
+check and format clean. `THE_ONE_TEST_NETNS=1 make test-unit`: 10975 passed, 15 skipped, 343.9 s (the documented netns set).
+
+**Falsified.** Yes, for the logic that carries the leg: the `conversation_messages` empty-user
+guard (1 test fails), `_taint_expected` back to name-only (3 fail), the pre-seed
+`_clean_proposal_state` removed (the retry test fails), snapshot attribution forced to turn 0
+(`every scenario can pass` fails). Each restored by editing; the final state is the one tested.
+The parser, the validate hook, the `proposal_made` options, `no_proposal`, the lint and the
+read-back tests are plain pass/fail assertions (not falsified); the `BAD` scripts and the
+guard-off and flag-off tests are can-fail proofs of the checks themselves.
+
+**Existing tests edited (as the leg allows).** `test_evals_gleepglorp_checks.py` `REQUIRED` (the
+scenario list); `test_evals_gleepglorp_harness.py` `PASSING` and `BAD` (the scenario list and the
+rewritten `no-change-claim` script, which now proposes); `test_evals_freeze.py` digests (below).
+
+**Decisions.**
+- The delete scenario has `no_proposal` (no `no_delete_proposed`: there is no delete action); a
+  claim check was added to it as safety, and the link as improve.
+- `no_secret_in_proposal` takes an optional `pattern` (a regex over the stored changes) so the
+  pasted-key scenario can name the pasted key, which is not a seeded secret.
+- `one_open_proposal` was added for the multi-step "never more than one open" safety cell (the
+  store enforces it, so it cannot fail against the real tool; proven on hand-built traces).
+- `approve_outcome` also records `applied` and `dismissed` on success. `changes` in the trace is
+  the stored form, `display` the same with ids shown as names.
+- A key in a proposal is refused by the server guard, so the "key in a proposal" failures are
+  proven with the guard patched off; with it on the proposal is not made (the test asserts that).
+- `ToolConfigRepository(conn, enc)` for the deps (the route does too; the leg text said `(conn)`).
+- Method step 2 (fairness before quota) moves to the start of Leg 10, behind its gate.
+
+**Re-pin note for the operator (NOT purely additive).** `tests/test_evals_freeze.py`
+`SCORING_DIGESTS` for `checks.py` and `harness.py` are re-pinned with a dated comment and need
+the operator's approval before the commit. One behaviour changes: `_taint_expected`, used only
+by `notes_from_untrusted_flagged`, decided by the tool name alone, so every `read_app_config`
+result counted as outside content and a note saved after one needed the untrusted flag. It now
+reads name and result content through `taint.is_trusted_result` (the rule `compute_taint`
+applies), so a note saved after a `read_app_config` result whose first line is the operator-typed
+mark needs no flag, and after an unmarked read it still does. That affects GleepGlorp scenarios
+only (the other sets never call `read_app_config`). Everything else in both modules is additive:
+new checks, new trace fields, the approve and dismiss steps and the cleanup, none of which runs
+for an existing scenario.
+
+**For Leg 10.** The sequence is in the README method section: the fairness pass first (one
+attempt per new scenario on Haiku, transcripts read against each check; quota approved first),
+then a same-prompt baseline of the new set on D-min as the control (it will fail the proposal
+scenarios, as expected), n=5 screens, ceiling shortening, and one n=20 on Haiku and qwen3-4b
+recorded as `m36f2-gleepglorp.json`.
+
+## Leg 9 checkpoint (Flight Director)
+- **Review:** the Reviewer (Sonnet) confirmed the leg, offline (`tests/test_evals_*.py`
+  751 passed; the dry run plans 360 runs over 18 scenarios). It verified that
+  `_taint_expected` is the only behaviour change for existing scenarios; everything else
+  is additive or runs only for GleepGlorp builder runs. `SCORING_DIGESTS` equals the
+  current `sha256sum`.
+- **Operator decisions (2026-11-19):**
+  - The re-pin is approved, on the condition that the Reviewer confirms
+    `_taint_expected` is the only behaviour change. The Reviewer confirmed it.
+  - Leg 10 gate 1 (the fairness pass) is approved, to start after this commit.
+- **Stale comment.** The freeze test's re-pin comment still reads "Pending operator
+  approval". Leg 10's first change updates it to record the approval. The Flight Director
+  does not edit test files.
+- **Reviewer note, carried to Leg 10.** `propose-multi-step` needs its first two approvals
+  to apply in the scratch app. A created agent with no provider or model could make the
+  approve step `failed` and end the conversation. Check this in the fairness pass before
+  any baseline.
+- **Leg 9 completed.**

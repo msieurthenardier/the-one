@@ -69,10 +69,21 @@ SCORING_DIGESTS = {
     # `agent.skip_empty_final_reply` to each TurnTrace (one line), and checks.py gains the
     # `claim_needs_call` check. No existing check, scenario outside evals/gleepglorp or stored-agent
     # path changes.
-    "checks.py": "6be36efd50a43fbfcfa160d24d4db717018abccda9f9c4c29612e6d20d9288f2",
+    # M36 F2 Leg 9 (2026-11-19): approve step, proposals trace and checks; `_taint_expected` on
+    # is_trusted_result: NOT purely additive, operator approval required. checks.py gains the
+    # proposal_made, no_proposal, no_secret_in_proposal, proposals_flagged_if_untrusted and
+    # one_open_proposal checks, TurnTrace.step/approve_outcome/proposal_id/open_proposals,
+    # RunTrace.proposals and a CheckSpec cross-parameter `validate` hook; harness.py the
+    # approve/dismiss steps (apply_proposal with continue_chat=False), the proposals trace, the
+    # proposal and created-agent cleanup. The one behaviour change: `_taint_expected` (used only
+    # by notes_from_untrusted_flagged) now reads the tool result content through
+    # taint.is_trusted_result, so a notes write after a read_app_config result whose first line
+    # is the operator-typed mark no longer needs the untrusted flag (it did before: the name
+    # alone made every read_app_config outside content). Pending operator approval at the gate.
+    "checks.py": "688bac672f716e3fea658c7854fb5f372c3fe2b391026fdbf959915b44d0704a",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "cbc760d000605fe7ced7f3dc8b42f89b0dff9a6a466c27e1df901469a476b123",
+    "harness.py": "023f64e83d0736d0d28cc11d24f7a2beacee6aaec8449b06aa05d28dd0c6ffbb",
 }
 # Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
 # `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must

@@ -51,7 +51,7 @@ from evals.fixtures import (
     KBFixtures,
 )
 from evals.models import Preset, effective_values, provider_row
-from evals.scenario import Scenario, Variant, expand
+from evals.scenario import Scenario, StepTurn, Variant, expand
 
 FS_TOOLS = (
     "read_file",
@@ -280,6 +280,11 @@ class Harness:
         # secret-bearing values, reset at the top of every builder ``_seed``.
         self._app_rows: list[tuple[str, str]] = []
         self._run_secrets: list[str] = []
+        # M36 F2 L9: the agent names that existed before a builder run's seeding (None: no run
+        # in flight) and the run's chat session ids, so the run's proposals and any agent an
+        # approved proposal created are removed again (``_clean_proposal_state``).
+        self._agent_snapshot: set[str] | None = None
+        self._proposal_sessions: list[str] = []
 
     @property
     def fixture_base(self) -> str:
@@ -492,9 +497,15 @@ class Harness:
         sc = spec.scenario
         preset = self.presets[spec.model]
         await self._remove_app_rows()
+        # The pre-seed reset: the previous run's proposals, and any agent its approvals created,
+        # go (a transient retry, or a run that never reached its ``finally``).
+        await self._clean_proposal_state(conn)
         notes = GleepGlorpNoteRepository(conn)
         await notes.clear()
         self._run_secrets = []
+        # The snapshot is taken after the reset and before seeding.
+        self._agent_snapshot = await _agent_name_set(conn)
+        self._proposal_sessions = [f"ev-{spec.stem}-c{ci}" for ci in range(len(sc.conversations))]
         # Named fields (the model is ``extra="forbid"``). The provider row exists from setup(),
         # so the state is ``ready`` and ``provider_patch`` (which swaps only get_provider) applies.
         await save_settings(
@@ -569,6 +580,134 @@ class Harness:
             seeded.add(note.id)
         return seeded
 
+    async def _clean_proposal_state(self, conn: Any) -> None:
+        """Delete the run's ``gleepglorp_proposals`` rows (no foreign key, so explicitly) and every
+        agent absent from the pre-seed snapshot (an approved proposal made it; its rules and
+        routines go by cascade). Idempotent; resets the run's bookkeeping."""
+        from the_one.db._write_lock import write_transaction
+        from the_one.db.repositories import SQLiteAgentStore
+
+        sessions, self._proposal_sessions = self._proposal_sessions, []
+        snapshot, self._agent_snapshot = self._agent_snapshot, None
+        if sessions:
+            marks = ", ".join("?" for _ in sessions)
+            async with write_transaction(conn):
+                await conn.execute(
+                    f"DELETE FROM gleepglorp_proposals WHERE session_id IN ({marks})",  # noqa: S608
+                    sessions,
+                )
+        if snapshot is not None:
+            store = SQLiteAgentStore(conn)
+            for name in sorted(await _agent_name_set(conn) - snapshot):
+                if await store.exists(name):
+                    await store.delete(name)
+
+    async def _write_deps(self, conn: Any) -> Any:
+        """The agent write services' repositories, built the way the approve route builds them
+        (``api._agent_write_deps``) without importing the web layer. The store carries the
+        encryptor, as the route's does (the harness's own store has none)."""
+        from the_one.agent.service import AgentWriteDeps
+        from the_one.config import settings
+        from the_one.db.repositories import (
+            LLMProviderRepository,
+            MCPSourceRepository,
+            SecretRepository,
+            SQLiteAgentStore,
+            ToolConfigRepository,
+        )
+        from the_one.encryption import get_encryptor
+        from the_one.mcp.override_validation import validate_mcp_overrides
+
+        enc = get_encryptor(settings.data_dir)
+        return AgentWriteDeps(
+            store=SQLiteAgentStore(conn, enc),
+            mcp_repo=MCPSourceRepository(conn, enc),
+            provider_repo=LLMProviderRepository(conn, enc),
+            secret_repo=SecretRepository(conn, enc),
+            tool_config_repo=ToolConfigRepository(conn, enc),
+            override_validator=validate_mcp_overrides,
+        )
+
+    async def _decide(
+        self, conn: Any, step: StepTurn, session_id: str, tt: TurnTrace
+    ) -> str | None:
+        """Run an approve or dismiss step on the conversation's open proposal.
+
+        Returns the continuation text to send as the turn's user message, or ``None`` when the
+        step sent none: nothing was open or the apply did not succeed (``tt.approve_outcome`` is
+        ``none_open``, ``stale``, ``failed`` or ``gone``, and the caller ends the conversation).
+        The apply is the app's own ``apply_proposal(..., continue_chat=False)``, the harness
+        driving the continuation itself; its frames go to no socket."""
+        from the_one import time_zones
+        from the_one.gleepglorp.proposals import continuation
+        from the_one.gleepglorp.proposals.apply import apply_proposal, dismiss_proposal
+        from the_one.gleepglorp.proposals.store import GleepGlorpProposalRepository
+
+        open_proposal = await GleepGlorpProposalRepository(conn).open_for_session(session_id)
+        if open_proposal is None:
+            tt.approve_outcome = "none_open"
+            return None
+        tt.proposal_id = open_proposal.id
+        if step.kind == "dismiss":
+            res = await dismiss_proposal(conn, open_proposal.id, continue_chat=False)
+            if res.outcome != "dismissed":
+                tt.approve_outcome = "failed"
+                return None
+            tt.approve_outcome = "dismissed"
+            return continuation.dismissal_text(
+                open_proposal.id, continuation.proposal_title(open_proposal)
+            )
+
+        async def zone() -> Any:
+            return (await time_zones.load_effective_zone(conn)).tzinfo
+
+        res = await apply_proposal(
+            conn,
+            await self._write_deps(conn),
+            open_proposal.id,
+            override=False,
+            now=time_zones.utcnow(),
+            zone=zone,
+            continue_chat=False,
+        )
+        if res.outcome != "applied" or res.view is None:
+            tt.approve_outcome = (
+                res.outcome if res.outcome in ("stale", "failed", "gone") else "failed"
+            )
+            return None
+        tt.approve_outcome = "applied"
+        summary = (res.view.get("result") or {}).get("summary", "")
+        return continuation.approval_text(open_proposal.id, summary)
+
+    async def _collect_proposals(
+        self, conn: Any, sessions: list[str], turn_of: dict[int, int]
+    ) -> list[dict[str, Any]]:
+        """The run's proposals as plain views, in id order (``RunTrace.proposals``)."""
+        from the_one.gleepglorp.proposals.store import GleepGlorpProposalRepository, proposal_view
+
+        repo = GleepGlorpProposalRepository(conn)
+        out: list[dict[str, Any]] = []
+        for sid in sessions:
+            for p in await repo.list_for_session(sid):
+                view = await proposal_view(conn, p)
+                out.append(
+                    {
+                        "id": p.id,
+                        "kind": p.kind,
+                        "action": p.action,
+                        "agent_name": p.agent_name,
+                        "changes": p.changes,
+                        "display": view["changes"],
+                        "status": p.status,
+                        "untrusted": p.untrusted,
+                        "untrusted_sources": p.untrusted_sources,
+                        "tool_call_id": p.tool_call_id,
+                        "turn": turn_of.get(p.id),
+                        "applied_result": p.result if p.status == "applied" else None,
+                    }
+                )
+        return sorted(out, key=lambda v: v["id"])
+
     async def _collect_routines(self, agent_name: str) -> list[RoutineView]:
         """The routines the run's agent left in the database (the stored columns)."""
         from the_one.db.connection import get_connection
@@ -607,6 +746,7 @@ class Harness:
         scripted = self.provider_hook(spec, self.fixture_base) if self.provider_hook else None
         fixture_mark = len(self.fixture_server.requests) if self.fixture_server else 0
         seeded: set[str] = set()
+        proposal_turns: dict[int, int] = {}  # proposal id -> the run-global turn that made it
         t_run = time.monotonic()
         agent = None
         with clock_patch(sc.instant_for(spec.variant), sc.host_zone):
@@ -632,16 +772,30 @@ class Harness:
                         attempt.exposure = exp.to_dict() if exp is not None else None
                     session_id = f"ev-{spec.stem}-c{ci}"
                     attempt.effective = effective_values(agent.llm)
-                    for text in turns:
+                    for turn in turns:
+                        is_step = isinstance(turn, StepTurn)
                         tt = TurnTrace(
                             conversation=ci,
                             index=turn_index,
-                            user=text,
+                            user="" if is_step else turn,
                             skip_empty_reply=sc.skip_empty_final_reply,
+                            step=turn.kind if is_step else None,
                         )
                         trace.turns.append(tt)
                         turn_index += 1
+                        known = await _proposal_status(conn, session_id) if builder else {}
+                        text: str | None = tt.user
                         t0 = time.monotonic()
+                        if is_step:
+                            # The operator's decision, through the app's own apply path. A step
+                            # that sends no text (nothing open, or the apply did not succeed)
+                            # ends the conversation and is never a model failure.
+                            text = await self._decide(conn, turn, session_id, tt)
+                            tt.user = text or ""
+                            if text is None:
+                                attempt.turn_s.append(round(time.monotonic() - t0, 3))
+                                await _note_proposals(conn, session_id, known, tt, proposal_turns)
+                                break
                         token = current_turn.set(TurnContext(session_id=session_id))
                         try:
                             async with asyncio.timeout(self.turn_timeout):
@@ -652,6 +806,8 @@ class Harness:
                         finally:
                             current_turn.reset(token)
                             attempt.turn_s.append(round(time.monotonic() - t0, 3))
+                            if builder:
+                                await _note_proposals(conn, session_id, known, tt, proposal_turns)
                         if attempt.model_failure:
                             break
                         if not tt.has_final_reply:
@@ -700,10 +856,21 @@ class Harness:
                     except Exception as exc:  # noqa: BLE001 - must not mask the run
                         attempt.exc = attempt.exc or exc
                 if builder:
+                    try:
+                        trace.proposals = await self._collect_proposals(
+                            await get_connection(),
+                            [f"ev-{spec.stem}-c{ci}" for ci in range(len(inst.conversations))],
+                            proposal_turns,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - must not mask the run
+                        attempt.exc = attempt.exc or exc
+                if builder:
                     # The run's [app] rows go again (the next seed removes them too, so a run
-                    # that never got here leaves nothing the next one can see).
+                    # that never got here leaves nothing the next one can see), and so do its
+                    # proposals and any agent an approved proposal created.
                     try:
                         await self._remove_app_rows()
+                        await self._clean_proposal_state(await get_connection())
                     except Exception as exc:  # noqa: BLE001 - must not mask the run
                         attempt.exc = attempt.exc or exc
         attempt.wall_s = round(time.monotonic() - t_run, 3)
@@ -711,6 +878,31 @@ class Harness:
             attempt.fixture_requests = list(self.fixture_server.requests[fixture_mark:])
         trace.fixture_requests = list(attempt.fixture_requests)
         return attempt
+
+
+async def _proposal_status(conn: Any, session_id: str) -> dict[int, str]:
+    """``{proposal id: status}`` for a chat's proposals (the snapshot a turn is attributed by)."""
+    from the_one.gleepglorp.proposals.store import GleepGlorpProposalRepository
+
+    rows = await GleepGlorpProposalRepository(conn).list_for_session(session_id)
+    return {p.id: p.status for p in rows}
+
+
+async def _note_proposals(
+    conn: Any, session_id: str, before: dict[int, str], tt: TurnTrace, turn_of: dict[int, int]
+) -> None:
+    """After a turn: attribute the proposals new since ``before`` to it (a snapshot, because tool
+    call ids repeat) and record how many of the chat's proposals are still open."""
+    now = await _proposal_status(conn, session_id)
+    for pid in now:
+        if pid not in before:
+            turn_of[pid] = tt.index
+    tt.open_proposals = sum(1 for s in now.values() if s in ("pending", "failed"))
+
+
+async def _agent_name_set(conn: Any) -> set[str]:
+    async with conn.execute("SELECT name FROM agents") as cur:
+        return {r[0] for r in await cur.fetchall()}
 
 
 def _schedule_class(schedule: dict) -> str:

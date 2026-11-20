@@ -140,13 +140,31 @@ class Variant:
     mapping: dict[str, str]
 
 
+@dataclass(frozen=True)
+class StepTurn:
+    """A turn that is the operator's decision on the chat's open proposal, not a typed message:
+    ``approve`` (``{approve = true}``) or ``dismiss`` (``{dismiss = true}``). The harness acts on
+    it through the app's own apply path (M36 F2 L9)."""
+
+    kind: str  # "approve" | "dismiss"
+
+
+Turn = str | StepTurn
+STEP_KINDS = ("approve", "dismiss")
+
+
+def is_user_turn(turn: Turn) -> bool:
+    """True for a turn that is user text (one model call at least), False for a step."""
+    return isinstance(turn, str)
+
+
 @dataclass
 class Instance:
     """A scenario instantiated for one variant."""
 
     scenario: Scenario
     variant: Variant
-    conversations: list[list[str]]
+    conversations: list[list[Turn]]
     checks: list[CheckDecl]
 
 
@@ -177,7 +195,7 @@ class Scenario:
     host_zone: str = DEFAULT_HOST_ZONE
     phrasings: list[str] = field(default_factory=lambda: [""])
     facts: list[dict[str, str]] = field(default_factory=lambda: [{}])
-    conversations: list[list[str]] = field(default_factory=list)
+    conversations: list[list[Turn]] = field(default_factory=list)
     raw_checks: list[dict[str, Any]] = field(default_factory=list)
 
     def variants(self) -> list[Variant]:
@@ -219,7 +237,11 @@ class Scenario:
 
     def instantiate(self, variant: Variant, fixture_base: str = "") -> Instance:
         mapping = {**variant.mapping, "fixture_base": fixture_base}
-        convs = [[expand(t, mapping) for t in turns] for turns in self.conversations]
+        # ``expand`` runs on string turns only; an approve or dismiss step has no text.
+        convs = [
+            [expand(t, mapping) if isinstance(t, str) else t for t in turns]
+            for turns in self.conversations
+        ]
         decls = self._decls(mapping, self.path)
         return Instance(self, variant, convs, decls)
 
@@ -415,6 +437,22 @@ def _parse_app(path: Path, app: Any) -> AppSeed:
     return seed
 
 
+def _step_turn(path: Path, table: dict, where: str) -> StepTurn:
+    for key in table:
+        if key not in STEP_KINDS:
+            raise _fail(
+                path,
+                f"{where}.{key}",
+                "unknown field (a step is {approve = true} or {dismiss = true})",
+            )
+    if len(table) != 1:
+        raise _fail(path, where, "a step names exactly one of approve or dismiss")
+    ((kind, value),) = table.items()
+    if value is not True:
+        raise _fail(path, f"{where}.{kind}", "must be true")
+    return StepTurn(kind)
+
+
 def parse_scenario(
     path: Path, *, n: int | None = None, fixtures_root: Path | None = None
 ) -> Scenario:
@@ -561,13 +599,30 @@ def parse_scenario(
         raise _fail(path, "conversations", "must be a non-empty list of tables")
     for i, conv in enumerate(convs):
         turns = conv.get("turns") if isinstance(conv, dict) else None
-        if (
-            not isinstance(turns, list)
-            or not turns
-            or not all(isinstance(t, str) and t.strip() for t in turns)
-        ):
-            raise _fail(path, f"conversations[{i}].turns", "must be a non-empty list of strings")
-        sc.conversations.append(list(turns))
+        if not isinstance(turns, list) or not turns:
+            raise _fail(
+                path,
+                f"conversations[{i}].turns",
+                "must be a non-empty list of strings, {approve = true} or {dismiss = true}",
+            )
+        parsed: list[Turn] = []
+        for j, t in enumerate(turns):
+            where = f"conversations[{i}].turns[{j}]"
+            if isinstance(t, str) and t.strip():
+                parsed.append(t)
+            elif isinstance(t, dict):
+                parsed.append(_step_turn(path, t, where))
+            else:
+                raise _fail(
+                    path, where, "must be a non-empty string, {approve = true} or {dismiss = true}"
+                )
+        if not isinstance(parsed[0], str):
+            raise _fail(
+                path,
+                f"conversations[{i}].turns[0]",
+                "the first turn must be a string (a step needs a proposal made earlier)",
+            )
+        sc.conversations.append(parsed)
 
     raw_checks = data["checks"]
     if not isinstance(raw_checks, list) or not raw_checks:

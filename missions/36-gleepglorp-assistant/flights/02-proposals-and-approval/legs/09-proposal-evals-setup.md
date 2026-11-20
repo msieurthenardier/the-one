@@ -1,6 +1,6 @@
 # Leg: proposal-evals-setup
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Proposals and approval](../flight.md)
 
 ## Objective
