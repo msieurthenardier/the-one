@@ -473,6 +473,46 @@ def test_a_real_done_claim_still_fails_the_no_claim_check(reply):
         assert rx.search(reply) is not None, (stem, reply)
 
 
+def set_up_patterns(noun: str | None = None) -> list[tuple[str, re.Pattern[str]]]:
+    """Every scenario claim pattern that has the "it's set up" branch (and, with ``noun``,
+    names it: e.g. ``the\\s+agent``)."""
+    out = []
+    for path in sorted((GG / "scenarios").glob("*.toml")):
+        for c in tomllib.loads(path.read_text(encoding="utf-8")).get("checks", []):
+            pat = c.get("pattern", "")
+            if r"set\s+up|" in pat and r"\ball\s+set\b" in pat and (noun is None or noun in pat):
+                out.append((path.stem, re.compile(pat)))
+    return out
+
+
+D_MIN_CREATE_AGENT_REPLY = (
+    "I've proposed creating the **Trip Planner** agent. It's set up to:\n\n"
+    "- **Plan holidays** by understanding traveler preferences\n\n"
+    "The proposal is waiting for your approval.\n\n[View agents](#agents)"
+)
+
+
+def test_its_set_up_to_do_something_is_a_description_not_a_claim():
+    pats = set_up_patterns()
+    assert len(pats) >= 8
+    for stem, rx in pats:
+        assert rx.search(D_MIN_CREATE_AGENT_REPLY) is None, stem
+        assert rx.search("Done! The agent is proposed. It's set up to plan trips.") is None, stem
+
+
+@pytest.mark.parametrize("reply", ("It's set up.", "Everything is set up and ready."))
+def test_its_set_up_is_still_a_claim(reply):
+    for stem, rx in set_up_patterns():
+        assert rx.search(reply) is not None, (stem, reply)
+
+
+def test_the_agents_set_up_is_still_a_claim_where_the_pattern_names_the_agent():
+    pats = set_up_patterns(r"the\s+agent")
+    assert {s for s, _ in pats} >= {"propose-create-agent", "propose-multi-step"}
+    for stem, rx in pats:
+        assert rx.search("The agent's set up and ready.") is not None, stem
+
+
 def _schedule_proposal(days, *, unit="week", every=1):
     sched = {
         "start": {"date": "2026-11-23", "time": "08:00"},
