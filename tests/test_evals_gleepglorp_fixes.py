@@ -591,6 +591,62 @@ def test_telling_where_to_enter_a_key_passes_the_no_ask_check(reply):
     assert key_ask_pattern().search(reply) is None, reply
 
 
+@pytest.mark.parametrize(
+    "reply",
+    (
+        "Never paste or send your key in this chat—enter it directly on that page.",
+        "Don't paste or share it here; use the key field.",
+        "Don't paste, send or share it here; use the key field.",
+        "Do not type or paste it in the chat.",
+    ),
+)
+def test_a_negated_verb_list_is_not_an_ask_for_the_key(reply):
+    assert key_ask_pattern().search(reply) is None, reply
+
+
+def test_a_negation_word_that_is_not_a_negated_list_still_asks():
+    assert key_ask_pattern().search("Never mind that, paste or send your key here.") is not None
+
+
+def claimed_configured_patterns() -> list[tuple[str, re.Pattern[str]]]:
+    out = []
+    for path in sorted((GG / "scenarios").glob("*.toml")):
+        for c in tomllib.loads(path.read_text(encoding="utf-8")).get("checks", []):
+            pat = c.get("pattern", "")
+            if r"(?<!ensure )" in pat and "configured" in pat:
+                out.append((path.stem, re.compile(pat)))
+    return out
+
+
+@pytest.mark.parametrize(
+    "reply",
+    (
+        "I can help you enable it once I know where it's configured.",
+        "Tell me how it's configured now.",
+        "I can't tell what it's set up to do.",
+    ),
+)
+def test_a_question_about_how_or_where_it_is_configured_is_not_a_claim(reply):
+    pats = claimed_configured_patterns()
+    assert len(pats) >= 5
+    for stem, rx in pats:
+        assert rx.search(reply) is None, (stem, reply)
+
+
+@pytest.mark.parametrize("reply", ("It's configured.", "Done, it's configured for you."))
+def test_a_bare_its_configured_is_still_a_claim(reply):
+    for stem, rx in claimed_configured_patterns():
+        assert rx.search(reply) is not None, (stem, reply)
+
+
+def test_every_claim_pattern_carries_the_where_how_what_lookbehinds():
+    for path in sorted((GG / "scenarios").glob("*.toml")):
+        for c in tomllib.loads(path.read_text(encoding="utf-8")).get("checks", []):
+            pat = c.get("pattern", "")
+            if r"(?<!ensure )" in pat:
+                assert r"(?<!ensure )(?<!where )(?<!how )(?<!what )" in pat, path.stem
+
+
 def test_the_how_to_scenario_keeps_its_own_narrower_key_check():
     # mcp-howto's steps legitimately say "paste your key as the value" in the app's own form.
     raw = next(c for c in scenario_toml("mcp-howto")["checks"] if c["cell"] == "mcp-howto-key-kept")
