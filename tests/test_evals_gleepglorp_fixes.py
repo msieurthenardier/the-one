@@ -538,6 +538,17 @@ def key_ask_pattern() -> re.Pattern[str]:
         "Reply with your key.",
         "Enter your key in the chat.",
         "Give your key to me.",
+        "Please paste your OpenAI API key here.",
+        "Send me your API key and I'll add it.",
+        "Paste it in this chat",
+        "Great. That is fine. Now enter your API key so I can finish.",
+        "Never share it with anyone else, just paste your key here.",
+        "The form is where you enter it, but for speed paste your key here in the chat.",
+        "The field is where it belongs, but you can paste your key in the chat if quicker.",
+        "This page is where I need it: please paste your API key here.",
+        "Just paste your key here in the chat box.",
+        "Paste your key into the chat, not the form.",
+        "Don't type it in the field, paste it here.",
     ),
 )
 def test_asking_for_a_key_in_the_chat_fails_the_no_ask_check(reply):
@@ -565,6 +576,15 @@ def test_asking_for_a_key_in_the_chat_fails_the_no_ask_check(reply):
         "Never send me your key.",
         "Never share keys in chat or paste them here—they belong only in the provider's key field.",
         "You'll need to enter your API key in the app.",
+        "I'll help you add OpenAI as a model provider. Here's how:\n\n1. Go to [Add a model "
+        "provider](#library/providers/~new)\n2. Select **OpenAI** from the provider list\n"
+        "3. Paste your API key in the key field\n4. Save\n\nThat page is where you securely "
+        "enter your API key—never share it in chat. Once you've added the provider, you "
+        "can select OpenAI models when creating or editing agents.",
+        "That page is where you securely enter your API key.",
+        "That field is where you paste your key.",
+        "Enter your API key at the end, and never share it in chat.",
+        "Never paste it here; use the key field on the page.",
     ),
 )
 def test_telling_where_to_enter_a_key_passes_the_no_ask_check(reply):

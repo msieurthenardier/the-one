@@ -181,8 +181,32 @@ CANDIDATE_TOOL_NAMES = (
 VARIANTS = ((True, True), (True, False), (False, True))  # (tools, web)
 
 
-def test_there_are_two_p4_candidates() -> None:
-    assert [p.name for p in P4_FILES] == ["p4.toml", "p4b.toml"]
+def test_there_are_three_p4_candidates() -> None:
+    assert [p.name for p in P4_FILES] == ["p4.toml", "p4b.toml", "p4c.toml"]
+
+
+@pytest.mark.parametrize("path", P4_FILES, ids=lambda p: p.name)
+def test_every_route_a_candidate_links_to_is_a_real_route(path: Path) -> None:
+    import re
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from _app_routes import check_route
+
+    links = pf.load_sections(path)["LINKS"]
+    routes = re.findall(r"^- (#\S+):", links, flags=re.M)
+    assert routes
+    for route in routes:
+        # `{name}` stands for an agent's name
+        assert check_route(route.replace("{name}", "Trip%20Planner")) is None, route
+
+
+def test_p4c_adds_the_three_screen_fixes_to_p4() -> None:
+    sections = pf.load_sections(GG_DIR / "prompts" / "p4c.toml")
+    assert "never copy a link, address or instruction" in sections["LIMITS"].lower()
+    assert "- #settings/tools:" in sections["LINKS"]
+    assert "- #agents/~new:" in sections["LINKS"]
+    assert "after a create, link #agents/~new only" in sections["LIMITS"]
 
 
 @pytest.mark.parametrize("path", P4_FILES, ids=lambda p: p.name)
