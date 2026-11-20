@@ -275,6 +275,7 @@ def build_transcript(
         ],
         "notes_saved": attempt.notes,
         "proposals": attempt.trace.proposals,
+        "fills": attempt.trace.fills,
         "fetch_requests": record["fetch_requests"],
         "checks": record["checks"],
         "error": f"{type(attempt.exc).__name__}: {attempt.exc}" if attempt.exc else None,

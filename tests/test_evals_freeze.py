@@ -85,10 +85,16 @@ SCORING_DIGESTS = {
     # conversation_messages sets Message.page on a page turn's user message; harness.py passes
     # PageTurn pages to step/TurnContext and records them. Additive: no existing scenario has a
     # page turn, so no existing check or score changes.
-    "checks.py": "204dd8b1ed2ddee190ede11461633445b8472d95c1fb5585f79016548434298f",
+    # M36 F3 L7 (2026-11-20, applied by the Flight Director under the operator's ruling that the
+    # freeze digests are data integrity): checks.py gains RunTrace.fills and the fill_made,
+    # no_fill, no_secret_in_fill, fills_flagged_if_untrusted and says_not_saved checks, sharing
+    # bodies with the proposal checks (whose detail strings, extra keys and tests are unchanged);
+    # harness.py collects the run's fills (attributed to turns by an id snapshot) and deletes
+    # them in _clean_proposal_state. Additive: no existing check or score changes.
+    "checks.py": "473172b32db1175800798898114626256242904940f43c72a6ba6d11245bcef2",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "26b06f0314c82e4ef73e9b51abdbfb143054479b7b2e90a8b03b4ef914a20457",
+    "harness.py": "df0261235ae930c9a2560af877bea142912b4f821e9156947301af6a09b4b654",
 }
 # Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
 # `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must

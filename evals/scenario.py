@@ -256,10 +256,22 @@ class Scenario:
             if isinstance(t, str):
                 return expand(t, mapping)
             if isinstance(t, PageTurn):
-                return PageTurn(
-                    expand(t.text, mapping),
-                    {**t.page, "line": expand(t.page["line"], mapping)},
-                )
+                page = {**t.page, "line": expand(t.page["line"], mapping)}
+                if "descriptor" in page:
+                    # every string value of the descriptor is expanded (a templated item name
+                    # must match its line), then the result is validated again
+                    page["descriptor"] = {
+                        k: expand(v, mapping) if isinstance(v, str) else v
+                        for k, v in page["descriptor"].items()
+                    }
+                    from the_one.gleepglorp.page import validate_descriptor
+
+                    desc, err = validate_descriptor(page["descriptor"])
+                    if desc is None:
+                        msg = (err or "").removeprefix("value: ")
+                        raise ScenarioError(f"{self.path.name}: page.descriptor: {msg}")
+                    page["descriptor"] = desc
+                return PageTurn(expand(t.text, mapping), page)
             return t
 
         convs = [[_expand_turn(t) for t in turns] for turns in self.conversations]

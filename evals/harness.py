@@ -581,9 +581,10 @@ class Harness:
         return seeded
 
     async def _clean_proposal_state(self, conn: Any) -> None:
-        """Delete the run's ``gleepglorp_proposals`` rows (no foreign key, so explicitly) and every
-        agent absent from the pre-seed snapshot (an approved proposal made it; its rules and
-        routines go by cascade). Idempotent; resets the run's bookkeeping."""
+        """Delete the run's ``gleepglorp_proposals`` and ``gleepglorp_fills`` rows (no foreign
+        keys, so explicitly, in one transaction) and every agent absent from the pre-seed snapshot
+        (an approved proposal made it; its rules and routines go by cascade). Idempotent; resets
+        the run's bookkeeping."""
         from the_one.db._write_lock import write_transaction
         from the_one.db.repositories import SQLiteAgentStore
 
@@ -594,6 +595,10 @@ class Harness:
             async with write_transaction(conn):
                 await conn.execute(
                     f"DELETE FROM gleepglorp_proposals WHERE session_id IN ({marks})",  # noqa: S608
+                    sessions,
+                )
+                await conn.execute(
+                    f"DELETE FROM gleepglorp_fills WHERE session_id IN ({marks})",  # noqa: S608
                     sessions,
                 )
         if snapshot is not None:
@@ -708,6 +713,37 @@ class Harness:
                 )
         return sorted(out, key=lambda v: v["id"])
 
+    async def _collect_fills(
+        self, conn: Any, sessions: list[str], turn_of: dict[int, int]
+    ) -> list[dict[str, Any]]:
+        """The run's fills as plain views, in id order (``RunTrace.fills``). ``changes`` is the
+        STORED form (the row's own changes; ids stay ids) and ``display`` the view's ``changes``
+        (ids shown as names): ``fill_view`` names them the other way round (``values`` is the
+        stored form there), so the mapping is deliberate."""
+        from the_one.gleepglorp.fill.store import GleepGlorpFillRepository, fill_view
+
+        repo = GleepGlorpFillRepository(conn)
+        out: list[dict[str, Any]] = []
+        for sid in sessions:
+            for f in await repo.list_for_session(sid):
+                view = await fill_view(conn, f)
+                out.append(
+                    {
+                        "id": f.id,
+                        "kind": f.kind,
+                        "action": f.action,
+                        "agent_name": f.agent_name,
+                        "changes": f.changes,
+                        "display": view["changes"],
+                        "status": f.status,
+                        "untrusted": f.untrusted,
+                        "untrusted_sources": f.untrusted_sources,
+                        "tool_call_id": f.tool_call_id,
+                        "turn": turn_of.get(f.id),
+                    }
+                )
+        return sorted(out, key=lambda v: v["id"])
+
     async def _collect_routines(self, agent_name: str) -> list[RoutineView]:
         """The routines the run's agent left in the database (the stored columns)."""
         from the_one.db.connection import get_connection
@@ -747,6 +783,7 @@ class Harness:
         fixture_mark = len(self.fixture_server.requests) if self.fixture_server else 0
         seeded: set[str] = set()
         proposal_turns: dict[int, int] = {}  # proposal id -> the run-global turn that made it
+        fill_turns: dict[int, int] = {}  # fill id -> the run-global turn that made it
         t_run = time.monotonic()
         agent = None
         with clock_patch(sc.instant_for(spec.variant), sc.host_zone):
@@ -786,6 +823,7 @@ class Harness:
                         trace.turns.append(tt)
                         turn_index += 1
                         known = await _proposal_status(conn, session_id) if builder else {}
+                        known_fills = await _fill_ids(conn, session_id) if builder else set()
                         text: str | None = tt.user
                         t0 = time.monotonic()
                         if is_step:
@@ -797,6 +835,7 @@ class Harness:
                             if text is None:
                                 attempt.turn_s.append(round(time.monotonic() - t0, 3))
                                 await _note_proposals(conn, session_id, known, tt, proposal_turns)
+                                await _note_fills(conn, session_id, known_fills, tt, fill_turns)
                                 break
                         # A page turn only: the keyword and the context page are passed only
                         # when there is a page, as the app does.
@@ -820,6 +859,7 @@ class Harness:
                             attempt.turn_s.append(round(time.monotonic() - t0, 3))
                             if builder:
                                 await _note_proposals(conn, session_id, known, tt, proposal_turns)
+                                await _note_fills(conn, session_id, known_fills, tt, fill_turns)
                         if attempt.model_failure:
                             break
                         if not tt.has_final_reply:
@@ -874,6 +914,11 @@ class Harness:
                             [f"ev-{spec.stem}-c{ci}" for ci in range(len(inst.conversations))],
                             proposal_turns,
                         )
+                        trace.fills = await self._collect_fills(
+                            await get_connection(),
+                            [f"ev-{spec.stem}-c{ci}" for ci in range(len(inst.conversations))],
+                            fill_turns,
+                        )
                     except Exception as exc:  # noqa: BLE001 - must not mask the run
                         attempt.exc = attempt.exc or exc
                 if builder:
@@ -910,6 +955,23 @@ async def _note_proposals(
         if pid not in before:
             turn_of[pid] = tt.index
     tt.open_proposals = sum(1 for s in now.values() if s in ("pending", "failed"))
+
+
+async def _fill_ids(conn: Any, session_id: str) -> set[int]:
+    """The ids of a chat's fills (the snapshot a turn is attributed by: ids only, since a later
+    fill marks an older ``sent`` one ``replaced`` and a replaced row must not look new)."""
+    from the_one.gleepglorp.fill.store import GleepGlorpFillRepository
+
+    return {f.id for f in await GleepGlorpFillRepository(conn).list_for_session(session_id)}
+
+
+async def _note_fills(
+    conn: Any, session_id: str, before: set[int], tt: TurnTrace, turn_of: dict[int, int]
+) -> None:
+    """After a turn: attribute the fills new since ``before`` to it."""
+    for fid in await _fill_ids(conn, session_id):
+        if fid not in before:
+            turn_of[fid] = tt.index
 
 
 async def _agent_name_set(conn: Any) -> set[str]:

@@ -688,6 +688,131 @@ cite, so none had drifted.
           split or a re-budget from a quiet-host run, which is carried to the
           flight's closing gate. Every other lane was within budget.
       - **Legs 4, 5 and 6 set `completed`.** Checkpoint commit follows.
+      - **Checkpoint commit `b406aa67`** (`flight/3: batch B — page awareness
+        and form filling`). `env.sh` was left untracked.
+    - **Leg 7 (`07-prompt-and-evals-setup`) designed.**
+      - **Scope:**
+        - the `p4` and `p4b` candidates and the cap moved to 550;
+        - the guide's `drawer` topic and a note in `proposals.md`;
+        - `RunTrace.fills` and the fill clean-up;
+        - the checks `fill_made`, `no_fill`, `no_secret_in_fill`,
+          `fills_flagged_if_untrusted` and `says_not_saved`, with offline
+          tests;
+        - five new scenarios.
+      - **Not in scope:** the shipped prompt stays `p3`, and no quota is
+        spent.
+      - **Freeze digests:** the Developer reports the new digests, and the FD
+        applies them under the operator's 2026-11-20 ruling.
+      - **FD tiering: high.** The leg changes the frozen scoring modules, adds
+        safety-class checks and refactors the shared proposal check helpers.
+        A Developer design review (Sonnet) was spawned.
+      - **Design review cycle 1: approve with changes.** Three medium items,
+        all folded in:
+        1. `fill_view`'s `changes`/`values` are inverted against a proposal's
+           view, so the leg now states the mapping and adds a test.
+        2. The `PageTurn` descriptor was not expanded, so `scenario.py` now
+           expands it, with a test.
+        3. `fill-after-fetch` needs its own fixture (`gg-fill-N.html`, both
+           turns as page turns) and `page-pasted-key` needs
+           `no_secret_in_fill` with a pattern.
+
+        Low items, also folded in:
+        - the `db_state` flags;
+        - the exact result text, with the old locator kept as a wrapper;
+        - the candidate test's own coverage, and where each rule may go;
+        - `reply_matches`;
+        - the real page lines (`New Agent`) and the action `change`;
+        - no guide count pin, and `CLAUDE.md` corrected to 15;
+        - the measure fingerprint moves;
+        - `runner.py` gains `fills`;
+        - a wider `says_not_saved`;
+        - the snapshot records ids only.
+
+        The designer's three questions, answered: a new fixture; descriptor
+        expansion; `no_fill` stays a safety check in `page-what-is`.
+      - **FD call: no second review cycle.** Every change adopts the
+        reviewer's own recommendation; none restructures the leg or raises
+        risk. The leg is `ready`.
+      - **Leg 7 implementation started:** a Developer (Sonnet), background,
+        no quota. The Developer reports the freeze digests and does not edit
+        `test_evals_freeze.py`.
+      - **Leg 7 `[BLOCKED]`.**
+        - **What blocked it:**
+          `test_evals_gleepglorp_checks.py::test_the_shipped_set_has_every_required_scenario_at_twenty_variants`
+          (`REQUIRED`) and
+          `test_evals_gleepglorp_harness.py::test_every_scenario_of_the_set_can_pass_offline`
+          (`PASSING`) pin the scenario set. The leg's allowed-edits list
+          missed them, which is a design omission.
+        - **FD ruling:** add the five ids and five genuinely passing
+          scripts, additions only.
+        - **Also sent back:** the Developer dropped `set up` and `set` from
+          the fill no-claim patterns to satisfy the fairness pins in
+          `test_evals_gleepglorp_fixes.py`. That loosens a safety cell, so
+          they are restored with guards, with an offline case that a real
+          claim fails.
+        - **Accepted:** `page-what-is` as two conversations with generic
+          question facts.
+        - **Candidate sizes (tools / web off / tool-free):** p3 428/420/326;
+          p4 518/510/351; p4b 473/465/345.
+        - **Measure:** the GleepGlorp measure fingerprint moved (the
+          `drawer` topic in `get_app_guide`'s description). The other
+          fingerprints are unchanged.
+      - **Leg 7 `[LAND:leg]`.**
+        - **Rulings applied:** the registries got additions only, and `BAD`
+          gained two entries.
+        - **"set up" restored:** it is back in the no-claim patterns with
+          guards, and the case "I've set up Trip Planner for you." fails it.
+          That case was falsified.
+        - **Unit tier:** 11258 passed, 15 skipped, and 1 expected failure
+          (the freeze test).
+      - **Freeze digests applied by the FD**, under the operator's
+        2026-11-20 ruling: `checks.py`
+        `473172b32db1175800798898114626256242904940f43c72a6ba6d11245bcef2`,
+        `harness.py`
+        `df0261235ae930c9a2560af877bea142912b4f821e9156947301af6a09b4b654`.
+        The FD verified both with `sha256sum`, added a dated comment, and
+        `tests/test_evals_freeze.py` passes 3 of 3.
+      - **Leg 7 review.**
+        - **Reviewer: Sonnet.** The diff is not a security surface, but it
+          refactors the shared bodies of safety-class scoring checks that
+          decide whether a prompt ships, so the stronger tier applies.
+        - **No Accessibility Reviewer:** no UI change and no static file.
+        - **Selector grep:** not applicable (no static change). The run
+          output gains a `fills` key; the Reviewer checks for exact pins.
+        - **Reviewer: `[HANDOFF:confirmed]`.** 964 eval, prompt and guide
+          tests passed; ruff is clean; the digests match.
+          - The proposal checks' strings and `extra` keys are byte-identical
+            to HEAD.
+          - The fill view mapping, the id-only snapshot and the
+            same-transaction delete are correct.
+          - The no-claim regexes were exercised.
+          - No assertion was weakened, and no run directory or baseline was
+            written.
+        - **Two non-blocking nits:**
+          1. `fill-after-fetch`'s `no_secret_in_fill` cell is vacuous
+             (nothing seeded, no pattern);
+          2. `page-what-is`'s turn-0 link pattern matches any Library link.
+        - **FD call: fix both.** A vacuous safety cell inflates the safety
+          count. Fix pass 1 is a Developer (Sonnet), with scenario and fixture
+          files only; the scoring modules are untouched.
+        - **FD check of fix pass 1** (two scenario patterns and two tests,
+          which the FD checked directly instead of a third reviewer spawn).
+          - **Results:** the pattern and the exact `library/mcp/~new` link are
+            in; 966 eval, prompt and guide tests passed; the digests are
+            unchanged.
+          - **Carried to Leg 8's fairness pass:** the `(?i:shell commands)`
+            term (fixture 3) could also match a legitimate prompt line such
+            as "never run shell commands". The transcripts are read for that
+            false safety failure.
+      - **Leg 7 set `completed`.** It is committed alone, before any quota is
+        spent.
+        - **Leg 7 fix pass 1:** `fill-after-fetch`'s `no_secret_in_fill` now
+          carries a `pattern` naming each fixture's injected payload (address
+          or sentence, all five fixtures), with two offline tests (each payload
+          fails the cell, a clean fill passes, the pattern matches every
+          fixture); `page-what-is`'s turn-0 link pattern is the exact
+          `library/mcp/~new` (turn 1 `settings/tools` was already exact: the
+          check fullmatches the route). Digests unchanged.
       - **Batch B full browser run:** the FD started `--parallel 3` (netns,
         WebKit required, `TEST_TIMEOUT=3600`), with start load 2.14. It is a
         correctness run, not a budget reading.
@@ -857,6 +982,26 @@ Three non-blocking review items fixed.
 **Falsifications.** Proposal card (marker moved back to the root): yes, failed on the ancestor assertion. Fill receipt: yes, failed (body lacked the marker). Both restored by edit.
 
 **Verification.** ruff check and format: clean. `THE_ONE_TEST_NETNS=1 make test-unit` (start load 0.61): 11198 passed, 15 skipped, 344 s. Static guards (ui_guards, token_definitions, design_tokens_a11y, ui_ownership, ui_emitted_classes, ui_control_inventory, area_module_size): 430 passed. Lanes one at a time (`THE_ONE_TEST_NETNS=1`, `THE_ONE_REQUIRE_WEBKIT=1`): `shared` 450 passed (511 s, start load 1.10), `chats-transcript` 181 passed (418 s, start load 1.97). No failures.
+
+### Leg 7 (prompt-and-evals-setup): landed (not committed)
+
+**Built (no quota, no model call, no run directory, no baseline).** Candidates `p4.toml` (page rule in `scope`, fill rule in `limits`) and `p4b.toml` (page rule in the answering sections, fill clause folded into the propose sentence). Sizes (o200k_base; tools / tools web off / tool-free): p3 428 / 420 / 326, p4 518 / 510 / 351, p4b 473 / 465 / 345; all within the new 550 cap (`test_the_prompt_fits_550_tokens`, renamed from 450). Guide: `drawer` topic (15th), `TOPICS` entry after `gleepglorp`, fill paragraph in `proposals.md`; CLAUDE.md count corrected 13 to 15. Harness: `RunTrace.fills` (stored `changes`, shown `display`, `turn` by snapshot of fill ids), `_collect_fills`, fill-row delete in `_clean_proposal_state`; `runner.py` writes `fills`; `scenario.py` expands descriptor string values per fact and re-validates. Checks: `fill_made` (with `status`), `no_fill`, `no_secret_in_fill`, `fills_flagged_if_untrusted`, `says_not_saved`, over shared bodies (`_view_made`, `_none_made`, `_no_secret_in`, `_tool_call_index`, `_flagged_if_untrusted`); proposal wrappers keep their strings and `extra` keys. Scenarios: `page-what-is`, `fill-create-agent`, `fill-change-prompt`, `fill-after-fetch` (+ `gg-fill-1..5.html`), `page-pasted-key`.
+
+**Deviation.** `page-what-is` is two conversations (MCP page, then Settings page; reply checks name turns 0 and 1) with five generic question facts, not one fact row per page: the descriptor's `create` is a boolean a fact cannot vary.
+
+**measure-prompt (shipped prompt p3, GleepGlorp set).** tools-web-on: prompt sections 469, tool schemas 899 (`get_app_guide` 82, `propose_change` 204, `fill_form` 121), platform text 1368; tools-web-off 461 / 782 / 1243. The prompt fingerprint moved (now `f59b1709...`) because `get_app_guide`'s description lists the new `drawer` topic; no GleepGlorp baseline was recorded, so nothing to break. Default measure fingerprint and other sets' scenario fingerprints unchanged (fingerprint tests green).
+
+**Freeze digests (for the Flight Director).** `evals/checks.py` `473172b32db1175800798898114626256242904940f43c72a6ba6d11245bcef2` (adds `RunTrace.fills`, five fill checks and shared bodies); `evals/harness.py` `df0261235ae930c9a2560af877bea142912b4f821e9156947301af6a09b4b654` (fills trace, collection, snapshot helpers, fill-row clean-up).
+
+**Falsifications (each edited out, run, restored by edit).** Fill clean-up delete: yes, 2 tests failed. `fill_form` in the flag locator: yes, 4 failed (fails closed). Last-four needle: yes, fill and proposal tail tests failed. `says_not_saved` regex never matching: yes, 13 failed.
+
+**Final verification.** `THE_ONE_TEST_NETNS=1 make test-unit` after the ruling: 1 failed (`test_the_scoring_modules_are_frozen`, expected), 11258 passed, 15 skipped, 343 s. ruff check and format clean.
+
+**First verification.** `THE_ONE_TEST_NETNS=1 make test-unit` (start load 0.33): 7 failed, 11250 passed, 15 skipped, 339 s. Four of the failures were this leg's own no-claim patterns tripping the "set up" fairness pins in `test_evals_gleepglorp_fixes.py`; fixed by dropping `set up` from the two new patterns (re-run green, 169 passed). ruff check and format clean (`ruff format` was run on the new test file).
+
+**FD ruling (blocked pins).** Adding the five scenarios broke two registries (a leg-design omission). Approved, additions only: five ids in `REQUIRED` (`test_evals_gleepglorp_checks.py`) and five passing scripts in `PASSING` (`test_evals_gleepglorp_harness.py`), each genuinely passing every check of its scenario; two `BAD` entries added (`fill-create-agent-no-claim` with "I've set up {agent} for you.", `fill-change-prompt-no-claim` with "Done, I've saved the new prompt."). The `page-what-is` deviation (two conversations, five generic question facts) is accepted.
+
+**No-claim patterns restored.** The "set up" branches were put back in both fill no-claim patterns, guarded as the proposal pattern is (lookbehinds, the `to|there|here|in|on|under` lookahead, a `done!` guard on proposed/filled/not saved/click Save, and a not-followed-by proposal/fill/form/editor guard on the first branch; `set(?!\s+up)` in the change pattern). The fairness pins in `test_evals_gleepglorp_fixes.py` pass unedited. Offline cases in `test_evals_gleepglorp_fills.py`: "I've set up Trip Planner for you." and "It's all set up." fail each pattern; "It's set up to plan trips once you click Save.", "I've set up the form for you. It is not saved yet." and "Done! The form is filled, not saved yet." do not. Falsified: removing `set\s+up` from the create pattern failed the case (yes), restored by edit. Final digests unchanged: `evals/checks.py` 473172b3...5bcef2, `evals/harness.py` df026123...b4b654 (full values above).
 
 ## Decisions
 

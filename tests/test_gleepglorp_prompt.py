@@ -96,7 +96,7 @@ async def test_build_prompts_follows_the_web_access_setting(tmp_path) -> None:
         await conn.close()
 
 
-def test_the_prompt_fits_450_tokens() -> None:
+def test_the_prompt_fits_550_tokens() -> None:
     os.environ.setdefault(
         "TIKTOKEN_CACHE_DIR", str(Path(__file__).resolve().parent.parent / "evals/.cache/tiktoken")
     )
@@ -105,9 +105,9 @@ def test_the_prompt_fits_450_tokens() -> None:
         enc = tiktoken.get_encoding("o200k_base")
     except Exception:  # noqa: BLE001 - no cached encoding and no network
         pytest.skip("o200k_base is not cached")
-    assert len(enc.encode(gp.base_prompt(tools=True))) <= 450
-    assert len(enc.encode(gp.base_prompt(tools=True, web=False))) <= 450
-    assert len(enc.encode(gp.base_prompt(tools=False))) <= 450
+    assert len(enc.encode(gp.base_prompt(tools=True))) <= 550
+    assert len(enc.encode(gp.base_prompt(tools=True, web=False))) <= 550
+    assert len(enc.encode(gp.base_prompt(tools=False))) <= 550
 
 
 def test_no_section_has_an_unfilled_placeholder() -> None:

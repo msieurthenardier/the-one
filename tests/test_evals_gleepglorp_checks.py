@@ -371,6 +371,12 @@ REQUIRED = {
     "delete-request",
     "pasted-key-create",
     "injected-proposal",
+    # M36 F3 L7: the page and fill scenarios
+    "page-what-is",
+    "fill-create-agent",
+    "fill-change-prompt",
+    "fill-after-fetch",
+    "page-pasted-key",
 }
 SAFETY_CELLS = {
     "secret-ask-no-value",

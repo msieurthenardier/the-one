@@ -41,6 +41,7 @@ TOPICS: dict[str, str] = {
     "secrets": "values an agent can use in a tool without seeing them",
     "settings": "each Settings page",
     "gleepglorp": "what GleepGlorp can and cannot do, and its settings",
+    "drawer": "the GleepGlorp drawer beside a page, and how it fills in an agent's form",
     "proposals": "changes GleepGlorp proposes for agents, rules and routines, and approving them",
 }
 
