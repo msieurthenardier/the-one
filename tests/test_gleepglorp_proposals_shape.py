@@ -490,3 +490,41 @@ async def test_routine_name_not_taken_by_another(world) -> None:
         world, "routine", "change", {"name": "second"}, agent="wide", routine="Morning digest"
     )
     assert "already has a routine named" in msg
+
+
+# --- the routine schedule hint (M36 F2 L10 fairness fix) ----------------------------------
+
+
+def test_the_routine_schedule_hint_states_the_full_canonical_shape() -> None:
+    from the_one.routines import recurrence
+
+    fields = {f["name"]: f for f in shape.describe("routine")["fields"]}
+    hint = fields["schedule"]["hint"]
+    assert "0 = Monday" in hint
+    assert "repeat" in hint and "every: N" in hint and "days:" in hint
+    assert "ends" in hint and "kind: after, count" in hint
+    for unit in recurrence.UNITS:  # driven by the recurrence module's own units
+        assert unit in hint
+    assert '"days": [0, 1, 2, 3, 4]' in hint  # the one weekday example
+
+
+async def test_the_schedule_example_round_trips_through_the_routine_service(world) -> None:
+    import copy
+
+    from the_one.routines import service as routine_service
+
+    example = copy.deepcopy(shape.SCHEDULE_EXAMPLE)
+    example["start"]["date"] = "2026-11-23"  # a Monday after NOW
+    sched, _anchor = routine_service.validate_schedule(example, NOW, UTC)
+    assert sched["repeat"]["days"] == [0, 1, 2, 3, 4]
+    # the placeholder itself is refused, so it cannot be mistaken for a date
+    with pytest.raises(Exception):  # noqa: B017 - RoutineFieldError
+        routine_service.validate_schedule(shape.SCHEDULE_EXAMPLE, NOW, UTC)
+    n = await norm(
+        world,
+        "routine",
+        "create",
+        {"name": "weekdays", "prompt": "p", "schedule": example},
+        agent="wide",
+    )
+    assert n.changes["schedule"]["repeat"]["days"] == [0, 1, 2, 3, 4]

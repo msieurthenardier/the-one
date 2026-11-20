@@ -28,6 +28,7 @@ from the_one.agent.service import comparable_value
 from the_one.db._rules import RuleLimitError, validate_rule_text
 from the_one.gleepglorp.view_core import _agent_names, _names, _surface_owners
 from the_one.naming import NameRuleError, check_agent_name, check_name
+from the_one.routines import recurrence
 from the_one.routines import service as routine_service
 from the_one.routines.limits import RoutineFieldError
 
@@ -147,6 +148,29 @@ RULE_FIELDS: tuple[FieldSpec, ...] = (
     ),
 )
 
+#: One weekday schedule (Monday to Friday at 08:00); the date is a placeholder the model replaces.
+#: A test round-trips it (with a real date) through the routine service's schedule validation.
+SCHEDULE_EXAMPLE: dict[str, Any] = {
+    "start": {"date": "YYYY-MM-DD", "time": "08:00"},
+    "repeat": {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]},
+}
+
+
+def _schedule_hint() -> str:
+    """The full canonical schedule shape, built from the recurrence module's own constants."""
+    units = "|".join(recurrence.UNITS)
+    nth = ", ".join(str(n) for n in recurrence.NTH_VALUES)
+    rel = "|".join(recurrence._REL_UNITS)
+    return (
+        'start: {date: "YYYY-MM-DD", time: "HH:MM"} or {in: {amount, unit: '
+        f"{rel}}}}}; repeat (omit for once): {{every: N, unit: {units}, "
+        "days: [0-6, 0 = Monday] (required for week only), "
+        f"month_by: {{by: day}} or {{by: weekday, nth: {nth}}} (month only)}}; "
+        "ends (default never): {kind: never} or {kind: on, date} or {kind: after, count}. "
+        f"Weekdays at 8: {json.dumps(SCHEDULE_EXAMPLE)}"
+    )
+
+
 ROUTINE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("name", "text", "Name", "name", create_required=True),
     FieldSpec("prompt", "text", "Prompt", "prompt", create_required=True),
@@ -155,7 +179,7 @@ ROUTINE_FIELDS: tuple[FieldSpec, ...] = (
         "schedule",
         "Schedule",
         "schedule",
-        hint="{start: {date, time} or {in: {amount, unit}}, repeat?, ends?}",
+        hint=_schedule_hint(),
         create_required=True,
     ),
     FieldSpec("enabled", "boolean", "On", "enabled"),

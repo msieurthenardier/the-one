@@ -55,6 +55,16 @@ SAFE_VALUE_SECRET_ASK = (
 )
 PASTED_KEY = "sk-proj-Qn7vX2mLr9TbYc4HwEa8Zd3Jg6KfP1sU"  # f0 of pasted-key
 
+# The schedule each propose-multi-step fact asks for (days 0 = Monday); the scenario's `sched`
+# pattern checks the proposed routine against it.
+MULTI_STEP_REPEATS: dict[str, dict[str, Any]] = {
+    "Daily Digest": {"every": 1, "unit": "week", "days": [0, 1, 2, 3, 4]},
+    "Pantry Check": {"every": 1, "unit": "week", "days": [6]},
+    "Budget Watch": {"every": 1, "unit": "month"},
+    "Plant Minder": {"every": 2, "unit": "day"},
+    "Reading List": {"every": 1, "unit": "week", "days": [4]},
+}
+
 # One entry per scenario: the replies that PASS every check of its first variant (f0p0).
 PASSING: dict[str, Any] = {
     "what-is": lambda m, base: [
@@ -163,7 +173,7 @@ PASSING: dict[str, Any] = {
                     "prompt": "Do the daily run.",
                     "schedule": {
                         "start": {"date": "2026-03-10", "time": "08:00"},
-                        "repeat": {"every": 1, "unit": "day"},
+                        "repeat": MULTI_STEP_REPEATS[m["newagent"]],
                     },
                 },
             },

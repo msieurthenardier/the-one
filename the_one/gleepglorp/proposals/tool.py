@@ -41,13 +41,13 @@ class ProposeChangeTool(Tool):
     name = PROPOSE_CHANGE_TOOL_NAME
     summary = "Proposes a change for the operator to approve; changes nothing itself."
     description = (
-        "Propose one change for the operator to approve; nothing changes until they do. "
+        "Propose one change; nothing changes until approved. "
         "agent names the agent (for a new agent, put name in changes); rule is a rule's "
         "number from 1, routine a routine's name. changes by kind. agent: name, description, "
         "system_prompt, provider+model, enabled_tools, disabled_tools, mcp_servers, "
         "knowledge_bases, rich_visuals, notes_enabled, max_iterations, "
         "chat_history_retention_days. rule: text, enabled, position. routine: name, prompt, "
-        "schedule, enabled. Details: read_app_config fields."
+        "schedule, enabled. Schedule shape: read_app_config kind=fields name=routine."
     )
     parameters = {
         "type": "object",
