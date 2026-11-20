@@ -657,7 +657,7 @@ def test_p2_and_p3_load_link_to_real_routes_and_stay_within_450_tokens(name):
     sys.path.insert(0, str(ROOT / "tests"))
     from _app_routes import check_route
 
-    path = GG / "prompts" / f"{name}.toml"
+    path = GG / "prompts" / ("history" if name == "p2" else "") / f"{name}.toml"
     sections = pf.load_sections(path)
     assert "#agents/{name}: an agent's page" in sections["LINKS"]
     for key, text in sections.items():
@@ -675,7 +675,7 @@ def test_p2_and_p3_load_link_to_real_routes_and_stay_within_450_tokens(name):
 
 def test_p3_is_p2_plus_the_two_lines_and_nothing_else():
     p2, p3 = (
-        pf.load_sections(GG / "prompts" / "p2.toml"),
+        pf.load_sections(GG / "prompts" / "history" / "p2.toml"),
         pf.load_sections(GG / "prompts" / "p3.toml"),
     )
     assert set(p2) == set(p3)

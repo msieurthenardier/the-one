@@ -274,10 +274,16 @@ holds a whole GleepGlorp prompt as lower-case keys (`identity`, `scope`, `limits
 `answering_tools`, `answering_tool_free`, `links`, `style`; all required, exact text) and an optional
 `web_off_answering` (the tool-capable answering text used when `web_access` is off; the shipped
 prompt has one too, so a candidate without it uses its `answering_tools` text either way).
-`dmin.toml` is the shipped prompt (D-min, Part B), pinned equal to it byte for byte, web on and
-off, by `tests/test_evals_gleepglorp_prompt_file.py`; `v1.toml` is the historical first version. The spent screening and ablation candidates
-(`a`-`e`, `d`, `d0`-`d5`) are history, kept as data under `evals/gleepglorp/prompts/history/`
-(pass that path to `--prompt-file`); only `v1.toml` and `dmin.toml` stay at the top level. `run --prompt-file PATH` and `measure-prompt
+`p3.toml` is the shipped prompt (M36 F2 Leg 10: it won the n=5 screen against the D-min control and `p1`/`p2`), pinned equal to it byte
+for byte, web on and off, by `tests/test_evals_gleepglorp_prompt_file.py`; its tool-free variant
+uses a product-only `LIMITS_TOOL_FREE` (it names no tool and cannot propose), which no candidate
+file carries. `dmin.toml` is the Flight 1 prompt (D-min, Part B; the control for the proposals
+set) and `v1.toml` the historical first version. **The n=20 confirmation and the new baseline
+`m36f2-gleepglorp.json` are owed**: p3 shipped on the n=5 evidence by operator decision (2026-11-19),
+and `m36-gleepglorp.json` stays the latest recorded baseline although it predates the proposals
+set. The spent screening and ablation candidates (`a`-`e`, `d`, `d0`-`d5`, `p1`, `p2`) are history,
+kept as data under `evals/gleepglorp/prompts/history/` (pass that path to `--prompt-file`); only
+`v1.toml`, `dmin.toml` and `p3.toml` stay at the top level. `run --prompt-file PATH` and `measure-prompt
 --prompt-file PATH` use the candidate's sections for that invocation, through the eval-only seam
 `the_one.gleepglorp.prompt.override_sections` (set for the run, restored afterwards; no product
 setting reaches it); they are refused unless every scenario is a `builder = "gleepglorp"` one

@@ -1327,3 +1327,28 @@ small (Wilson lower bound for 5/5 is 56.6%), the p2/p3 difference on propose-rou
   - crew wait timers left behind (twice; cleaned up);
   - the gate 1 lesson: the fairness pass found three unfair checks and a real
     field-definition gap before any large round, which is the adopted method working.
+
+## Leg 10 `proposal-evals-rounds`: landed
+- **Operator decision (2026-11-19):** ship `p3` on the n=5 evidence. The n=20 confirmation
+  and the new baseline `evals/baselines/m36f2-gleepglorp.json` are **owed and not run**;
+  `m36-gleepglorp.json` stays the latest recorded baseline but predates the proposals set.
+- **Shipped.** `p3` is in `the_one/gleepglorp/prompt.py` (identity, limits, secrets and the
+  `#agents/{name}` link changed; scope and the answering text unchanged). `p3.toml` and the
+  shipped prompt measure identically (same fingerprint, 353 / 606 / 461 / 469 section
+  tokens on the stand-in counter; the 450 test cap, on `o200k_base`, passes).
+- **Tool-free variant.** The p3 limits name `propose_change` and `read_app_config`, which the
+  tool-free variant must not name, so the product has a new `LIMITS_TOOL_FREE` (no tool named,
+  explain and link instead of proposing). It is product-only: no candidate file carries it, so
+  an eval override leaves it as shipped. `evals/tokens.py::gleepglorp_prompt_sections` now
+  pairs it with the tool-free answering text.
+- **Test edits.** `test_gleepglorp_prompt.py` (must-keep items: "change nothing yourself and
+  never say you did" and the no-paste rule; the joined-order test uses `LIMITS_TOOL_FREE` for the
+  tool-free variant); `test_evals_gleepglorp_prompt_file.py` (p3, not D-min, is the shipped
+  prompt, and D-min must differ); `test_evals_gleepglorp_fixes.py` (p1/p2 read from
+  `history/`).
+- **Guide.** New topic `proposals` (`guide/proposals.md`, registered in `guide_tool.TOPICS`; the
+  package data and the three freeze specs use globs, so no change there). `gleepglorp.md` no longer
+  says it cannot change anything.
+- **Housekeeping.** `p1.toml` and `p2.toml` moved to `evals/gleepglorp/prompts/history/`;
+  `dmin.toml`, `v1.toml` and `p3.toml` stay at the top. `evals/README.md`, `CLAUDE.md` and
+  `the_one/agents.md` updated.

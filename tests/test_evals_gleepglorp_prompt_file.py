@@ -21,6 +21,7 @@ GG_DIR = Path(__file__).resolve().parent.parent / "evals" / "gleepglorp"
 SCENARIOS = GG_DIR / "scenarios"
 V1 = GG_DIR / "prompts" / "v1.toml"
 DMIN = GG_DIR / "prompts" / "dmin.toml"
+P3 = GG_DIR / "prompts" / "p3.toml"
 MARK = "CANDIDATE-MARK-7731"
 
 
@@ -33,10 +34,10 @@ def candidate(tmp_path: Path, *, extra: str = "", scope_suffix: str = f" {MARK}"
     return path
 
 
-def test_dmin_reproduces_the_shipped_prompt_byte_for_byte() -> None:
-    """D-min is the shipped prompt (M36 F1 L09 part B). v1.toml stays as historical data; it is
-    no longer the shipped text, so nothing pins it to the constants."""
-    sections = pf.load_sections(DMIN)
+def test_p3_reproduces_the_shipped_prompt_byte_for_byte() -> None:
+    """p3 is the shipped prompt (M36 F2 L10). dmin.toml (the Flight 1 prompt) and v1.toml stay as
+    historical data; neither is the shipped text, so nothing pins them to the constants."""
+    sections = pf.load_sections(P3)
     assert sections == gp.active_sections()
     shipped = {(t, w): gp.base_prompt(tools=t, web=w) for t in (True, False) for w in (True, False)}
     with gp.override_sections(sections):
@@ -144,9 +145,10 @@ async def test_the_fingerprint_follows_the_candidate_and_a_resume_refuses_a_chan
         return (await tokens.measure_prompt(opts))["fingerprints"]["prompt"]
 
     shipped = await measured(None, "m0")
-    dmin = await measured(DMIN, "m1")
+    p3 = await measured(P3, "m1")
     cand = await measured(a, "m2")
-    assert dmin == shipped  # D-min is the shipped prompt
+    assert p3 == shipped  # p3 is the shipped prompt
+    assert await measured(DMIN, "m1b") != shipped
     assert cand != shipped
     assert await measured(a, "m3") == cand
     assert MARK not in gp.base_prompt()

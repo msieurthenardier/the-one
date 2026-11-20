@@ -884,7 +884,7 @@ merges in between, but no eval round or behavior test is run on that tree.
   - Scenarios, and checks with their offline pass and fail tests.
   - The harness approve step and trace.
   - The frozen re-pin (operator-approved), and the one-attempt fairness pass.
-- [ ] `10-proposal-evals-rounds` (operator-gated)
+- [x] `10-proposal-evals-rounds` (operator-gated)
   - Screen, shorten, confirm, baseline.
   - Ship the prompt and the guide topic.
 - [ ] `11-hat`: the guided HAT with the crew-checked apparatus, and the two
