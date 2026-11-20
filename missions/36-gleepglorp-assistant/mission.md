@@ -403,7 +403,7 @@ Taken with the operator on 2026-11-19, at Flight 2 planning:
   and web access, and its place first in the agent picker. Record the eval
   scenario set and baseline for questions, secret handoffs and declines.
   Outcome: the operator can ask GleepGlorp about the app in Chats.
-- [ ] **Flight 2: Proposals and approval.** Define the one change shape. Extract
+- [x] **Flight 2: Proposals and approval.** Define the one change shape. Extract
   the forms' validation into service functions so proposals use it. Build the
   proposal store with stale checks and taint flags, and add the Approve/Dismiss
   card in chat with field-level apply. Push changes to open editors, with no

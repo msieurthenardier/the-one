@@ -1,6 +1,6 @@
 # Leg: hat
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Proposals and approval](../flight.md)
 
 ## Objective

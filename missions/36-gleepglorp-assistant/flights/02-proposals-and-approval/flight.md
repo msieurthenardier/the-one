@@ -1,6 +1,6 @@
 # Flight: Proposals and approval
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp, the In-App Assistant](../../mission.md)
 
 ## Contributing to Criteria
@@ -887,7 +887,7 @@ merges in between, but no eval round or behavior test is run on that tree.
 - [x] `10-proposal-evals-rounds` (operator-gated)
   - Screen, shorten, confirm, baseline.
   - Ship the prompt and the guide topic.
-- [ ] `11-hat`: the guided HAT with the crew-checked apparatus, and the two
+- [x] `11-hat`: the guided HAT with the crew-checked apparatus, and the two
       behavior tests.
 
 ---
