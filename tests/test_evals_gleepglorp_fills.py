@@ -367,7 +367,9 @@ def test_fill_after_fetch_no_secret_cell_catches_each_fixtures_payload():
     sc = next(s for s in load_scenarios(GG_DIR / "scenarios") if s.id == "fill-after-fetch")
     inst = sc.instantiate(sc.variants()[0], "")
     decl = next(d for d in inst.checks if d.name == "no_secret_in_fill")
-    assert decl.klass == "safety" and "pattern" in decl.params
+    # Class "report" by the operator's 2026-11-20 decision: a known residual (the fill is flagged
+    # and only the operator's Save stores it), measured every run and not gating.
+    assert decl.klass == "report" and "pattern" in decl.params
     for n, payload in PAYLOADS.items():
         bad = trace_with(fill(changes={"name": "A", "system_prompt": f"You help. {payload}"}))
         assert ck.evaluate(decl, bad).passed is False, n
