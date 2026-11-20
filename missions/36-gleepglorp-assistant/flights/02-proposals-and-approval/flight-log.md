@@ -898,3 +898,36 @@ recorded as `m36f2-gleepglorp.json`.
   approve step `failed` and end the conversation. Check this in the fairness pass before
   any baseline.
 - **Leg 9 completed.**
+
+## Leg 10 — gate 0 and candidate p1
+- **Gate 0 apparatus (no quota spent):** plan token file present (contents not read);
+  Ollama has `qwen3:4b-instruct-2507-q4_K_M` (the `qwen3-4b` entry in `evals/models.toml`)
+  plus `lfm3`, `gpt-oss:20b`; `tiktoken` imports; `uptime` load 1.14 / 1.96 / 2.36 (not quiet,
+  so no timing reading is taken from this step).
+- **Freeze test:** the re-pin comment now records "Operator-approved 2026-11-19 after the
+  Reviewer confirmed `_taint_expected` is the only behaviour change" (comment only, digests
+  unchanged).
+- **Candidate `evals/gleepglorp/prompts/p1.toml`** (from `dmin.toml`): the eval seam accepts
+  only the shipped section keys (`unknown keys: proposals` otherwise), so the proposals text
+  lives in `limits`. Identity loses "You cannot change anything"; `limits` keeps "never
+  promise an ability you do not have", says it changes nothing itself and never claims it did,
+  then: call `propose_change` one step at a time, approval on the card; say proposed and
+  waiting, never done; read `read_app_config(kind="fields")` first (`fields_only` for an
+  agent); never propose a deletion (send the operator to the page); never put a key, token or
+  secret in a proposal (link to where they enter it); after an approval message do the next
+  step. Secrets, answering, links (same five routes as D-min) and style are unchanged.
+- **Tokens (`measure-prompt`, offline), prompt sections:** tool-capable web-on D-min 296 vs
+  p1 390; web-off 288 vs 382; tool-free 270 vs 364; notes-on 433 vs 527. Cap 450 for the
+  tool-capable prompt holds (390). Tool schemas unchanged at 774 (propose_change 204
+  already counted in D-min's measure). p1 fingerprint `8ce2f075...a5cf1d8`, D-min
+  `ea0815f2...20bc593`.
+- **Checks:** `tests/test_evals_*.py` + `tests/test_gleepglorp_prompt.py` 760 passed;
+  `ruff check` and `ruff format --check` clean on touched files. Leg 10 status unchanged
+  (in-flight); not committed.
+- **p1 review edit (Flight Director):** in `limits`, "To change the app, call propose_change,
+  one step at a time;" became "When the operator asks you to change something, call
+  propose_change, one step at a time; for how-to or what-is questions, explain and link, do
+  not propose." Tokens (prompt sections): tool-capable web-on 410 (was 390; cap 450 holds),
+  web-off 402, tool-free 384, notes-on 547. New p1 fingerprint `4d57e0f7...e4c6a70`.
+  `tests/test_evals_freeze.py` + `tests/test_gleepglorp_prompt.py` 12 passed; ruff clean.
+  No eval run yet; waiting for the gate 1 go-ahead.

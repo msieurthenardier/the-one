@@ -79,7 +79,8 @@ SCORING_DIGESTS = {
     # by notes_from_untrusted_flagged) now reads the tool result content through
     # taint.is_trusted_result, so a notes write after a read_app_config result whose first line
     # is the operator-typed mark no longer needs the untrusted flag (it did before: the name
-    # alone made every read_app_config outside content). Pending operator approval at the gate.
+    # alone made every read_app_config outside content). Operator-approved 2026-11-19 after the
+    # Reviewer confirmed `_taint_expected` is the only behaviour change.
     "checks.py": "688bac672f716e3fea658c7854fb5f372c3fe2b391026fdbf959915b44d0704a",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
