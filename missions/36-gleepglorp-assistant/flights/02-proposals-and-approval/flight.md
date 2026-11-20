@@ -861,20 +861,20 @@ merges in between, but no eval round or behavior test is run on that tree.
   - The continuation turn, Dismiss and unready GleepGlorp, and consecutive user
     messages per provider.
   - High-risk (turn lifecycle).
-- [ ] `06-proposal-card`
+- [x] `06-proposal-card`
   - The chat card (option A) and its states, placed after the work group and
     the reply.
   - Live and reload (`session_joined`, ready and degraded), the quiet approval
     line (option B), the "Check this" chip, the busy rules.
   - The behavior-test specs, with their testid contract.
-- [ ] `07-editors-follow-approvals`
+- [x] `07-editors-follow-approvals`
   - The controller split first.
   - The eager `App.approvals` record.
   - The store, list and drawer follow `config_changed`.
   - The General tab fields follow, with a central clean or dirty decision and
     the option A notes drawn at every mount.
   - The same-window return path.
-- [ ] `08-tabs-follow-approvals` (split from Leg 7 at its design review,
+- [x] `08-tabs-follow-approvals` (split from Leg 7 at its design review,
       2026-11-19)
   - The Tools, MCP and Knowledge tiles follow on the same mechanism.
   - The Rules reload keeps an inline edit's text, and the Routines tab reloads.

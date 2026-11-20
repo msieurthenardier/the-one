@@ -39,7 +39,12 @@
       var cur = null;
       try { cur = JSON.parse(getFormSnapshot()); } catch (e) { cur = null; }
       if (!base || !cur) return;
-      var still = d.noteFields.filter(function (f) { return cur[f] !== base[f]; });
+      // `llm_model` names the provider and model pair (an approved change, M36 F2 L7).
+      var still = d.noteFields.filter(function (f) {
+        return (f === 'llm_model' ? [f, 'provider_config_id'] : [f]).some(function (k) {
+          return JSON.stringify(cur[k]) !== JSON.stringify(base[k]);
+        });
+      });
       if (still.length === d.noteFields.length) return;
       d.noteFields = still;
       d.handle.general.setStoredChangeNote(still.length ? still : null);

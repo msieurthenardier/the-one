@@ -69,7 +69,7 @@
         });
       case 'rules-and-notes':
         // `agent` is null in create mode (the tab shows a "save first" notice).
-        studio.renderRulesNotesTab(panel, agent, {
+        return studio.renderRulesNotesTab(panel, agent, {
           fetchRules: cb.fetchRules,
           createRule: cb.createRule,
           updateRule: cb.updateRule,
@@ -80,7 +80,6 @@
           deleteNote: cb.deleteNote,
           clearNotes: cb.clearNotes
         });
-        break;
       case 'knowledge':
         // Built once per identity; patch calls its setAgent (07a).
         return studio.renderKnowledgeTab(panel, agent, cb.allKnowledgeBases, {
@@ -312,6 +311,7 @@
         var built = buildPanel(TAB_ITEMS[i].id, panel, a, provs, cb);
         if (TAB_ITEMS[i].id === 'general') h.general = built;
         if (TAB_ITEMS[i].id === 'knowledge') h.knowledge = built;
+        if (TAB_ITEMS[i].id === 'rules-and-notes') h.rules = built;
         if (TAB_ITEMS[i].id === 'tools') {
           h.toolsTab = built;
           h.mcps = built.mcps;

@@ -503,6 +503,13 @@
     return {
       // A same-identity update only swaps the reference: no refetch, no reset.
       setAgent: function (a) { if (a && a.name === name) agent = a; },
+      // An approved change to a routine (M36 F2 L8): reload the list while the tab is showing;
+      // otherwise the next activate loads it. apply() keeps an open form.
+      reload: function () {
+        if (destroyed || !active) return Promise.resolve();
+        return load().then(noop, noop);
+      },
+      placeNote: function (note) { section.el.insertBefore(note, listWrap); },
       activate: function () {
         if (destroyed || active) return;
         active = true;

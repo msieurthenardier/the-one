@@ -510,6 +510,26 @@
         currentAgent = Object.assign({}, currentAgent || {}, { notices: notices || [] });
         updateFlags();
       },
+      // The follow-through for an approved change (M36 F2 L8): plain getters and setters over the
+      // rows' checked state, silent (no change event), touching no override panel.
+      followMap: function () {
+        var m = {};
+        Object.keys(rows).forEach(function (n) { m[n] = !!rows[n].row.input.checked; });
+        return m;
+      },
+      followMapFor: function (cfg) { return enabledSetFor(cfg); },
+      followSet: function (map) {
+        Object.keys(rows).forEach(function (n) {
+          if (Object.prototype.hasOwnProperty.call(map, n)) rows[n].row.setChecked(!!map[n]);
+        });
+        Object.keys(tiles).forEach(refreshCategory);
+        updatePathsNotes();
+      },
+      followPlace: function (name, note) {
+        var r = rows[name];
+        var host = r && r.row.el.parentNode;
+        if (host) host.insertBefore(note, r.row.el.nextSibling);
+      },
       // The loaded override fields: { tool: { field: handle } } (loaded panels only).
       // agent-form-data.js's Save walk and the 422 mapping read the handles here.
       fieldHandles: function () {

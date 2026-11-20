@@ -270,8 +270,91 @@ async def display_values(conn: aiosqlite.Connection, values: dict[str, Any]) -> 
     return _display(values, await _name_map(conn)) or {}
 
 
+_NEXT_RUNS_SHOWN = 3
+
+
+def _quoted(name: str) -> str:
+    return f"“{name}”"
+
+
+def _schedule_bits(values: dict[str, Any] | None, zone: Any, now: Any) -> tuple[Any, list[str]]:
+    """The schedule sentence and up to three next runs (human times) for a values dict."""
+    from itertools import islice
+
+    from the_one.routines import describe, recurrence
+    from the_one.routines import service as routine_service
+    from the_one.routines.schedule import parse_utc
+
+    if not isinstance(values, dict) or "schedule" not in values:
+        return None, []
+    text = routine_service.values_schedule_text(values, zone)
+    runs: list[str] = []
+    try:
+        anchor = parse_utc(values["anchor_at"]) if values.get("anchor_at") else None
+        for at in islice(
+            recurrence.occurrences(values["schedule"], anchor, zone, now), _NEXT_RUNS_SHOWN
+        ):
+            runs.append(describe.describe_next(at.isoformat(), zone, now=now))
+    except Exception:  # noqa: BLE001 - a card never fails over an unreadable schedule
+        runs = []
+    return text, runs
+
+
+async def _card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]:
+    """``title``, ``target_gone`` and, for a routine, the schedule text and next runs."""
+    from the_one import time_zones
+    from the_one.db.repositories import AgentRuleRepository
+    from the_one.gleepglorp.view_core import _agent_names
+    from the_one.routines.repository import AgentRoutineRepository
+
+    agent = p.agent_name or ""
+    q = _quoted(agent)
+    gone = False
+    out: dict[str, Any] = {}
+    if p.kind == "agent":
+        title = f"{'Create' if p.action == 'create' else 'Change'} agent {q}"
+        if p.action == "change":
+            gone = agent not in await _agent_names(conn)
+    elif p.kind == "rule":
+        gone = agent not in await _agent_names(conn)
+        if p.action == "create":
+            title = f"Add a rule to {q}"
+        else:
+            rules = await AgentRuleRepository(conn).list_for_agent(agent) if not gone else []
+            pos = next((i for i, r in enumerate(rules, 1) if r.id == p.target_id), None)
+            gone = gone or pos is None
+            title = f"Change rule {pos} of {q}" if pos else f"Change a rule of {q}"
+    else:
+        gone = agent not in await _agent_names(conn)
+        repo = AgentRoutineRepository(conn)
+        if p.action == "create":
+            title = f"Schedule a routine for {q}"
+        else:
+            routine = await repo.get(agent, p.target_id) if p.target_id and not gone else None
+            gone = gone or routine is None
+            rname = routine.name if routine else (p.changes.get("name") or "routine")
+            title = f"Change routine {_quoted(str(rname))}"
+        zone = (await time_zones.load_effective_zone(conn)).tzinfo
+        now = time_zones.utcnow()
+        text, runs = _schedule_bits(p.changes, zone, now)
+        out["schedule_text"] = text
+        out["next_runs"] = runs
+        if p.base is not None:
+            btext, bruns = _schedule_bits(p.base, zone, now)
+            out["base_schedule_text"] = btext
+            out["base_next_runs"] = bruns
+    out["title"] = title
+    out["target_gone"] = gone
+    return out
+
+
 async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]:
     """The ``proposal_changed`` payload and the card's data.
+
+    Also carries ``title`` (e.g. ``Change agent “X”``), ``target_gone`` (a change's target, or a
+    rule or routine create's agent, no longer exists; computed when read, never stored) and, for
+    a routine, ``schedule_text`` / ``next_runs`` (proposed) and ``base_schedule_text`` /
+    ``base_next_runs`` (the schedule it was proposed against, on a change).
 
     Keys: ``id``, ``kind``, ``action``, ``agent_name``, ``target_id``, ``status``,
     ``result``, ``untrusted``, ``untrusted_sources``, ``created_at``, ``tool_call_id``,
@@ -282,7 +365,9 @@ async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, An
     from the_one.gleepglorp.proposals import shape
 
     names = await _name_map(conn)
+    extra = await _card_extras(conn, p)
     return {
+        **extra,
         "id": p.id,
         "kind": p.kind,
         "action": p.action,
@@ -293,6 +378,7 @@ async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, An
         "untrusted": p.untrusted,
         "untrusted_sources": p.untrusted_sources,
         "created_at": p.created_at,
+        "resolved_at": p.resolved_at,
         "tool_call_id": p.tool_call_id,
         "changes": _display(p.changes, names),
         "base": _display(p.base, names),

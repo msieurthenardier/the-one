@@ -197,7 +197,7 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
                       'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
                       'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py' \
                       'test_flow_chat_drafts.py' 'test_flow_chat_charts.py' 'test_flow_chat_turn_work.py' 'test_flow_chat_turn_work_states.py' \
-                      'test_flow_chat_gleepglorp.py')
+                      'test_flow_chat_gleepglorp.py' 'test_flow_chat_proposals.py')
 # Chats-widgets (M35 F2 L6): the widgets-in-chat flow tests, an explicit list kept out of `chats`
 # and `chats-transcript` (which sat at 430 s of 540 s at Flight 1). `chats` is `chats_pat` MINUS
 # this list and the transcript list.
@@ -228,11 +228,12 @@ studio_pat=('test_flow_studio_*' 'test_studio_*' 'test_mcp_*' 'test_flow_agent_*
             'test_flow_agents_*' 'test_agents_*')
 # Agent-tabs (M31 F2 L11, squawk 0217, split from `agents` when it ran 1.3x over
 # budget): the self-configuration, Rules and notes, and Tools-override files, and the Tools
-# tab's Secrets section and drawer group (sortie 10).
+# tab's Secrets section and drawer group (sortie 10), and the editor following an approved
+# GleepGlorp change (M36 F2 L7).
 agent_tabs_pat=('test_studio_self_configuration_*' 'test_flow_agent_rules*' \
                 'test_flow_agent_notes*' 'test_flow_studio_tools_*' \
                 'test_flow_studio_tool_override*' 'test_flow_studio_time_tool.py' \
-                'test_flow_agent_secrets.py')
+                'test_flow_agent_secrets.py' 'test_flow_agent_editor_follows_approval.py')
 # Agent-routines (M33 F2 L5): the Routines tab and the Self-configuration Routines item. Split
 # from `agent-tabs` with a 240 s budget set from the Batch B quiet-host gate. Its glob
 # also matches the Flight 1 Routines tab files, which therefore leave `agent-tabs`.
@@ -259,7 +260,7 @@ contracts_overlay_pat=('test_ui_modal*' 'test_ui_menu*' 'test_ui_rail*' 'test_ui
 # Contracts-chat (M31 F6 L04, flight DD15): the chat-control contract files, plus the chart
 # contract (M35 F1 L1), the visual notice contract (M35 F2 L2) and the turn work group (sortie 16).
 contracts_chat_pat=('test_ui_composer*' 'test_ui_message*' 'test_ui_thinking*' \
-  'test_ui_telemetry*' 'test_ui_notice*' 'test_ui_chart*' 'test_ui_visual_notice*' 'test_ui_turn_work*')
+  'test_ui_telemetry*' 'test_ui_notice*' 'test_ui_chart*' 'test_ui_visual_notice*' 'test_ui_turn_work*' 'test_ui_change_table*')
 # Contracts-widget (M35 F2 L3): the widget frame and card contract files, split out of
 # contracts-chat because the frame's escape battery, focus, link and pause tests are slow.
 # Contracts-widget-lifecycle (M35 F2 L5): the lifecycle manager and hang guard contract files.

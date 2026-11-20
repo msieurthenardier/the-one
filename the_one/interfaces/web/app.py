@@ -3233,6 +3233,25 @@ async def _resume_paused_session(session: Session) -> None:
         )
 
 
+async def _send_proposals_snapshot(
+    websocket: WebSocket, session_id: str, agent_name: str | None
+) -> None:
+    """Send ``proposals_snapshot`` to a NEW subscriber right after ``session_joined``.
+
+    GleepGlorp chats only (M36 F2 L6): keyed by ids, so a degraded join can send it too. A
+    reconnect re-joins, so the frame repeats and the client treats it as idempotent. Never
+    raises over a read failure.
+    """
+    from the_one.gleepglorp.proposals.events import snapshot_frame
+
+    try:
+        frame = await snapshot_frame(await get_connection(), session_id, agent_name)
+        if frame is not None:
+            await websocket.send_json(frame)
+    except Exception:  # noqa: BLE001 - a dead socket surfaces on the loop's next receive
+        logger.warning("proposals_snapshot failed for %s", session_id, exc_info=True)
+
+
 async def _send_pause_snapshot_if_needed(session: Session, websocket: WebSocket) -> None:
     """Send the cached ``auth_required`` event to a NEW subscriber.
 
@@ -3676,6 +3695,7 @@ async def _websocket_loop(ws: WebSocket) -> None:
                         # F5 L3: replay a cached auth_required event to
                         # the new subscriber if the session is paused.
                         await _send_pause_snapshot_if_needed(session, ws)
+                        await _send_proposals_snapshot(ws, session.id, session.agent_name)
                         continue
                     if restored.is_degraded:
                         # Don't operate on a degraded session in this connection.
@@ -3684,6 +3704,10 @@ async def _websocket_loop(ws: WebSocket) -> None:
                             remove_subscriber(session.id, ws)
                         session = None
                         await ws.send_json(await _build_session_joined_degraded(restored))
+                        assert restored.db_session is not None
+                        await _send_proposals_snapshot(
+                            ws, restored.db_session.id, restored.db_session.agent_name
+                        )
                         continue
                     # status == not_found. M25 F4 L2 (AC8a): answer
                     # `join_failed` and create NOTHING. This used to fall
@@ -3707,6 +3731,7 @@ async def _websocket_loop(ws: WebSocket) -> None:
                     # F5 L3: replay a cached auth_required event on
                     # idempotent re-bind too.
                     await _send_pause_snapshot_if_needed(session, ws)
+                    await _send_proposals_snapshot(ws, session.id, session.agent_name)
                     continue
                 # else: no session_id AND no outer session → auto-create below.
 
@@ -3730,6 +3755,7 @@ async def _websocket_loop(ws: WebSocket) -> None:
                 # F5 L3: brand-new session has no pause state — the helper
                 # is a no-op here, included for code-pattern consistency.
                 await _send_pause_snapshot_if_needed(session, ws)
+                await _send_proposals_snapshot(ws, session.id, session.agent_name)
                 continue
 
             # M25 F4 L2 (DD1, AC2): leave the bound session WITHOUT binding
@@ -3833,6 +3859,7 @@ async def _websocket_loop(ws: WebSocket) -> None:
                             )
                         )
                         await _send_pause_snapshot_if_needed(existing, ws)
+                        await _send_proposals_snapshot(ws, existing.id, existing.agent_name)
                         if deliver:
                             _spawn_web_message(existing, validated.content, ws)
                         continue
@@ -3844,6 +3871,10 @@ async def _websocket_loop(ws: WebSocket) -> None:
                             remove_subscriber(session.id, ws)
                         session = None
                         await ws.send_json(await _build_session_joined_degraded(restored))
+                        assert restored.db_session is not None
+                        await _send_proposals_snapshot(
+                            ws, restored.db_session.id, restored.db_session.agent_name
+                        )
                         continue
 
                     # 4. not_found: strict create. The try wraps ONLY the
@@ -3879,6 +3910,7 @@ async def _websocket_loop(ws: WebSocket) -> None:
                     await ws.send_json(_build_session_joined_ok(session, is_processing=True))
                     # Brand-new session: no pause state; kept for the pattern.
                     await _send_pause_snapshot_if_needed(session, ws)
+                    await _send_proposals_snapshot(ws, session.id, session.agent_name)
                     _spawn_web_message(session, validated.content, ws)
                     continue
                 finally:
@@ -3978,6 +4010,7 @@ async def _websocket_loop(ws: WebSocket) -> None:
                 # F5 L3: brand-new session — no-op, included for code-
                 # pattern consistency.
                 await _send_pause_snapshot_if_needed(session, ws)
+                await _send_proposals_snapshot(ws, session.id, session.agent_name)
 
             if validated.user_input == "/reset":
                 session.agent.reset()

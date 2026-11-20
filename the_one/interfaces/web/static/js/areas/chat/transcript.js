@@ -142,6 +142,8 @@
         testid: 'message'
       });
       if (opts.routineId) msg.el.setAttribute('data-routine-id', String(opts.routineId));
+      // The proposal cards stop their placement walk at a user bubble (M36 F2 L6).
+      if (role === 'user') msg.el.setAttribute('data-role', 'user');
       if (role === 'user') dropContinue();
       messagesEl.appendChild(msg.el);
       if (attribution) {
@@ -171,6 +173,22 @@
       extra = extra || {};
       var opts = { ts: extra.ts, visibility: ev.visibility, peerName: ev.peer_name };
       if (!Object.prototype.hasOwnProperty.call(extra, 'ts')) delete opts.ts;
+      // M36 F2 L6 (DD8, board option B): an approval is the quiet line, never a bubble (the text
+      // the model sees is not shown); a dismissal draws nothing (the card's Dismissed line says
+      // it). Checked before the routine marker.
+      if (ev.proposal_event) {
+        if (ev.proposal_event === 'dismissed') return;
+        dropContinue();
+        messagesEl.appendChild(App.ui.notice({
+          tone: 'muted',
+          body: ev.proposal_event === 'approved'
+            ? 'You approved this change. GleepGlorp is continuing.'
+            : 'You approved this change.',
+          testid: 'chat-approval-line'
+        }).el);
+        scrollToBottomIfPinned();
+        return;
+      }
       if (ev.routine_name) {
         opts.marker = { label: 'Routine' };
         opts.routineId = ev.routine_id;
@@ -189,6 +207,8 @@
       dropContinue();
       dropModelLoading();
       if (ctx.turnWork) ctx.turnWork.reset();
+      // The proposal cards go with the log; their state stays for redraw() (M36 F2 L6).
+      if (ctx.proposalCards) ctx.proposalCards.clear();
       pinnedFlag = true;
       // Widgets (M35 F2 L6, DD7): destroy every card this log drew, then wipe, then sweep as a
       // backstop for a card that was connected once and detached by something else.
@@ -217,6 +237,8 @@
           agentName: agentName
         });
       } finally { historyAgent = undefined; }
+      // The proposal cards the chat already holds are drawn again, in place (M36 F2 L6).
+      if (ctx.proposalCards) ctx.proposalCards.redraw();
       messagesEl.removeAttribute('aria-busy');
     }
 

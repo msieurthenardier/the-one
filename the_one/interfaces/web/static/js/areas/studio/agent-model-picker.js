@@ -101,7 +101,7 @@
     function fetchModelsForProvider(providerId) {
       var selectEl = editorEl.querySelector('#studio-model');
       var loadingEl = editorEl.querySelector('.model-loading');
-      if (!selectEl) return;
+      if (!selectEl) return Promise.resolve();
 
       // Cancel any in-flight fetch from a prior provider selection.
       if (_modelsFetchController) {
@@ -124,7 +124,7 @@
         modelCapsBy = {};
         modelCtxBy = {};
         renderModelCapabilities();
-        return;
+        return Promise.resolve();
       }
 
       if (loadingEl) loadingEl.textContent = 'Loading models…';
@@ -135,7 +135,9 @@
         selectEl.replaceChildren(optionNode(currentVal, currentVal, { selected: true }));
       }
 
-      fetch('/api/providers/' + encodeURIComponent(providerId) + '/models', {
+      // Returns the fetch's promise (it never rejects) so a caller can run after the list lands
+      // (M36 F2 L7); the existing callers ignore it.
+      return fetch('/api/providers/' + encodeURIComponent(providerId) + '/models', {
         signal: fetchSignal,
       })
         .then(function (r) {

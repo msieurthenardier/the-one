@@ -32,11 +32,6 @@
     var wireEditorEvents = ctx.picker.wireEditorEvents;
     var discardOpen_ = ctx.discardOpen;
     var writeUrl_ = ctx.writeUrl;
-    // The per-agent Tools tab's categories: label -> tool names, from the one
-    // shared table (static/js/tool-categories.js, M25 F4 L6, AC9; it replaced
-    // this file's copy and the two admin/tools-*.js maps).
-    var TOOL_CATEGORIES = App.toolCategories.byCategory;
-
     // The agents-list calls, resolved at call time (see the ctx header).
     function replaceWithAgentsRoot_() { ctx.list().replaceWithAgentsRoot(); }
     function replaceWithAgent_(agent) { ctx.list().replaceWithAgent(agent); }
@@ -95,97 +90,18 @@
       if (d && d.handle && d.handle.general) d.handle.general.setNameError(text);
     }
 
-    // A failed save: the server's name refusal goes on the Name field (focused, so
-    // the operator lands on it), every other message in the header.
-    function onSaveError_(err) {
-      // Sortie 07, DD9: a refusal of a tool override carries a three-segment loc
-      // ["tool_overrides", tool, field] (App.api.fieldErrors matches single segments
-      // only), so those entries are split off and placed on their field below.
-      var items = (err && Array.isArray(err.detail)) ? err.detail : [];
-      var toolItems = items.filter(function (d) {
-        return d && d.type === 'tool_override' && Array.isArray(d.loc) &&
-          d.loc[0] === 'tool_overrides' && d.loc.length >= 2;
-      });
-      // Sortie 10: ["secret_ids", i] refusals show on the Tools tab's Secrets section.
-      var secretItems = items.filter(function (d) {
-        return d && Array.isArray(d.loc) && d.loc[0] === 'secret_ids';
-      });
-      var plain = err;
-      if (toolItems.length || secretItems.length) {
-        plain = { status: err.status, message: err.message, body: err.body,
-          detail: items.filter(function (d) {
-            return toolItems.indexOf(d) < 0 && secretItems.indexOf(d) < 0;
-          }) };
-      }
-      if (secretItems.length) {
-        setActiveTab('tools');
-        var sd = currentData_();
-        if (sd && sd.handle && sd.handle.secrets) {
-          sd.handle.secrets.showError(secretItems.map(function (d) { return d.msg; }).join(' '));
-        }
-      }
-      var fe = App.api.fieldErrors(plain, ['name']);
-      setNameError_(fe.fields.name || null);
-      var headerText = fe.text || '';
-      if (plain !== err && !plain.detail.length) headerText = '';
-      setEditorError_(headerText);
-      if (fe.fields.name) {
-        var input = editorEl.querySelector('#studio-name');
-        if (input) input.focus();
-      }
-      if (toolItems.length) {
-        showToolOverrideErrors_(toolItems, headerText, !!fe.fields.name);
-      }
-    }
-
-    // Select the Built-in tools tab, open each refused tool's panel and put the
-    // server's sentence on its field (focus on the first). A refusal with no field
-    // (an unknown tool) or no panel to open goes in the header with the rest.
-    function showToolOverrideErrors_(items, headerText, nameFocused) {
-      // Still the same mount (a tab switch below may re-sync the URL, which must not
-      // count as a rebuild).
-      var tok = currentData_() ? currentData_().token : null;
-      function guard() {
-        var c = slot.current();
-        return !!c && c.token === tok;
-      }
-      var sentences = [];
-      var placed = [];
-      function sentence(msg) {
-        var t = String(msg == null ? '' : msg).trim();
-        return /[.!?]$/.test(t) ? t : t + '.';
-      }
-      var wantsTab = items.some(function (d) { return d.loc.length >= 3; });
-      if (wantsTab) setActiveTab('tools');
-      var tab = toolsTab_();
-      var jobs = items.map(function (d) {
-        var tool = d.loc[1];
-        var field = d.loc[2];
-        if (field === undefined || !tab) {
-          sentences.push(sentence(d.msg));
-          return Promise.resolve();
-        }
-        return tab.openTool(tool).then(function () {
-          var byField = tab.fieldHandles()[tool] || {};
-          var handle = byField[field];
-          if (!handle) {
-            sentences.push(sentence(d.msg));
-            return;
-          }
-          handle.setError(d.msg);
-          placed.push(handle);
-        }, function () {
-          sentences.push(sentence(d.msg));
-        });
-      });
-      Promise.all(jobs).then(function () {
-        if (!guard()) return;
-        if (sentences.length) {
-          setEditorError_((headerText ? headerText + ' ' : '') + sentences.join(' '));
-        }
-        if (placed.length && !nameFocused) placed[0].focus();
-      });
-    }
+    // A failed save (the name refusal on the Name field, the rest in the header) is
+    // handled by agent-editor-save-errors.js (M36 F2 L7 split).
+    var saveErrors_ = App.studio.agentEditorSaveErrors.create({
+      editorEl: editorEl,
+      slot: slot,
+      currentData: currentData_,
+      setActiveTab: function (tab) { setActiveTab(tab); },
+      setNameError: setNameError_,
+      setEditorError: setEditorError_,
+      toolsTab: toolsTab_
+    });
+    var onSaveError_ = saveErrors_.onSaveError;
 
     // A liveness guard for an async callback: true while the mount it was taken
     // under is still the slot's current one AND no panel rebuild (patch, Cancel)
@@ -220,6 +136,23 @@
     });
     var recheckStoredNote_ = selfConfig_.recheckStoredNote;
     var onSelfConfigChanged = selfConfig_.onSelfConfigChanged;
+
+    // An approved GleepGlorp change reaches the open editor (M36 F2 L7): the module owns its
+    // listener, the notes and the clean/dirty apply; the controller only calls afterMount() and
+    // clear() below.
+    var follow_ = App.studio.agentEditorFollow.create({
+      self: self,
+      state: state,
+      editorEl: editorEl,
+      getFormSnapshot: getFormSnapshot,
+      checkDirty: checkDirty,
+      currentData: currentData_,
+      saveInFlight: function () { return saveInFlight; },
+      list: function () { return ctx.list(); },
+      picker: ctx.picker,
+      fetchAgent: agentData.fetchAgentFresh,
+      refreshMcpSources: agentData.refreshMcpSourcesCache
+    });
 
     function wire_(data, isCreate, agent) {
       data.wireGen += 1;
@@ -265,6 +198,7 @@
       // unsaved caption from it (clean).
       state.snapshot = getFormSnapshot();
       checkDirty();
+      follow_.afterMount();
     }
 
     // The same-identity update (the leg's patch policy): the handle patches the
@@ -280,98 +214,25 @@
       }
       state.snapshot = getFormSnapshot();
       checkDirty();
+      follow_.afterMount();
     }
 
-    function buildCallbacks_(isCreate) {
-      return {
-        loadFailed: !isCreate && self._selectedAgentLoaded === false,
-        initialTab: self._activeTab || 'general',
-        onDelete: handleDeleteEditor,
-        onPurge: handlePurgeHistory,
-        onSave: function () { save(isCreate); },
-        onCancel: function () { cancelEdit(); },
-        onTabChange: function (tabId) { setActiveTab(tabId); },
-        // F5 leg 05: tabs in the same agent share the form's dirty state, so
-        // switching tabs does NOT lose unsaved data — no confirmation prompt.
-        // The router's leave guard still fires on a list row, "New", the rail
-        // and hash-route navigation to a different agent.
-        onTestProvider: testProvider,
-        toolCategories: TOOL_CATEGORIES,
-        allTools: self._allTools,
-        onChange: function () { checkDirty(); recheckStoredNote_(); },
-        // F6 leg 05 — operator-state surfaces in Tools tab. Caches were
-        // refreshed at editor-mount time (see selectAgent / doSelect). The
-        // schema fetcher is closure-cached and survives agent changes.
-        disabledTools: self._disabledTools,
-        operatorConfigs: self._operatorConfigs,
-        fetchToolSchema: agentData.fetchToolSchema,
-        // F6 L3 — knowledge-base list + the L3-D1 load-success flag for
-        // the Knowledge tab. Both are refreshed at editor-mount time (see
-        // selectAgent / doSelect / doEnterCreateMode above).
-        allKnowledgeBases: self._allKnowledgeBases,
-        knowledgeBasesLoaded: self._knowledgeBasesLoaded === true,
-        // Sortie 10: the Secrets section's list + load flag (agent-data.js owns them).
-        allSecrets: self._allSecrets || [],
-        secretsLoaded: self._secretsLoaded === true,
-        // F8 L3 — MCP source list + per-source tools fetcher for Tools tab.
-        allMcpSources: self._allMcpSources,
-        testMcpAsAgent: agentData.testMcpAsAgent,
-        saveMcpCredentials: agentData.saveMcpCredentials,
-        // The studio owns the source focus (hydrate applies the URL's value to
-        // both slots); the tab reads it from here, never from location.hash.
-        pendingMcpAgentSourceId: self._selectedMcpAgentSourceId || self._pendingMcpAgentSourceId || null,
-        // Callback so renderMcpsTab can notify studio.js when the selected
-        // source changes (chip click → per-attachment editor). studio.js
-        // updates _selectedMcpAgentSourceId and syncs the URL.
-        onSelectedMcpSourceChange: function (sourceId) {
-          self._selectedMcpAgentSourceId = sourceId;
-          self._pendingMcpAgentSourceId = null;
-          writeUrl_();
-        },
-        // M27 F1 L2 -- Rules and notes tab network calls.
-        fetchRules: agentData.fetchRules,
-        createRule: agentData.createRule,
-        updateRule: agentData.updateRule,
-        deleteRule: agentData.deleteRule,
-        reorderRules: agentData.reorderRules,
-        fetchNotes: agentData.fetchNotes,
-        setNotesEnabled: agentData.setNotesEnabled,
-        deleteNote: agentData.deleteNote,
-        clearNotes: agentData.clearNotes,
-        // M33 F1 L8 -- Routines tab network calls.
-        fetchRoutines: agentData.fetchRoutines,
-        createRoutine: agentData.createRoutine,
-        updateRoutine: agentData.updateRoutine,
-        deleteRoutine: agentData.deleteRoutine,
-        runRoutine: agentData.runRoutine,
-        fetchRoutineRuns: agentData.fetchRoutineRuns,
-        fetchRoutinesItem: agentData.fetchRoutinesItem,
-        putRoutinesItem: agentData.putRoutinesItem,
-        fetchRoutineProposals: agentData.fetchRoutineProposals,
-        approveRoutineProposal: agentData.approveRoutineProposal,
-        dismissRoutineProposal: agentData.dismissRoutineProposal,
-        openRoutineForm: function (req) {
-          var f = App.studio.routinesForm;
-          return f && f.open ? f.open(req) : Promise.resolve(null);
-        },
-        // M21 F01 L02 — Self-configuration tab network calls.
-        fetchSelfConfigurationStatus: agentData.fetchSelfConfigurationStatus,
-        onEnableSelfConfiguration: agentData.enableSelfConfiguration,
-        onDisableSelfConfiguration: agentData.disableSelfConfiguration,
-        // M21 F02 L02 — approval-mode toggle + revision queue.
-        onSetSelfConfigurationApprovalMode: agentData.setSelfConfigurationApprovalMode,
-        fetchSelfConfigurationRevisions: agentData.fetchSelfConfigurationRevisions,
-        onApproveSelfConfigurationRevision: agentData.approveSelfConfigurationRevision,
-        onDismissSelfConfigurationRevision: agentData.dismissSelfConfigurationRevision,
-        // M21 F02 L03 — revision history restore.
-        onRestoreSelfConfigurationRevision: agentData.restoreSelfConfigurationRevision,
-        // M21 F03 L03 — external-client credential grant/list/revoke/rotate.
-        onMintExternalCredential: agentData.mintExternalCredential,
-        fetchExternalCredentials: agentData.fetchExternalCredentials,
-        onRevokeExternalCredential: agentData.revokeExternalCredential,
-        onRotateExternalCredential: agentData.rotateExternalCredential
-      };
-    }
+    // The callback bag is built by agent-editor-callbacks.js (M36 F2 L7 split). Every
+    // handler is resolved at call time, so the bag keeps today's behaviour.
+    var callbacks_ = App.studio.agentEditorCallbacks.create({
+      self: self,
+      agentData: agentData,
+      writeUrl: function () { writeUrl_(); },
+      onDelete: function (revertFn) { handleDeleteEditor(revertFn); },
+      onPurge: function (revertFn) { handlePurgeHistory(revertFn); },
+      save: function (isCreate) { save(isCreate); },
+      cancel: function () { cancelEdit(); },
+      setActiveTab: function (tab) { setActiveTab(tab); },
+      testProvider: function () { return testProvider(); },
+      onChange: function () { checkDirty(); recheckStoredNote_(); }
+    });
+    function buildCallbacks_(isCreate) { return callbacks_.build(isCreate); }
+
     // Named hook (M31 F2 L10c): the Self-configuration tab drops its copy-once token
     // when the tab stops being the shown one (a tab switch, or the Studio area
     // deactivating). No-op without a mounted self-configuration tab.
@@ -447,6 +308,7 @@
       }
       if (self._selectedAgent) {
         var cancelTok = App.focusAfter.begin(cancelBtnEl_());
+        follow_.clear(self._selectedAgent.name);
         renderEditor(self._selectedAgent, { revert: true });
         state.dirty = false;
         checkDirty();
@@ -737,6 +599,7 @@
                 // Likewise the per-agent MCP tool lists (the list route has none).
                 found.mcp_tool_cache = updated.mcp_tool_cache;
                 self._selectedAgent = found;
+                follow_.clear(found.name);
                 renderEditor(found);
                 App.focusAfter.restore(focusTok, editorTitleEl_);
                 showFlash('Agent saved');

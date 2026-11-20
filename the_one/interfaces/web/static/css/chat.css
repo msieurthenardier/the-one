@@ -350,6 +350,68 @@
     user-select: none;
     -webkit-user-drag: none;
   }
+
+  /* === Proposal card (M36 F2 L6, board option A) === */
+  /* One card per GleepGlorp proposal, after the turn that made it. Built from library controls
+     (changeTable, noteFlag, status, banner, disclosure, button); only the layout is here. The
+     folded states (applied, dismissed, withdrawn) are one quiet line. */
+  .area-chat .chat-proposal {
+    align-self: stretch;
+    max-width: min(100%, 46rem);
+    box-sizing: border-box;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-body-sm);
+    line-height: var(--line-height-normal);
+  }
+  .area-chat .chat-proposal--applied,
+  .area-chat .chat-proposal--dismissed,
+  .area-chat .chat-proposal--withdrawn {
+    padding: 8px 12px;
+    background: none;
+    color: var(--fg-secondary);
+  }
+  .area-chat .chat-proposal-body { display: contents; }
+  .area-chat .chat-proposal-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    font-weight: var(--font-weight-semibold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-tertiary);
+  }
+  .area-chat .chat-proposal-time { margin-left: auto; font-weight: 400; letter-spacing: normal; text-transform: none; }
+  .area-chat .chat-proposal-title {
+    margin: 4px 0 8px;
+    font-size: var(--font-size-body);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+  }
+  .area-chat .chat-proposal-hint { margin: 0 0 8px; color: var(--fg-secondary); }
+  .area-chat .chat-proposal-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .area-chat .chat-proposal-foot-note { margin-left: auto; color: var(--fg-tertiary); }
+  .area-chat .chat-proposal-wait { flex-basis: 100%; margin: 0; color: var(--fg-tertiary); }
+  .area-chat .chat-proposal-block { margin: 8px 0; }
+  .area-chat .chat-proposal-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 8px;
+  }
+  .area-chat .chat-proposal-state { font-weight: var(--font-weight-semibold); }
+  .area-chat .chat-proposal-state--applied { color: var(--status-success); }
+  .area-chat .chat-proposal-state--applied svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+  .area-chat .chat-proposal-details { margin-top: 6px; }
 }
 
 /* L10d: the step-limit notice's Continue button sits on its own line below the text, centred. */
