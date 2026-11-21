@@ -1,6 +1,6 @@
 # Flight: The GleepGlorp drawer and form filling
 
-**Status**: landed
+**Status**: completed
 **Mission**: [GleepGlorp, the In-App Assistant](../../mission.md)
 
 ## Contributing to Criteria
