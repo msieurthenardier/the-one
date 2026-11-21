@@ -207,12 +207,15 @@ and tool-config rows, so no check asserts a row count.
 The set is `evals/gleepglorp/scenarios` (fixture pages in `evals/gleepglorp/fixtures/web`,
 eighteen scenarios of 5 facts x 4 phrasings, so 20 variants each: the ten of Mission 36 Flight 1,
 `no-change-claim` rewritten and eight proposal scenarios added in Flight 2 Leg 9). Its baseline
-was `evals/baselines/m36-gleepglorp.json`, recorded in Flight 1 from the shipped D-min prompt on
-`haiku` and `qwen3-4b` (n=20, size targets ratio 1.0, harness default bars; `lfm3` is not
-evaluated for it). **The set changed in Flight 2, so that baseline can no longer be compared
-(a different scenario fingerprint, by design) and becomes history once
-`evals/baselines/m36f2-gleepglorp.json` is recorded** (Flight 2 Leg 10: a same-prompt baseline of
-the new set first, the control for the proposal prompt screen). Run it with
+is `evals/baselines/m36f3-gleepglorp.json`, recorded in Flight 3 Leg 8 from the shipped p4c
+prompt on `haiku` and `qwen3-4b` over all 23 scenarios (n=20, size targets ratio 1.0, harness
+default bars; `lfm3` is not evaluated for it): haiku 426/460 with no safety failure (the
+`fill-after-fetch-no-secret` cell, report-class, scored 18/20), qwen3-4b 178/460 with 28 safety
+failures (measured only); prompt sections 591 tokens with tools and web (41 of them the date
+line), tool schemas 899, platform total 1490. **The set changed in Flights 2 and 3, so
+`m36-gleepglorp.json` (Flight 1, D-min) can no longer be compared (a different scenario
+fingerprint, by design) and is history; `m36f2-gleepglorp.json` was never recorded and is
+superseded by `m36f3`.** Run it with
 `--scenarios-dir evals/gleepglorp/scenarios --measure-dir evals/gleepglorp/measure`:
 
 | scenario | class | what it scores |
@@ -293,10 +296,9 @@ prompt has one too, so a candidate without it uses its `answering_tools` text ei
 for byte, web on and off, by `tests/test_evals_gleepglorp_prompt_file.py`; its tool-free variant
 uses a product-only `LIMITS_TOOL_FREE` (it names no tool and cannot propose), which no candidate
 file carries. `dmin.toml` is the Flight 1 prompt (D-min, Part B; the control for the proposals
-set) and `v1.toml` the historical first version. **The n=20 confirmation and the new baseline
-`m36f3-gleepglorp.json` are owed from Leg 8's confirmation**: p3 (M36 F2 Leg 10, history now) and p4c both shipped on n=5 or n=20 partial evidence by operator decision,
-and `m36-gleepglorp.json` stays the latest recorded baseline although it predates the proposals
-set. The spent screening and ablation candidates (`a`-`e`, `d`, `d0`-`d5`, `p1`, `p2`) are history,
+set) and `v1.toml` the historical first version. **The n=20 confirmation is recorded as the baseline
+`m36f3-gleepglorp.json`** (Leg 8; p3, M36 F2 Leg 10, is history now): a change to GleepGlorp
+prompt text compares against it, and `m36-gleepglorp.json` is history. The spent screening and ablation candidates (`a`-`e`, `d`, `d0`-`d5`, `p1`, `p2`) are history,
 kept as data under `evals/gleepglorp/prompts/history/` (pass that path to `--prompt-file`); only
 `v1.toml`, `dmin.toml` and `p3.toml` stay at the top level. `run --prompt-file PATH` and `measure-prompt
 --prompt-file PATH` use the candidate's sections for that invocation, through the eval-only seam
@@ -558,13 +560,14 @@ DD13; it applies to any prompt tuning that spends quota):
 8. **Re-baseline on a changed set.** A changed scenario set gets a new baseline with the
    same prompt, never a comparison across sets.
 
-**Flight 2 Leg 10 sequence** (the set changed in Leg 9, so `m36-gleepglorp.json` cannot be
+**Flight 2 Leg 10 sequence** (history; the set changed in Leg 9, so `m36-gleepglorp.json` cannot be
 compared, by design): (1) the fairness pass, one attempt per new scenario on Haiku, the
 transcripts read against each check; (2) a same-prompt baseline of the new set on the shipped
 D-min prompt (the control; it will fail the proposal scenarios, because that prompt says
 GleepGlorp cannot change anything, which is expected); (3) candidates screened at n=5 against the
 control; (4) shortening at the ceiling; (5) one n=20 confirmation on Haiku and qwen3-4b, recorded
-as `evals/baselines/m36f2-gleepglorp.json`.
+as `evals/baselines/m36f2-gleepglorp.json` (never recorded; superseded by
+`m36f3-gleepglorp.json`, Flight 3 Leg 8).
 
 ### Gating a change that moves the prompt and the scenario set together
 
