@@ -1,10 +1,10 @@
 # Squawk 0368: agents.md does not state the two limits of the thinking retry
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-15
-**Completed**: —
+**Completed**: 2026-11-21
 
 ## Report
 `the_one/agents.md` documents sortie 17's model rule, the remembered set of model ids found unable to think, and the one retry. It does not state two limits a maintainer needs:
@@ -21,10 +21,12 @@ Both were accepted at sortie 17's review as residual risks. Why now: the real er
 - `sorties/17-thinking-follows-the-model/flight-debrief.md`, recommendation 6.
 
 ## Corrective Action
-*(written at completion)*
+Added both limits, and the squawk 0361 pointer, to `the_one/agents.md` "Extended thinking follows the model (sortie 17)". Doc-only; the code matched the report, so no difference to note.
 
 ## Verification
-*(written at completion)*
+Read `_strip_for_bad_request` (condition: `"thinking" in kwargs and "thinking" in text and "not supported" in text`, text lowercased), `_NO_THINKING_MODELS` (module-level set), `supports_adaptive_thinking` (consults the set first) and `_clear_no_thinking_models` (grep shows callers only in `tests/`). Grepped agents.md for the new text and each named symbol.
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Reviewer agent (Sonnet; the security tier, since the batch changed the shell-write hook and CLAUDE.md's safety rules), batch review of squawks 0368, 0379, 0384, 0385, 0391-0397
+**Verdict**: confirmed
+**Commit**: `squawk: turnaround 2026-11-21` on squawk/turnaround-2026-11-21

@@ -484,8 +484,8 @@ passes empirically in ~10s per `--durations=10`).
   `the_one/agents.md`'s "Project Conventions" section. Each pattern has a
   one-paragraph description, one or two live-code examples with file/symbol
   references, and a counter-example showing what NOT to do.
-- **F2 (MCP Client Foundation) contracts**: see `CLAUDE.md`'s "F2 (MCP
-  Client Foundation) Contracts" section for the SDK pin, protocol revision,
+- **F2 (MCP Client Foundation) contracts**: see `the_one/agents.md`'s "MCP F2
+  Client Foundation" section for the SDK pin, protocol revision,
   and pool-compat surface.
 - **F3 sandbox boundary catalog** (catalog messages 1-3 verbatim text): see
   `CLAUDE.md`'s "F3 (MCP Sandbox) Contracts" section, contract #5.

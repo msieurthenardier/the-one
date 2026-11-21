@@ -71,7 +71,7 @@ class ProposeChangeTool(Tool):
         tool fails closed: every proposal is flagged "unknown position"."""
         self._agent = agent
 
-    async def execute(  # type: ignore[override]
+    async def execute(
         self,
         kind: Any = None,
         action: Any = None,

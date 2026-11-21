@@ -379,7 +379,7 @@ def test_the_looking_at_line_follows_the_page(app_with_agent: SeededApp, page: P
     _open(page, base, "library/mcp/~new")
     page.locator(BTN).click()
     ctx = page.locator(CONTEXT)
-    expect(ctx).to_have_text("Looking at Library › MCP servers › New")
+    expect(ctx).to_have_text("Looking at Library › MCP servers › New MCP server")
     # An item change within the destination.
     page.evaluate(f"() => App.router.go('library/mcp/{mcp_id}')")
     expect(ctx).to_have_text("Looking at Library › MCP servers › Docs server", timeout=8000)
@@ -390,9 +390,29 @@ def test_the_looking_at_line_follows_the_page(app_with_agent: SeededApp, page: P
     expect(ctx).to_have_text("Looking at Settings › Appearance", timeout=8000)
     # A save-create's sync (a ~new route canonicalised to the new item).
     page.evaluate("() => App.router.go('library/mcp/~new')")
-    expect(ctx).to_have_text("Looking at Library › MCP servers › New", timeout=8000)
+    expect(ctx).to_have_text("Looking at Library › MCP servers › New MCP server", timeout=8000)
     page.evaluate("() => App.router.sync('studio', 'mcp-sources/fresh', {name: 'Brand new'})")
     expect(ctx).to_have_text("Looking at Library › MCP servers › Brand new")
+
+
+@pytest.mark.parametrize(
+    ("route", "line"),
+    [
+        ("agents/~new", "Agents › New Agent"),
+        ("library/providers/~new", "Library › Model providers › New model provider"),
+        ("library/knowledge/~new", "Library › Knowledge bases › New knowledge base"),
+        ("library/mcp/~new", "Library › MCP servers › New MCP server"),
+        ("library/connectors/~new", "Library › Connectors › New Connector"),
+        ("library/secrets/~new", "Library › Secrets › New secret"),
+    ],
+)
+def test_the_looking_at_line_uses_the_create_editor_names(
+    app_with_agent: SeededApp, page: Page, route: str, line: str
+) -> None:
+    """Squawk 0396: a create route reads the server's page-line words, not 'New'."""
+    _open(page, app_with_agent.base_url, route)
+    page.locator(BTN).click()
+    expect(page.locator(CONTEXT)).to_have_text(f"Looking at {line}", timeout=8000)
 
 
 def test_a_cold_deep_link_to_an_item_gets_its_name_when_the_store_loads(

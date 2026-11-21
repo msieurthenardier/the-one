@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, tzinfo
-from typing import Any
+from typing import Any, cast
 
 from the_one.agent.service import comparable_value
 from the_one.db._rules import RuleLimitError, validate_rule_text
@@ -474,7 +474,8 @@ async def _agent(
     if "provider_config_id" in stored:
         pname = changes["provider"]
         if not isinstance(pname, str) or not pname.strip():
-            raise _bad(spec_for("agent", "provider"), "a model provider's name")  # type: ignore[arg-type]
+            # "provider" is a declared agent field, so spec_for finds it.
+            raise _bad(cast(FieldSpec, spec_for("agent", "provider")), "a model provider's name")
         entries = await _ref_entries(conn, "provider")
         stored["provider_config_id"] = _resolve_one(entries, "provider", pname.strip())
         names["provider_config_id"] = pname.strip()

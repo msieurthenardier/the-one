@@ -206,7 +206,8 @@ Never write or run a helper script (Python, sed, shell redirection, a heredoc or
 the like) that writes a source or test file; edit source and test files only
 through the edit tool (squawk 0286). A project `PreToolUse` hook
 (`.claude/settings.json` -> `.claude/hooks/block_shell_writes.py`, squawk 0292) now refuses
-such shell writes into `the_one/`, `tests/`, `docs/`, `scripts/`, `missions/` and `evals/`
+such shell writes into `the_one/`, `tests/`, `docs/`, `scripts/`, `missions/`, `evals/`,
+`sorties/` and `squawks/`, and into the root `CLAUDE.md`, `SECURITY-MODEL.md` and `README.md`,
 with exit 2; it fails open on anything it cannot parse. When a new test must be shown to fail without
 its fix (falsified), remove the fix by editing, run the test, then put the fix back
 by editing; never restore a whole file or put back a backup copy (squawk 0284). A

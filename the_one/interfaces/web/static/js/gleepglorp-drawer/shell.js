@@ -46,12 +46,30 @@
     return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
+  // The create editors' names, one copy of the server's `page.py::CREATE_NAMES` (pinned equal by
+  // `tests/test_gleepglorp_drawer_create_names.py`): the line reads what the model's page line
+  // does, where the router's announcer says only "New". Keyed by the Library section, or
+  // `agents`.
+  var CREATE_NAMES = {
+    agents: 'New Agent',
+    providers: 'New model provider',
+    knowledge: 'New knowledge base',
+    mcp: 'New MCP server',
+    connectors: 'New Connector',
+    secrets: 'New secret'
+  };
+
   // The "Looking at" parts of a route-change info: the announcer's parts, plus an agent's tab.
   function contextParts(info) {
     if (!info) return [];
     var parts = [];
     for (var i = 0; i < info.parts.length; i++) {
       if (info.parts[i]) parts.push(String(info.parts[i]));
+    }
+    var cp = App.router.parse(info.route);
+    if (cp && cp.create && parts.length) {
+      var createName = CREATE_NAMES[cp.destination === 'agents' ? 'agents' : cp.section];
+      if (createName) parts[parts.length - 1] = createName;
     }
     if (info.destination === 'agents') {
       var p = App.router.parse(info.route);
