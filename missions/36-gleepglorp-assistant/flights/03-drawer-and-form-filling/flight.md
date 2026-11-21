@@ -1,6 +1,6 @@
 # Flight: The GleepGlorp drawer and form filling
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp, the In-App Assistant](../../mission.md)
 
 ## Contributing to Criteria
@@ -669,17 +669,20 @@ from two read-only surveys and Flight Director spot checks.
 6. Check the desktop webviews, walk the HAT, run the closing gate.
 
 ### Checkpoints
-- [ ] Chats behaves exactly as before on the factory (chats lanes unedited).
-- [ ] The corner button and drawer work on Agents, Library and Settings, hide
+- [x] Chats behaves exactly as before on the factory (chats lanes unedited).
+- [x] The corner button and drawer work on Agents, Library and Settings, hide
   on Chats, and keep the conversation across pages and a reload.
-- [ ] A window opened straight into Agents receives `config_changed`.
-- [ ] A drawer message's page reaches the model as one marked line.
-- [ ] A fill puts values into the agent editor as unsaved edits, keeps an
+- [x] A window opened straight into Agents receives `config_changed`.
+- [x] A drawer message's page reaches the model as one marked line.
+- [x] A fill puts values into the agent editor as unsaved edits, keeps an
   operator's unsaved edit, and stores nothing.
-- [ ] `p4` within 550 tokens; the n=20 baseline recorded with Haiku at or above
-  its bars and zero safety failures.
-- [ ] The three desktop engines show the drawer and a fill.
-- [ ] A full quiet-host gate on HEAD, targets restated.
+- [x] `p4` within 550 tokens (shipped as `p4c`); the n=20 baseline
+  `m36f3-gleepglorp.json` recorded with Haiku at its bars and zero safety
+  failures.
+- [x] The three desktop engines show the drawer and a fill.
+- [ ] A full quiet-host gate on HEAD, targets restated. *(Changed by the
+  operator on 2026-11-21: the gate ran on HEAD `1427d98c` as a correctness
+  check and passed. The re-measure and re-budget move to Flight 4.)*
 
 ### Adaptation Criteria
 

@@ -433,7 +433,7 @@ Taken with the operator on 2026-11-19, at Flight 3 planning:
   and "attach my MCP server to ABC" work by approval. This flight carries the
   write-boundary risk. *(Scoped 2026-11-19 to agents, their rules and their
   routines; the other kinds move to Flight 3.)*
-- [ ] **Flight 3: The corner overlay and form filling.** Make the chat able to
+- [x] **Flight 3: The corner overlay and form filling.** Make the chat able to
   run twice and put the second one in a floating overlay on every page, with
   page and item awareness. Add form filling across every editor in scope
   through the change shape, with secret handoff links and the desktop-webview

@@ -1528,7 +1528,61 @@ cite, so none had drifted.
         - **Non-blocking notes, accepted:** the no-tab-stop test presses Tab
           four times; the step 7 log entry is superseded; a comment names
           the retired testid.
-      - **HAT fixes committed.**
+      - **HAT fixes committed: `1427d98c`.**
+    - **Closing gate started.**
+      - **The host was not quiet:** load 2.24, 3.16 and 3.66 at 10:08,
+        from processes outside this session (no test process of ours).
+      - **The wait:** a background loop waits up to 30 minutes for a
+        1-minute load below 1.0. It then runs `THE_ONE_TEST_NETNS=1
+        THE_ONE_REQUIRE_WEBKIT=1 TEST_TIMEOUT=3600 make gate` on
+        `1427d98c` and records the start `uptime`.
+      - **Operator decision (2026-11-21): a correctness check only.**
+        - **The budget reset moves to Flight 4.** The re-measure and the
+          lane re-budget, owed since Flight 1 (squawk 0389), are carried
+          there, where the new kinds change the lanes again. `shared` is
+          the known overrun.
+        - **Also carried to Flight 4's plan:**
+          - the page address in the page line;
+          - whether a page request about another agent should fill or
+            propose.
+      - **The gate had already started.** The host went quiet first (load
+        0.86 at 10:13:35), so `make gate` began then. It runs on as the
+        correctness check, and its timings are recorded for reference.
+      - **Closing gate result: green.** `make gate` on `1427d98c`, rc 0,
+        3144 s in all.
+        - **Unit tier:** 11331 passed, 15 skipped, 381 s.
+        - **Browser:** `PARALLEL_RESULT rc=0 total=2746s lanes=20
+          failed=-`. The load climbed to about 5-7 during the run, from
+          outside processes, so the timings are not a quiet reading.
+        - **Over budget, for reference only:**
+
+          | lane | wall (s) | budget (s) |
+          |---|---|---|
+          | routing | 741 | 720 |
+          | agents | 705 | 630 |
+          | agent-tabs | 707 | 600 |
+          | chats-transcript | 583 | 540 |
+          | chats | 439 | 420 |
+          | shared | 683 | 420 |
+          | mcp | 362 | 330 |
+
+          These are carried to Flight 4's quiet-host re-budget.
+      - **Leg 10 `completed`.**
+    - **Flight 3 `landed`** (2026-11-21).
+      - All ten legs are completed, and the checkpoints are checked. The
+        quiet-host target restatement moves to Flight 4 by operator
+        decision.
+      - The mission's Flight 3 box is checked.
+      - Squawk 0393 is open.
+      - **Carried to Flight 4 and the debrief:**
+        - the page address in the page line, for the
+          `page-what-is-link` weakness;
+        - fill or propose for another agent's page request;
+        - the quiet-host gate re-measure and lane re-budget;
+        - the accepted payload-in-fill residual;
+        - GleepGlorp's own icon, which the operator plans for a sortie.
+      - **Next:** push and the PR, which need the operator's go-ahead,
+        then `/mission-control:flight-debrief` on this branch.
     - **HAT step 3 fix (Developer):** `ui/drawer.js` sets `root.tabIndex = -1`
       (comment and header doc updated); `components.css` adds
       `.ui-drawer:focus:not(:focus-visible) { outline: none; }`; the `drawer`

@@ -1,6 +1,6 @@
 # Leg: hat
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [The GleepGlorp drawer and form filling](../flight.md)
 
 ## Objective
