@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """PreToolUse hook (Bash): refuse shell writes into the source tree (squawk 0292).
 
-Squawk 0286: source, tests, docs, scripts, missions and evals are changed only with the
+Squawk 0286: source, tests, docs, scripts, missions, evals, sorties and squawks (and the
+repo-root CLAUDE.md, SECURITY-MODEL.md and README.md, squawk 0385) are changed only with the
 Edit/Write tools. A written rule did not hold for autonomous crew, so this hook enforces it.
 
 Contract (Claude Code PreToolUse hooks): the hook JSON arrives on stdin
@@ -11,7 +12,8 @@ model; any other exit lets it through. Stdlib only, run with ``python3``.
 FAIL OPEN: unparseable stdin, a non-Bash tool, a missing command, or any internal error exits 0.
 A guard must never wedge the session; the cost is that an exotic command can slip past.
 
-What it blocks (target path under the_one/ tests/ docs/ scripts/ missions/ evals/, relative to
+What it blocks (target path under the_one/ tests/ docs/ scripts/ missions/ evals/ sorties/
+squawks/, or exactly CLAUDE.md, SECURITY-MODEL.md or README.md at the repo root, relative to
 the command's directory or absolute under the repo root):
   * an output redirect (`>`, `>>`, `>|`, `&>`) whose target is such a path
   * `sed -i` / `--in-place`, `perl -i` (any flag cluster with i), `tee`, `truncate`, `dd of=`
@@ -41,7 +43,9 @@ import posixpath
 import re
 import sys
 
-PROTECTED = ("the_one", "tests", "docs", "scripts", "missions", "evals")
+PROTECTED = ("the_one", "tests", "docs", "scripts", "missions", "evals", "sorties", "squawks")
+# repo-root documents: matched as the exact path relative to the repo root (squawk 0385)
+PROTECTED_FILES = ("CLAUDE.md", "SECURITY-MODEL.md", "README.md")
 ROOT = os.path.normpath(
     os.environ.get("CLAUDE_PROJECT_DIR")
     or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -176,15 +180,17 @@ def is_protected(path, cwd):
     for root in ROOTS:
         if p == root or p.startswith(root + "/"):
             rel = p[len(root) :].lstrip("/")
-            if rel.split("/")[0] in PROTECTED:
+            if rel.split("/")[0] in PROTECTED or rel in PROTECTED_FILES:
                 return True
     return False
 
 
 _dirs = "|".join(PROTECTED)
+_files = "|".join(re.escape(f) for f in PROTECTED_FILES)
 MENTION = re.compile(
-    r"(?<![\w./-])(?:\./)?(?:{d})/|(?:{r})/(?:{d})/".format(
-        d=_dirs, r="|".join(re.escape(r) for r in ROOTS)
+    r"(?<![\w./-])(?:\./)?(?:{d})/|(?:{r})/(?:{d})/"
+    r"|(?<![\w./-])(?:\./)?(?:{f})(?![\w.-])|(?:{r})/(?:{f})(?![\w.-])".format(
+        d=_dirs, f=_files, r="|".join(re.escape(r) for r in ROOTS)
     )
 )
 _NEST = r"(?:[^()]|\([^()]*\))*?"
@@ -337,7 +343,8 @@ def main():
     if reason:
         sys.stderr.write(
             "Blocked shell write into the source tree (%s): change files under the_one/, tests/,"
-            " docs/, scripts/, missions/ and evals/ only with the Edit/Write tools"
+            " docs/, scripts/, missions/, evals/, sorties/ and squawks/ (and the root CLAUDE.md,"
+            " SECURITY-MODEL.md and README.md) only with the Edit/Write tools"
             " (squawk 0286, hook squawk 0292).\n" % reason
         )
         return 2

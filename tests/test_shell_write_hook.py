@@ -70,6 +70,19 @@ BLOCKED = [
     "truncate -s 0 tests/x.log",
     "dd if=/dev/zero of=tests/x bs=1 count=1",
     "echo hi > $CLAUDE_PROJECT_DIR/tests/x.txt",
+    "echo hi > squawks/0999-x.md",
+    "sed -i 's/a/b/' squawks/0385-x.md",
+    "echo hi >> sorties/19-x/flight-log.md",
+    "sed -i 's/a/b/' sorties/19-x/flight.md",
+    "cp /tmp/x sorties/19-x/leg.md",
+    "echo hi > CLAUDE.md",
+    "sed -i 's/a/b/' CLAUDE.md",
+    "sed -i 's/a/b/' ./SECURITY-MODEL.md",
+    "echo hi | tee README.md",
+    "echo hi >> README.md",
+    f"echo hi > {REPO}/README.md",
+    "mv /tmp/x SECURITY-MODEL.md",
+    "python3 -c \"open('CLAUDE.md','w').write('x')\"",
 ]
 
 ALLOWED = [
@@ -101,7 +114,12 @@ ALLOWED = [
     "ls tests/ > /dev/null 2>&1",
     f"echo hi > {SCRATCH}/out.txt",
     "echo hi > /tmp/out.txt",
-    "echo hi > squawks/0999-x.md",
+    "grep -n foo squawks/0385-x.md sorties/19/flight-log.md",
+    "cat CLAUDE.md SECURITY-MODEL.md README.md",
+    "grep -n foo CLAUDE.md",
+    "sed -n '1,5p' README.md",
+    "sed -i s/a/b/ /tmp/README.md",
+    "echo hi > /tmp/CLAUDE.md",
     "echo hi > $HOME/notes.txt",
     "echo hi > ~/notes.txt",
     "echo hi | tee /tmp/x",
@@ -145,7 +163,13 @@ def test_allowed(command):
 def test_relative_path_resolves_against_cwd():
     assert run_hook("echo hi > x.txt", cwd=str(REPO / "tests")).returncode == 2
     assert run_hook("echo hi > x.txt", cwd="/tmp").returncode == 0
-    assert run_hook("echo hi > x.txt", cwd=str(REPO / "squawks")).returncode == 0
+    assert run_hook("echo hi > x.txt", cwd=str(REPO / "squawks")).returncode == 2
+    assert run_hook("echo hi > x.txt", cwd=str(REPO / "sorties")).returncode == 2
+    assert run_hook("echo hi > CLAUDE.md", cwd=str(REPO)).returncode == 2
+    # a root document name is only protected at the repo root
+    assert run_hook("echo hi > README.md", cwd="/tmp").returncode == 0
+    assert run_hook("echo hi > README.md", cwd=str(REPO / "docs")).returncode == 2
+    assert run_hook("echo hi > README.md", cwd=str(REPO / ".flightops")).returncode == 0
 
 
 def test_fails_open_on_bad_input():

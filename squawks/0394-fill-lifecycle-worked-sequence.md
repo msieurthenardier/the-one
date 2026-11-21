@@ -1,10 +1,10 @@
 # Squawk 0394: One worked sequence of the GleepGlorp fill lifecycle in agents.md
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-21
-**Completed**: —
+**Completed**: 2026-11-21
 
 ## Report
 `the_one/agents.md` describes fills leg by leg ("GleepGlorp fills, server (M36 F3 L5)" and
@@ -29,7 +29,14 @@ rather than repeating them. Raised in the Flight 3 debrief.
   `static/js/gleepglorp-drawer/fill.js`, `areas/studio/agent-editor-fill.js`.
 
 ## Corrective Action
-*(written at completion)*
+Added "### Fill lifecycle (M36 F3)" to `the_one/agents.md`, immediately before "GleepGlorp fills, server (M36 F3 L5)" and mirroring "Proposal lifecycle (M36 F2)": the seven steps, the statuses and who moves them (including `replaced`, lease expiry and Fill now), and why a fill differs from a proposal's Approve. It links both per-leg sections by exact heading. No difference from the squawk found; the removed "Show the form" button is not mentioned.
 
 ## Verification
 The section exists and links the per-leg sections. Every name it cites exists in the code (grep).
+
+Checked against code: `CLAIM_LEASE_SECONDS = 120` and `STATUSES` (fill/store.py), `NEEDS_PAGE` (fill/tool.py), the `not_applying` 409 (gleepglorp_fills_api.py), `ownsTurn` / `onFillRequested` (send.js, turn-frames.js, gleepglorp-drawer/chat.js), reason codes `in_chats`/`stay`/`target_gone`/`editor_unavailable` and `isDeciding` (gleepglorp-drawer/fill.js), `whenSettled` and `ALLOWED` (agent-editor-fill.js). Headings named all exist in agents.md.
+
+## Sign-Off
+**Reviewer**: Reviewer agent (Sonnet; the security tier, since the batch changed the shell-write hook and CLAUDE.md's safety rules), batch review of squawks 0368, 0379, 0384, 0385, 0391-0397
+**Verdict**: confirmed
+**Commit**: `squawk: turnaround 2026-11-21` on squawk/turnaround-2026-11-21

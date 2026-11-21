@@ -831,15 +831,15 @@ The Pull Model control makes outbound requests from the server to three URL shap
 The per-category Pydantic Configs (`FilesystemConfig`, `ExecutionConfig`,
 `PythonExecConfig`, `WebConfig`) and the resolver semantics
 (`Narrow`/`NarrowPrefix`/`NarrowSuperset`/`Substitute`) are documented in
-detail in [CLAUDE.md](CLAUDE.md) under "Tool Configuration Layer (M05
-Flight 2)". The security-relevant invariants are:
+detail in [the_one/agents.md](the_one/agents.md) under "Tool authorship
+contract (F4+)" and "Constraint surface". The security-relevant invariants are:
 
 - **Filesystem (M05 F3)**: per-tool path allowlist + denylist (default
   19-entry curated denylist covering system secrets, browser/app data,
   agent internals), read-size cap, binary-file refusal. See
-  [CLAUDE.md](CLAUDE.md) "Filesystem constraint surface (F3)".
+  [the_one/agents.md](the_one/agents.md) "Constraint surface".
 - **Execution (M05 F4)**: timeout/output caps, command denylist
-  (trip-wire, not fence — see CLAUDE.md), per-agent PTY session isolation
+  (trip-wire, not fence — see agents.md "Constraint surface"), per-agent PTY session isolation
   keyed on `(agent_name, session_id)`, per-call denylist re-check on
   `shell_session_send` so agents cannot pre-stage a denylisted command
   behind an open session.
@@ -901,8 +901,8 @@ Flight 2)". The security-relevant invariants are:
   boundary plus `SSRFGuardedTransport` resolving DNS once and pinning the
   connect target to that IP, refusing loopback / RFC1918 / link-local /
   cloud-metadata / IPv6 ULA + ULL by default. IP-literal hosts are gated
-  on the same default-block list. See [CLAUDE.md](CLAUDE.md) lines
-  142-144 for the canonical mechanism description and the **mission
+  on the same default-block list. See [the_one/agents.md](the_one/agents.md)
+  "Constraint surface" for the canonical mechanism description and the **mission
   invariant** that `WebConfig` deliberately has no `disable_ssrf` field
   — SSRF protection is always-on; operators reaching specific internal
   hosts list them in `extra_allowed_hosts`.
@@ -1108,7 +1108,7 @@ with the unsandboxed Windows posture.
 - **LLM provider API keys**: encrypted at rest via `Encryptor` (Fernet
   symmetric encryption). The encryption key file (`encryption.key` in the
   project data dir) is created with mode `0o600`. See
-  [CLAUDE.md](CLAUDE.md) line 74 for the `Encryptor` integration with
+  [the_one/agents.md](the_one/agents.md) "Encryption-rotation invariant" for the `Encryptor` integration with
   `LLMProviderRepository`. Key rotation is exposed via
   `POST /api/encryption/rotate` — like every route, it requires the
   credential gate's identified caller (see "Authentication" above) and,
@@ -1161,8 +1161,8 @@ with the unsandboxed Windows posture.
   when the operator hasn't touched the field. The same mask-shape +
   preserve-on-masked semantics apply to MCP, tool-config, and (again, as
   of the Mission 23 Flight 2 reset — see "Connector Channel Contract"
-  above) connector secret fields. See [CLAUDE.md](CLAUDE.md)
-  "`__MASKED__` sentinel for API key updates".
+  above) connector secret fields. See [the_one/agents.md](the_one/agents.md)
+  "`__MASKED__` sentinel (LLM providers)".
 - **Per-agent MCP override credentials**: `agents.tool_overrides` and
   `agents.mcp_overrides` are both Fernet-encrypted at rest. Of the two,
   only `mcp_overrides` carries credential material — the three

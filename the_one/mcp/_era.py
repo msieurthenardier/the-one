@@ -8,10 +8,16 @@ discover probe that got no answer is remembered only the second time in a row
 (``record_result``). ``forget_era`` clears both.
 
 ``MCPClient.connect`` reads the map through ``era_for`` and passes the result to
-``_negotiate.negotiate`` as ``remembered``; ``remember_era`` and ``forget_era`` are
-called from the connect path, source update, delete, Reset connection and the
-mid-use failure paths. The map is process-global and unlocked, which is safe only
+``_negotiate.negotiate`` as ``remembered``; ``record_result`` is called from the
+connect path, and ``forget_era`` from a failed connect, source update, delete, Reset
+connection and the mid-use failure paths. The map is process-global and unlocked, which is safe only
 because there is a single asyncio event loop.
+
+The "second time in a row" count is over successive successful connects of any
+client for the source, a Test connection included (a client with ``record_era``
+false never calls ``record_result``). Two clients connecting at the same moment each
+count. A failed connect resets the count (``MCPClient.connect`` calls ``forget_era``);
+a cancelled one does not (it re-raises before that call).
 """
 
 from __future__ import annotations
@@ -31,7 +37,11 @@ def era_for(source_id: str) -> str | None:
 
 
 def remember_era(source_id: str, version: str) -> None:
-    """Record the revision ``source_id`` connected on."""
+    """Record the revision ``source_id`` connected on.
+
+    No production caller: the client calls ``record_result``. Kept for tests, which
+    use it to seed the memory.
+    """
     _ERAS[source_id] = version
 
 

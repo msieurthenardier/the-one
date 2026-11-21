@@ -52,6 +52,12 @@ same version; each re-sent probe is bounded by the time left. ``outcome.fallback
 ``"no_answer"`` only when the last probe got no answer and the session ends on a
 handshake revision.
 
+The first probe of an attempt is not bounded by the window: it has the SDK's own probe
+timeout. A re-sent probe with no time left is also unbounded by the window, yet still
+under that timeout and the connect's outer limit, and the loop ends after it because
+the deadline has passed. So the handshake's full reserve does not hold for that one
+probe.
+
 Catches ``MCPError`` only: OAuth flow errors and exception groups propagate to
 ``MCPClient.connect``'s own ``except*`` arm.
 """
@@ -160,7 +166,6 @@ async def _probe(
                     raise MCPError(
                         REQUEST_TIMEOUT, "server/discover got no answer before the deadline"
                     ) from None
-            state.no_answer = False
             return raw
         except MCPError as e:
             if state.no_answer:  # the deadline cut this probe off: the window is over

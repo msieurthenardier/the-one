@@ -26,7 +26,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import aiosqlite
 
@@ -53,7 +53,7 @@ from the_one.routines.limits import (
     RoutineScheduleError,
 )
 from the_one.routines.proposals import ProposalStaleError
-from the_one.routines.repository import AgentRoutineRepository
+from the_one.routines.repository import AgentRoutineRepository, Flag
 
 Outcome = Literal[
     "applied", "already_applied", "failed", "stale", "gone", "busy", "closed", "dismissed"
@@ -319,7 +319,9 @@ async def apply_proposal(
         raise ProposalNotFound(proposal_id)
     # (a)
     if p.status in ("applied", "dismissed", "withdrawn"):
-        return await _resolved(conn, repo, proposal_id)  # type: ignore[return-value]
+        # An open row can only resolve to None if it was re-opened since the read above;
+        # the original behaviour (returning that None) is kept, so the type is stated, not checked.
+        return cast(ProposalApplyResult, await _resolved(conn, repo, proposal_id))
     if is_session_busy(p.session_id):
         return ProposalApplyResult("busy")
     if not await _target_exists(conn, deps, p):
@@ -438,9 +440,9 @@ async def _apply_routine(
     schedule is not re-derived. An untrusted proposal's flag is carried onto the routine."""
     assert p.agent_name is not None
     repo = AgentRoutineRepository(conn)
-    flag = ("merge", list(p.untrusted_sources)) if p.untrusted else None
+    flag: Flag = ("merge", list(p.untrusted_sources)) if p.untrusted else None
     runner = _MarkRunner(p.id, result)
-    data = {k: changes[k] for k in ("name", "prompt", "enabled") if k in changes}
+    data: dict[str, Any] = {k: changes[k] for k in ("name", "prompt", "enabled") if k in changes}
     pair = (
         await routine_service.approval_pair(
             {"schedule": changes["schedule"], "anchor_at": changes.get("anchor_at")}, zone
@@ -458,7 +460,7 @@ async def _apply_routine(
             zone=zone,
             created_by="operator",
             agent_caps=False,
-            flag=flag,  # type: ignore[arg-type]
+            flag=flag,
             proposal=runner,
             schedule_pair=pair,
         )
@@ -479,7 +481,7 @@ async def _apply_routine(
         data,
         now=now,
         zone=zone,
-        flag=flag,  # type: ignore[arg-type]
+        flag=flag,
         proposal=runner,
         precheck=precheck,
         schedule_pair=pair,
