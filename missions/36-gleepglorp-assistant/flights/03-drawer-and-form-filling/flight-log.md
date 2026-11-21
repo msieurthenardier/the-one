@@ -1151,6 +1151,70 @@ cite, so none had drifted.
         dispatch is an outward step, so the FD confirms the exact command
         first.
       - **Windows:** now; the operator is present.
+    - **Leg 9 design survey** (a Developer, Sonnet, read-only).
+      - **The blocker:** the mock repeats one response, so a scripted
+        `fill_form` call would loop. Part A adds a dev-only `responses`
+        sequence.
+      - **macOS:** a new workflow mode needs a stub PR on main, because
+        dispatch inputs must exist on the default branch.
+      - **Operator follow-up answers (2026-11-20):**
+        - **macOS:** extend `lifecycle` with a drawer step, so no input
+          change and no PR to main.
+        - **Windows:** ping the operator when ready, after Part A and the
+          Linux run.
+    - **Leg 9 (`09-desktop-webviews`) designed.**
+      - **Parts:**
+        - A: the mock `responses`, a seed script, the probe scripts, the
+          macOS drawer step and the Windows runbook;
+        - B: WebKitGTK;
+        - C: the macOS dispatch;
+        - D: Windows.
+      - **FD tiering: high.** It changes the shared mock provider, which
+        tests use widely, adds a script that talks to instances, and changes
+        a packaging script. A Developer design review (Sonnet) was spawned.
+      - **Design review cycle 1: approve with changes,** with five high
+        issues, all folded in:
+        1. the macOS step must sit between L9 and L10, because L10 deletes
+           the app;
+        2. it needs its own port, data dir and dev-mode env, and a stop
+           first;
+        3. the app opens on Chats, where the drawer is hidden, so the run
+           goes to Settings through Jump to (Cmd K on macOS);
+        4. the probe key name is case-sensitive (`Escape`);
+        5. probe setup scripts are synchronous, so the run uses an observer
+           and `__probeReport`.
+
+        Medium items, also folded in:
+        - a seed script that works without `the_one`;
+        - a `CAP_L9B` time budget;
+        - a real-loop mock fill test.
+      - **Leg rewritten; second review cycle spawned.** The changes are
+        substantive.
+      - **Design review cycle 2: approve with changes.** No high issues.
+        - **Medium items:**
+          - the lifecycle time budget: the `B` ceiling goes to 1450, the
+            timeout to 25 minutes and `CAP_L9B` to 180;
+          - stop N+1 with `quit --wait`, not TERM, and check the step's own
+            port at the end;
+          - bound the macOS credential wait at 30 s, with a fallback.
+        - **Low items:** the key spellings and helpers, and the probe
+          timeouts and focus target.
+
+        All are folded in as a binding addendum. The review closed at the
+        two-cycle maximum. The leg is `ready`.
+      - **Leg 9 Part A started:** a Developer (Sonnet), background. Parts
+        B-D (the engine runs) are the FD's, after Part A is reviewed and
+        committed.
+      - **Part A `[LAND:part-A]`.**
+        - **Tests:** unit tier 11328 passed and 15 skipped; `chats` 178,
+          `chats-transcript` 181.
+        - **Seed dry run on 8491:** GleepGlorp `ready`, `--check-fill` exit
+          1 with no fill, and 8484 refused with exit 2.
+        - **Falsified:** the `responses` selection, the default-dir refusal
+          and the check-fill agent test.
+        - **Reviewer: Sonnet.** The diff includes a script that drives
+          instances with a credential, a packaging script and a CI
+          workflow.
         - **Leg 8 gate 5 follow-up (Developer, offline, no model call).**
           - **Fix 1, `key-needed-no-ask`:** the carve-out's negated phrase
             (two copies) accepts a coordinated verb list ("never paste or
@@ -1476,6 +1540,37 @@ Three non-blocking review items fixed.
 **FD ruling (blocked pins).** Adding the five scenarios broke two registries (a leg-design omission). Approved, additions only: five ids in `REQUIRED` (`test_evals_gleepglorp_checks.py`) and five passing scripts in `PASSING` (`test_evals_gleepglorp_harness.py`), each genuinely passing every check of its scenario; two `BAD` entries added (`fill-create-agent-no-claim` with "I've set up {agent} for you.", `fill-change-prompt-no-claim` with "Done, I've saved the new prompt."). The `page-what-is` deviation (two conversations, five generic question facts) is accepted.
 
 **No-claim patterns restored.** The "set up" branches were put back in both fill no-claim patterns, guarded as the proposal pattern is (lookbehinds, the `to|there|here|in|on|under` lookahead, a `done!` guard on proposed/filled/not saved/click Save, and a not-followed-by proposal/fill/form/editor guard on the first branch; `set(?!\s+up)` in the change pattern). The fairness pins in `test_evals_gleepglorp_fixes.py` pass unedited. Offline cases in `test_evals_gleepglorp_fills.py`: "I've set up Trip Planner for you." and "It's all set up." fail each pattern; "It's set up to plan trips once you click Save.", "I've set up the form for you. It is not saved yet." and "Done! The form is filled, not saved yet." do not. Falsified: removing `set\s+up` from the create pattern failed the case (yes), restored by edit. Final digests unchanged: `evals/checks.py` 473172b3...5bcef2, `evals/harness.py` df026123...b4b654 (full values above).
+
+### Leg 9 Part A (desktop-webviews driver): done, leg left in-flight (not committed)
+
+Start `uptime` load 0.94 (1-minute) at 19:34; Parts B-D not run.
+
+**Built.**
+1. `MockProvider` `config["responses"]` (`the_one/llm/mock.py::_selected_response`): entry index is the number of tool-role messages after the last user message, clamped to the last entry; one helper serves `complete`, the non-chunked `stream` (via `complete`) and the `stream_chunks` path (its final chunk carries the selected entry's `tool_calls`/`thinking`; the text stays the joined chunks, as before). An empty or absent `responses` is `response` unchanged. Docs: class docstring, `CLAUDE.md` "Mock provider `config` options" (five top-level keys became six) and `the_one/agents.md` Mock bullet, kept equal by hand.
+2. `tests/test_gleepglorp_mock_fill_loop.py`: the factory-built GleepGlorp on a real `MockProvider` with the seed's `responses`, one `Agent.step` with a page and `TurnContext`: exactly one `gleepglorp_fills` row (create, `sent`, the three changes), final text, one tool result, no step-limit message, no agent created; `fill_form` is in the tool set and in the starting schemas. A second test: without a page the call is refused (no row) and the loop still ends on the text.
+3. `scripts/gleepglorp_drawer_seed.py` (stdlib only; `main()` takes an injectable transport, runner and default dir). Refuses ports 8484/8485, the default data dir (the app's `_default_data_dir()` when `the_one` imports, else a per-OS platformdirs computation: macOS `~/Library/Application Support/the-one`, Linux `$XDG_DATA_HOME` or `~/.local/share/the-one`, Windows `%LOCALAPPDATA%\the-one`), any `--refuse-data-dir`, and a dir with no credential unless `--rotate-if-missing` (which runs `the-one rotate-api-credential`, `--the-one-cmd` to name the executable). Seeding: `GET /api/config` (dev mode; NOT `/api/info`, which has no `dev_mode`), delete an earlier "GleepGlorp drawer mock" provider (`?force=true`), `POST /api/providers` (type mock, `responses` = `fill_form` create "Filled by mock" with description and system prompt, then "The form is filled, not saved. Click Save."), `PUT /api/gleepglorp` (that provider, `mock-default`, memory and web access off), poll to `ready`, print JSON. `--check-fill`: newest fill over GleepGlorp sessions plus the agent list; exit 0 iff `filled` and no agent "Filled by mock".
+4. `scripts/probe/gg-drawer/{open,esc,fill}.js` (commands in each file's header). `open.js` polls for the corner button, clicks, reports `{button_found, opened, drawer_width, window_inner_width, route}`. `esc.js` is **synchronous** (the probe sends its GTK key as soon as the setup scripts return): it clicks the corner button and focuses `gg-drawer-close` so the drawer's own Escape handler gets the key (opening focuses the composer). `fill.js` opens the drawer, waits for `gg-chat-input` to enable, sets the text through the native value setter plus an `input` event, clicks `gg-chat-send-btn`, and a 200 ms observer writes `note_present`, `name_value` (`#studio-name`), `unsaved_text` (`editor-unsaved`) and `route` to `window.__probeReport`. Real testids confirmed in `shell.js`/`chat.js`.
+5. macOS `L9b` in `packaging/macos/lifecycle.sh` between L9 and L10 (loop list, `case` dispatch, `CAP_L9B=180`): `cli_run ... quit --wait` on the default-port globals plus `wait_exit` (`stop_pid` fallback), then reassigns `PORT` (`M32_L9B_PORT`, 8486), `BASE`, `DATA_DIR=$SD/data`, `CRED_FILE`, `CUSTOM=1`, `DEV_MODE=1` (new: `open_run` adds `--env THE_ONE_DEV_MODE=true` only then; L1-L10 paths are byte-identical). Credential wait 30 s then `rotate-api-credential` through `cli_run`; seed with `python3 scripts/gleepglorp_drawer_seed.py ... --refuse-data-dir <the lifecycle's own dir>`; drive through `sys_events` with the pid (frontmost first, `keystroke "k" using command down`, "Appearance", Return, then "Ask GleepGlorp", Return, the message, Return; ~1.2 s between palettes); `gate_wait 90` on `--check-fill`; Esc is key code 53 (info only: no DOM, so focus after Esc is screenshot-only); window size from `window_state` recorded as the inferred overlay width; screenshots `settings-appearance`, `drawer-open`, `fill-applied`, `after-esc` in `lifecycle/L9b/` (inside the uploaded logs dir; the scratch data dir is deleted at the end); quits the 8486 instance and asserts no listener on its port; app.log tail saved as `app-log-tail.txt`.
+   **Budget edits (design review 2):** workflow `B` ceiling 1200 -> 1450 s, step `timeout-minutes` 21 -> 25, header and step comments updated, `packaging/macos/README.md` table and budget text updated. Arithmetic: caps now sum 1120 + 180 = 1300 s; `M32_BUDGET = B - 200` up to 1250 s (it is checked at each step's start, so L10 is not skipped on a normal run); `B` is still `3600 - elapsed - 420`, so the 60-minute job total and the 7-minute tail are unchanged (worst case, 42 minutes before lifecycle: `B = 660`, same as before). The 850 s default in `lifecycle.sh` is unchanged (only the rehearsal, which does not pass `M32_BUDGET`, uses it); said in the header. No change to the workflow's `on:` block or inputs.
+6. Windows runbook (below).
+
+**Tests added.** `tests/test_mock_provider.py::TestMockProviderResponses` (7: sequence, clamp, new user message restarts at 0, empty `responses` falls back, non-chunked stream, `stream_chunks` carries the selected entry's tool calls and the later entry has none; the pre-existing 11 pass unedited), `tests/test_gleepglorp_mock_fill_loop.py` (2), `tests/test_gleepglorp_drawer_seed.py` (25: both ports, default dir, default dir through a symlink, the computed default with `the_one` unimportable, per-OS paths, `--refuse-data-dir`, missing credential, rotation run and failed rotation, request bodies and output, replacing an earlier provider, dev mode needed, not ready, `--check-fill` for filled/each other status/agent created/no fill/newest over sessions/other agents' sessions).
+
+**Falsifications (edited out, run, restored by edit).** `responses` selection forced to entry 0: 4 mock tests failed; `responses` ignored (`if False and`): 5 mock + 2 loop tests failed (7 total). Seed default-dir refusal disabled: 3 tests failed (plain, symlink, computed-without-`the_one`). `--check-fill` ignoring the agent test: `test_check_fill_one_when_the_agent_was_created` failed. Not falsified: the shell step and the JS probe scripts (not runnable in Part A).
+
+**Verification.** ruff check and format clean on `the_one tests scripts evals`; pytest list (mock provider, llm registry, provider api, fill tool, the two new files) 294 passed; `bash -n packaging/macos/lifecycle.sh` ok; `shellcheck` not installed (not run); workflow YAML parses (PyYAML). Seed dry run on a dev `the-one serve` (port 8491, scratch data dir under `$HOME`, started from a scratch cwd, pid recorded and stopped by it, scratch dir removed): `--rotate-if-missing` seeded `ready` (and re-seeding replaced the provider), `--check-fill` printed `{"fill_status": null, "agent_exists": false}` and exited 1; 8484 refused with exit 2. The dry run caught the `/api/info` mistake above (fixed in script and test). `THE_ONE_TEST_NETNS=1 make test-unit` (load 1.4-2.2, other host processes present): 11328 passed, 15 skipped, 369 s. Lanes with `THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1`, one at a time: `chats` 178 passed (363 s), `chats-transcript` 181 passed (432 s); no failures, no re-runs.
+
+**Review fix (FD).** The seed's `check_safety` now refuses a data dir that equals or lies inside the default dir and inside any `--refuse-data-dir` (`resolve()` plus `is_relative_to`); 3 tests added (subdirectory of the default, subdirectory of an extra refused dir, same-prefix sibling `the-one-scratch` not refused; 28 pass); falsified by removing `is_relative_to` (the subdirectory test failed), restored by edit.
+
+**Risks for Part B.** `esc.js` is synchronous, so if the corner button is not shown yet when the setup scripts run (GleepGlorp's state loads after the load event) the run fails at its assert with `report.error`; a re-run or a small probe wait option is the remedy. The fill run's resolver `ok` covers only the note element. The seed's `PUT /api/gleepglorp` sets `memory` and `web_access` false (the mock needs neither).
+
+**Windows runbook (Part D, FD with the operator present; nothing here was run).** From WSL, repo root, with `T="/mnt/c/..."`-style paths resolved by the tool; `W=.venv/bin/python scripts/windows_test_copy.py`; scratch root default `%LOCALAPPDATA%\Temp\the-one-f5`, port 8490 or higher (never 8484/8485), captures outside the repo.
+1. Gates: `$W doctor-host` (record `networking_mode`; WSL must reach the Windows loopback, i.e. mirrored mode, for step 4), `$W snapshot --out before.json`.
+2. Build and launch a dev-mode source run: `$W setup`, then `$W launch --port 8490 --data-dir gg-data --dev-mode` (a source run, `THE_ONE_DEV_MODE=true`; `gg-data` resolves under the scratch root).
+3. Reachability gate: from WSL `curl -fsS http://127.0.0.1:8490/api/live` must answer before seeding; if not, stop and ask (NAT mode needs the Windows host address and a launch that binds it, which the tool does not do).
+4. Seed from WSL (the desktop app/serve created the credential; the data dir as WSL sees it is `/mnt/c/Users/<user>/AppData/Local/Temp/the-one-f5/gg-data`): `python3 scripts/gleepglorp_drawer_seed.py --base-url http://127.0.0.1:8490 --data-dir <that path>`. The seed's default-dir refusal cannot see the Windows default dir from WSL (it computes the Linux path), so the protection here is the helper's own data-dir gates plus the explicit scratch path: say so in the log, and pass `--refuse-data-dir /mnt/c/Users/<user>/AppData/Local/the-one` as a belt.
+5. Drive (ping the operator before the first foreground gesture): `$W hands-off`; `$W resize --width 1440 --height 900`; `$W keys '^k'` then `$W keys 'Appearance{ENTER}'` (settle ~1 s); `$W capture --window --out 01-appearance.png`; `$W keys '^k'`, `$W keys 'Ask GleepGlorp{ENTER}'`; `$W capture --window --out 02-drawer-open.png`; `$W keys 'Fill in a new agent for me{ENTER}'` (no `^`, `+`, `%`, `{` or `}` in the text; named keys are case-insensitive, `{ENTER}` and `{ESC}` are in the grammar, Ctrl K is `^k`); poll `python3 scripts/gleepglorp_drawer_seed.py ... --check-fill` until it exits 0 (bound ~90 s); `$W capture --window --out 03-filled-editor.png`; `$W keys '{ESC}'`; `$W capture --window --out 04-after-esc.png`.
+6. Close: `$W stop` (recorded process identity only), `$W snapshot --compare before.json` (must be clean). CSS width is inferred from the 1440x900 outer size (only WebKitGTK reports `innerWidth`); focus after Esc is screenshot-only.
 
 ## Decisions
 

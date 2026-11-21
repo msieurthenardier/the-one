@@ -7,6 +7,7 @@ from typing import Any
 from the_one.llm.base import (
     LLMProvider,
     Message,
+    Role,
     StreamChunk,
     ThinkingBlock,
     TokenUsage,
@@ -25,6 +26,27 @@ def _thinking_from_response(response: dict[str, Any]) -> list[ThinkingBlock]:
     the real thinking-disclosure path end-to-end with no live Anthropic key.
     """
     return [ThinkingBlock(**b) for b in response.get("thinking", [])]
+
+
+def _selected_response(config: dict[str, Any], messages: list[Message]) -> dict[str, Any]:
+    """Pick the scripted response for this request.
+
+    With ``config["responses"]`` (a non-empty list of response dicts), the
+    entry is chosen statelessly from the request: its index is the number of
+    tool-role messages after the last user message, clamped to the last entry.
+    A new user message therefore restarts the script at entry 0. Without
+    ``responses`` this is exactly ``config["response"]`` (or the default).
+    """
+    responses = config.get("responses")
+    if responses:
+        tool_messages = 0
+        for message in reversed(messages):
+            if message.role == Role.USER:
+                break
+            if message.role == Role.TOOL:
+                tool_messages += 1
+        return responses[min(tool_messages, len(responses) - 1)]
+    return config.get("response", _DEFAULT_RESPONSE)
 
 
 class MockProvider(LLMProvider):
@@ -48,6 +70,14 @@ class MockProvider(LLMProvider):
                                                         # a meaningful last_usage snapshot (e.g.
                                                         # the M16 F06 L03 round-trip test).
         }
+
+    ``responses`` (optional, a non-empty list of dicts shaped like ``response``)
+    scripts a sequence: the entry is chosen statelessly from the request, as the
+    number of tool-role messages after the last user message, clamped to the last
+    entry (so a new user message restarts at entry 0). With ``stream_chunks`` the
+    selected entry's ``tool_calls`` and ``thinking`` ride the final chunk. Absent,
+    ``response`` applies unchanged. Dev-mode only by documentation: the provider
+    type itself is already dev-mode gated.
 
     If ``response`` is not set, returns a fixed default content.
     If ``stream_chunks`` is unset/empty, ``stream`` falls back to the default
@@ -95,7 +125,7 @@ class MockProvider(LLMProvider):
         delay_ms = self.config.get("delay_ms", 0)
         if delay_ms:
             await asyncio.sleep(delay_ms / 1000)
-        response = self.config.get("response", _DEFAULT_RESPONSE)
+        response = _selected_response(self.config, messages)
         content = response.get("content", "")
         tool_calls = [
             ToolCall(id=tc["id"], name=tc["name"], arguments=tc.get("arguments", {}))
@@ -144,7 +174,7 @@ class MockProvider(LLMProvider):
             return
 
         delay_ms = self.config.get("delay_ms", 0)
-        response = self.config.get("response", _DEFAULT_RESPONSE)
+        response = _selected_response(self.config, messages)
         tool_calls = [
             ToolCall(id=tc["id"], name=tc["name"], arguments=tc.get("arguments", {}))
             for tc in response.get("tool_calls", [])

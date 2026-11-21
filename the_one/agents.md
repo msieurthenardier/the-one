@@ -2103,7 +2103,7 @@ class StreamChunk:
 - **Anthropic**: native via `client.messages.stream(...)`. Catches `BadRequestError` mentioning "temperature", strips the kwarg, retries once. Gated by `yielded_any` so the retry is only safe BEFORE any chunk has emitted (Anthropic raises pre-stream in practice).
 - **OpenAI**: native via `chat.completions.create(stream=True, stream_options={"include_usage": True}, ...)`. The `include_usage` flag is **required** — without it the trailing metadata chunk has no `usage` and end-of-stream telemetry breaks. Tool-call deltas accumulate by `index`.
 - **Ollama**: native via `ollama_api.chat_stream`. True SSE (`data: {...}` + `data: [DONE]` terminator), distinct from `pull_model`'s JSONL. Reuses the OpenAI-shape tool-call accumulation.
-- **Mock**: honours `config["stream_chunks"]: list[str]`. When unset, falls back to default-impl **inline** (NOT `super().stream(...)` delegation) for clarity.
+- **Mock**: honours `config["stream_chunks"]: list[str]`. When unset, falls back to default-impl **inline** (NOT `super().stream(...)` delegation) for clarity. Since M36 F3 L9 it also honours `config["responses"]` (a list of `response`-shaped dicts): the entry is chosen statelessly as the number of tool-role messages after the last user message, clamped to the last entry (`_selected_response` in `the_one/llm/mock.py`), shared by `complete`, the non-chunked `stream` and the `stream_chunks` path; it is how the desktop-engine runs script a `fill_form` call then closing text (`scripts/gleepglorp_drawer_seed.py`).
 
 ### `_StreamAccumulator` — shared streaming helper
 
