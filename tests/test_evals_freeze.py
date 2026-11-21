@@ -81,10 +81,20 @@ SCORING_DIGESTS = {
     # is the operator-typed mark no longer needs the untrusted flag (it did before: the name
     # alone made every read_app_config outside content). Operator-approved 2026-11-19 after the
     # Reviewer confirmed `_taint_expected` is the only behaviour change.
-    "checks.py": "688bac672f716e3fea658c7854fb5f372c3fe2b391026fdbf959915b44d0704a",
+    # M36 F3 L4 (2026-11-20, operator-approved: both hashes): TurnTrace gains an optional `page`;
+    # conversation_messages sets Message.page on a page turn's user message; harness.py passes
+    # PageTurn pages to step/TurnContext and records them. Additive: no existing scenario has a
+    # page turn, so no existing check or score changes.
+    # M36 F3 L7 (2026-11-20, applied by the Flight Director under the operator's ruling that the
+    # freeze digests are data integrity): checks.py gains RunTrace.fills and the fill_made,
+    # no_fill, no_secret_in_fill, fills_flagged_if_untrusted and says_not_saved checks, sharing
+    # bodies with the proposal checks (whose detail strings, extra keys and tests are unchanged);
+    # harness.py collects the run's fills (attributed to turns by an id snapshot) and deletes
+    # them in _clean_proposal_state. Additive: no existing check or score changes.
+    "checks.py": "473172b32db1175800798898114626256242904940f43c72a6ba6d11245bcef2",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "023f64e83d0736d0d28cc11d24f7a2beacee6aaec8449b06aa05d28dd0c6ffbb",
+    "harness.py": "df0261235ae930c9a2560af877bea142912b4f821e9156947301af6a09b4b654",
 }
 # Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
 # `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must

@@ -21,9 +21,11 @@ name: macos-packages
 #   lifecycle  full, then build N+1 (the version from `render.py --next-version`, the build venv
 #              reused, no .dmg) and packaging/macos/lifecycle.sh: install N in /Applications, then
 #              launch, close, reopen, second launch, geometry, the three quits, upgrade to N+1 with
-#              data, and trash, each a PASS or FAIL row in lifecycle/SUMMARY.txt. lifecycle.sh runs
+#              data, the GleepGlorp drawer on a scripted mock (L9b, M36 F3 L9: its own dev-mode
+#              instance on port 8486, screenshots in lifecycle/L9b), and trash, each a PASS or FAIL
+#              row in lifecycle/SUMMARY.txt. lifecycle.sh runs
 #              even when checks.sh had failures, as long as both .app bundles exist (dispatches are
-#              scarce). Its own global bound is 20 minutes.
+#              scarce). Its own global bound is 24 minutes (1450 s).
 #   probe      the Flight 3 premise probe: builds the product .app (no .dmg, no checks), freezes
 #              the minimal probe .app (packaging/macos/probe), proves it imports with --selftest,
 #              then runs packaging/macos/probe/probe.sh, which records observations and writes
@@ -243,16 +245,17 @@ jobs:
           exit "${PIPESTATUS[0]}"
 
       # ---- lifecycle: the dock behaviour on the GUI session -------------------------------------
-      # Runs even when checks.sh failed, as long as both bundles exist. The outer bound (<= 20 min)
-      # is the time left in the job (see B below), above lifecycle.sh's own worst case (a step is
-      # skipped once M32_BUDGET = B - 200 s have passed, and no step cap exceeds 200 s), so its
+      # Runs even when checks.sh failed, as long as both bundles exist. The outer bound (<= 24 min,
+      # 1450 s since L9b joined the caps, M36 F3 L9) is the time left in the job (see B below), above
+      # lifecycle.sh's own worst case (a step is
+      # skipped once M32_BUDGET = B - 200 s have passed, and no step cap exceeds 200 s; L9b's is 180), so its
       # SUMMARY is written before the bound. The step never fails: the final check reads
       # the FAIL rows.
       - name: Lifecycle (lifecycle.sh)
         id: lifecycle
         if: ${{ !cancelled() && inputs.mode == 'lifecycle' }}
         continue-on-error: true
-        timeout-minutes: 21
+        timeout-minutes: 25
         run: |
           mkdir -p "$M32_LOGS/lifecycle"
           APP_N="" APP_N1="" VERSION="" APP_ID="" DMG_N=""
@@ -271,9 +274,10 @@ jobs:
             exit 0
           fi
           # what is left of the 60-minute job, less 7 minutes kept for Summary, uploads and the
-          # final check; at most 1200 s; below 300 s there is no point starting
+          # final check; at most 1450 s (the caps now sum to 1300 s with L9b); below 300 s
+          # there is no point starting. B comes from the time left, so the job total is unchanged
           B=$(( 3600 - ($(date +%s) - M32_T0) - 420 ))
-          [ "$B" -gt 1200 ] && B=1200
+          [ "$B" -gt 1450 ] && B=1450
           if [ "$B" -lt 300 ]; then
             echo "FAIL L0 no time left (${B} s of the job budget remain for lifecycle; 300 s needed)" | tee -a "$M32_LOGS/lifecycle/SUMMARY.txt"
             exit 0

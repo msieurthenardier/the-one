@@ -104,13 +104,11 @@
     // Chat action (M25 F4 L6, DD8), through App.chat.chatWith: from a dirty
     // editor the router's guard asks once. Resolves with the go()'s result.
     function goPick(agent, opts) {
-      var cur = App.router.current();
-      var onNew = !!(cur && cur.destination === 'chats' && cur.route.indexOf('chats/~new/') === 0);
-      var goOpts = onNew ? { replace: true } : {};
-      if (opts && opts.opener) goOpts.opener = opts.opener;
+      // M36 F3 L1: the router adapter (ctx.router.goNew) owns the route, including the
+      // replace-when-already-on-a-`~new`-route check.
       state.pickIntent = agent;
       var done = function (ok) { state.pickIntent = null; return ok; };
-      return App.router.go(App.router.href({ destination: 'chats', create: true, agent: agent }), goOpts)
+      return ctx.router.goNew(agent, opts)
         .then(done, function () { state.pickIntent = null; return false; });
     }
 
@@ -197,7 +195,7 @@
       state.currentAgentName = null;
       state.currentSessionPlatform = null;
       state.joinedTitle = null;
-      App.router.sync('chat', null);
+      ctx.router.sync(null);
       ctx.transcript.clearLog();
       ctx.setSessionHealth('ok');
       ctx.send.updateStopControl();
@@ -207,6 +205,8 @@
 
     // AC2b: one set of idle rules on every session_list, only while idle.
     function runIdleRules() {
+      // The drawer profile is never idle: no auto-join, no welcome.
+      if (ctx.profile === 'drawer') return;
       if (!ctx.socket.socketOpen()) return;
       var r = chatState.idleRules(state.sessions, pendingJoinId);
       if (r.clearPendingJoin) pendingJoinId = null;
@@ -320,9 +320,9 @@
         clearConversation();
         dropDraft(failedKey);
       } else {
-        App.router.sync('chat', null);
+        ctx.router.sync(null);
       }
-      if (chatState.state().name === 'idle' && state.listSeen) runIdleRules();
+      if (chatState.state().name === 'idle' && state.listSeen && ctx.profile !== 'drawer') runIdleRules();
     }
 
     // The first send of a pending chat: `start_session` with a client id
@@ -336,12 +336,16 @@
         payload.images = ctx.attachments.staged();
         displayText = text ? text + ' [image]' : '[image]';
       }
+      // M36 F3 L4: the drawer's first message carries its page (a Chats start has no hook).
+      var page = ctx.config.pageContext ? ctx.config.pageContext() : null;
+      if (page) payload.page = page;
       var eff = chatState.startSend(App.chat.newClientId(), payload);
       if (eff.noop) return false;
       if (payload.images) ctx.attachments.clearStagedImages();
       var before = messagesEl.lastChild;
       ctx.turnWork.onUserEvent();
-      ctx.transcript.addMsg('user', displayText, 'You');
+      var bubble = ctx.transcript.addMsg('user', displayText, 'You');
+      state.pendingPageBubble = page ? bubble : null;
       state.startBubbleNodes = [];
       for (var n = before ? before.nextSibling : messagesEl.firstChild; n; n = n.nextSibling) {
         state.startBubbleNodes.push(n);
@@ -363,6 +367,7 @@
         if (node.parentNode) node.parentNode.removeChild(node);
       }
       state.startBubbleNodes = [];
+      state.pendingPageBubble = null;
       ctx.turnWork.dropEmpty();
       var held = [];
       if (eff.clientId) {
@@ -382,7 +387,7 @@
         // once with the count.
         var rest = held;
         if (!composer.getValue()) {
-          ctx.send.setInputValue(held[0]);
+          ctx.send.setInputValue(held[0].text);
           rest = held.slice(1);
         }
         if (rest.length === 1) ctx.transcript.addMsg('system', 'The queued message was discarded.');
@@ -397,7 +402,54 @@
     }
 
     function refreshSessionList() {
+      // The drawer profile never lists: the sessions_changed push replaces it (M36 F3 L3).
+      if (ctx.profile === 'drawer') return;
       if (ctx.socket.socketOpen()) ctx.ws().send(JSON.stringify({ action: 'list_sessions' }));
+    }
+
+    // ── The drawer profile (M36 F3 L3) ──────────────────────────────────────
+    // The bound session changed: tell the profile (the drawer stores the id).
+    function sessionChanged(id) {
+      if (ctx.config.onSessionChange) ctx.config.onSessionChange(id);
+    }
+
+    // Back to a fresh pending chat with the fixed agent after the conversation went away
+    // (join_failed, session_deleted, a pruned bound session): never idle, never the router.
+    function drawerToPending() {
+      pickAgent(ctx.config.agent);
+      sessionChanged(null);
+    }
+
+    // New chat: a fresh pending chat (a pick leaves whatever is bound) and the stored id cleared.
+    function drawerStartNew() {
+      state.pendingRejoinId = null;
+      var moved = pickAgent(ctx.config.agent);
+      sessionChanged(null);
+      return moved;
+    }
+
+    // A fixed text (the empty state's suggestion): the first send of a pending chat, else a plain
+    // send. False when it was not sent (blocked, socket closed, still re-binding).
+    function drawerSendText(text) {
+      if (chatState.state().name === 'pending') {
+        if (ctx.computeBlocked() || !ctx.socket.socketOpen() || state.rebinding) return false;
+        return startSend(text);
+      }
+      return ctx.send.sendText(text);
+    }
+
+    // A sessions_changed list without the bound session (deleted from Chats, purged): the
+    // drawer moves to a fresh pending chat and clears the stored id.
+    function dropGoneBound(rows) {
+      if (ctx.profile !== 'drawer') return;
+      var st = chatState.state();
+      if (st.name !== 'joined') return;
+      for (var i = 0; i < rows.length; i++) if (rows[i] && rows[i].id === st.id) return;
+      var key = state.draftOwner;
+      resetToIdle();
+      clearConversation();
+      dropDraft(key);
+      drawerToPending();
     }
 
     // Re-join the open chat after a session_updated (a connector turn changed
@@ -426,6 +478,11 @@
       rejoinForUpdate: rejoinForUpdate,
       requestRefresh: requestRefresh,
       refreshSessionList: refreshSessionList,
+      sessionChanged: sessionChanged,
+      drawerToPending: drawerToPending,
+      drawerStartNew: drawerStartNew,
+      drawerSendText: drawerSendText,
+      dropGoneBound: dropGoneBound,
       showNotice: showNotice,
       setWelcomeNotice: setWelcomeNotice,
       requestPick: requestPick,

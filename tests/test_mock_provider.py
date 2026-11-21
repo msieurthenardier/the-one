@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from the_one.llm import get_provider
-from the_one.llm.base import Message, Role
+from the_one.llm.base import Message, Role, ToolResult
 from the_one.llm.mock import MockProvider
 
 
@@ -126,3 +126,73 @@ class TestMockProviderInputTokensSeam:
         assert final_chunk is not None
         assert final_chunk.usage is not None
         assert final_chunk.usage.input_tokens == 77
+
+
+# ---------------------------------------------------------------------------
+# M36 F3 L9 — config["responses"]: a stateless scripted sequence
+# ---------------------------------------------------------------------------
+
+_FILL_CALL = {"id": "tc1", "name": "fill_form", "arguments": {"kind": "agent"}}
+_SEQUENCE = [
+    {"content": "", "tool_calls": [_FILL_CALL]},
+    {"content": "second"},
+    {"content": "last"},
+]
+
+
+def _tool_msg(call_id: str = "tc1") -> Message:
+    return Message.tool(ToolResult(tool_call_id=call_id, content="ok"))
+
+
+class TestMockProviderResponses:
+    async def test_sequence_follows_tool_messages_after_last_user(self) -> None:
+        provider = MockProvider(config={"responses": _SEQUENCE})
+        history = [Message.user("go")]
+        first = await provider.complete(messages=history)
+        assert [tc.name for tc in first.tool_calls] == ["fill_form"]
+        history += [first, _tool_msg()]
+        second = await provider.complete(messages=history)
+        assert second.content == "second"
+        assert second.tool_calls == []
+
+    async def test_clamps_to_the_last_entry(self) -> None:
+        provider = MockProvider(config={"responses": _SEQUENCE})
+        history = [Message.user("go")] + [_tool_msg(str(i)) for i in range(6)]
+        msg = await provider.complete(messages=history)
+        assert msg.content == "last"
+
+    async def test_new_user_message_restarts_at_zero(self) -> None:
+        provider = MockProvider(config={"responses": _SEQUENCE})
+        history = [Message.user("go"), _tool_msg(), _tool_msg("2"), Message.user("again")]
+        msg = await provider.complete(messages=history)
+        assert [tc.name for tc in msg.tool_calls] == ["fill_form"]
+
+    async def test_absent_responses_is_unchanged(self) -> None:
+        provider = MockProvider(config={"response": {"content": "fixed"}})
+        history = [Message.user("go"), _tool_msg()]
+        assert (await provider.complete(messages=history)).content == "fixed"
+
+    async def test_empty_responses_falls_back_to_response(self) -> None:
+        provider = MockProvider(config={"responses": [], "response": {"content": "fixed"}})
+        assert (await provider.complete(messages=[Message.user("go")])).content == "fixed"
+
+    async def test_stream_without_chunks_uses_the_selected_entry(self) -> None:
+        provider = MockProvider(config={"responses": _SEQUENCE})
+        chunks = [c async for c in provider.stream(messages=[Message.user("go")])]
+        assert [tc.name for tc in chunks[-1].tool_calls] == ["fill_form"]
+        history = [Message.user("go"), _tool_msg()]
+        chunks = [c async for c in provider.stream(messages=history)]
+        assert chunks[-1].content == "second"
+
+    async def test_stream_chunks_carry_the_selected_entry_tool_calls(self) -> None:
+        provider = MockProvider(config={"responses": _SEQUENCE, "stream_chunks": ["a", "b"]})
+        chunks = [c async for c in provider.stream(messages=[Message.user("go")])]
+        final = chunks[-1]
+        assert final.is_final
+        assert [tc.name for tc in final.tool_calls] == ["fill_form"]
+        assert final.message is not None
+        assert [tc.name for tc in final.message.tool_calls] == ["fill_form"]
+        # Later in the turn the selected entry has no tool calls.
+        history = [Message.user("go"), _tool_msg()]
+        chunks = [c async for c in provider.stream(messages=history)]
+        assert chunks[-1].tool_calls == []

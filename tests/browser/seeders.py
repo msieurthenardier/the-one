@@ -640,6 +640,66 @@ def seed_gleepglorp_proposal(
         conn.close()
 
 
+def seed_gleepglorp_fill(
+    data_dir,
+    session_id: str,
+    *,
+    kind: str = "agent",
+    action: str = "change",
+    agent_name: str = "plain",
+    changes: dict | None = None,
+    base: dict | None = None,
+    tool_call_id: str | None = "tc-1",
+    status: str = "sent",
+    outcome: dict | None = None,
+    untrusted: bool = False,
+    sources: list[str] | None = None,
+    created_at: str = "2026-01-02T10:00:00+00:00",
+    claimed_at: str | None = None,
+    resolved_at: str | None = None,
+    claim_token: str | None = None,
+) -> int:
+    """INSERT one ``gleepglorp_fills`` row by sync sqlite3 (M36 F3 L6).
+
+    Only GleepGlorp's fill tool writes these, so a browser test that needs a receipt in a given
+    state seeds it, as ``seed_gleepglorp_proposal`` does. ``changes`` and ``base`` use the stored
+    field names (ids, not names). Returns the id.
+    """
+    import sqlite3
+
+    target_key = f"{kind}:{agent_name}"
+    conn = sqlite3.connect(str(data_dir / "the-one.db"))
+    try:
+        cur = conn.execute(
+            "INSERT INTO gleepglorp_fills (session_id, tool_call_id, kind, action, agent_name,"
+            " target_key, changes, base, status, outcome, claim_token, untrusted,"
+            " untrusted_sources, created_at, claimed_at, resolved_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                tool_call_id,
+                kind,
+                action,
+                agent_name,
+                target_key,
+                json.dumps(changes or {}),
+                json.dumps(base) if base is not None else None,
+                status,
+                json.dumps(outcome) if outcome is not None else None,
+                claim_token,
+                1 if untrusted else 0,
+                json.dumps(sources or []),
+                created_at,
+                claimed_at,
+                resolved_at,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+    finally:
+        conn.close()
+
+
 def canonical_schedule(
     time: str = "09:00",
     *,

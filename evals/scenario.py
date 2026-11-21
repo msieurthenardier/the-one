@@ -149,13 +149,25 @@ class StepTurn:
     kind: str  # "approve" | "dismiss"
 
 
-Turn = str | StepTurn
+@dataclass(frozen=True)
+class PageTurn:
+    """A user turn sent from a page (M36 F3 L4): ``{text = "...", page = {line = "...",
+    descriptor = {...}?}}``. ``page["line"]`` is the page line the app would have stored,
+    ``page["descriptor"]`` (optional, checked with ``the_one.gleepglorp.page``) is what Leg 5's
+    ``fill_form`` gate reads from ``TurnContext.page``."""
+
+    text: str
+    page: dict[str, Any]
+
+
+Turn = str | StepTurn | PageTurn
 STEP_KINDS = ("approve", "dismiss")
+PAGE_TURN_KEYS = ("text", "page")
 
 
 def is_user_turn(turn: Turn) -> bool:
     """True for a turn that is user text (one model call at least), False for a step."""
-    return isinstance(turn, str)
+    return isinstance(turn, (str, PageTurn))
 
 
 @dataclass
@@ -237,11 +249,32 @@ class Scenario:
 
     def instantiate(self, variant: Variant, fixture_base: str = "") -> Instance:
         mapping = {**variant.mapping, "fixture_base": fixture_base}
-        # ``expand`` runs on string turns only; an approve or dismiss step has no text.
-        convs = [
-            [expand(t, mapping) if isinstance(t, str) else t for t in turns]
-            for turns in self.conversations
-        ]
+
+        # ``expand`` runs on text only (a string turn, a page turn's text and line); an approve
+        # or dismiss step has no text.
+        def _expand_turn(t: Turn) -> Turn:
+            if isinstance(t, str):
+                return expand(t, mapping)
+            if isinstance(t, PageTurn):
+                page = {**t.page, "line": expand(t.page["line"], mapping)}
+                if "descriptor" in page:
+                    # every string value of the descriptor is expanded (a templated item name
+                    # must match its line), then the result is validated again
+                    page["descriptor"] = {
+                        k: expand(v, mapping) if isinstance(v, str) else v
+                        for k, v in page["descriptor"].items()
+                    }
+                    from the_one.gleepglorp.page import validate_descriptor
+
+                    desc, err = validate_descriptor(page["descriptor"])
+                    if desc is None:
+                        msg = (err or "").removeprefix("value: ")
+                        raise ScenarioError(f"{self.path.name}: page.descriptor: {msg}")
+                    page["descriptor"] = desc
+                return PageTurn(expand(t.text, mapping), page)
+            return t
+
+        convs = [[_expand_turn(t) for t in turns] for turns in self.conversations]
         decls = self._decls(mapping, self.path)
         return Instance(self, variant, convs, decls)
 
@@ -437,6 +470,37 @@ def _parse_app(path: Path, app: Any) -> AppSeed:
     return seed
 
 
+def _page_turn(path: Path, table: dict, where: str) -> PageTurn:
+    for key in table:
+        if key not in PAGE_TURN_KEYS:
+            raise _fail(
+                path,
+                f"{where}.{key}",
+                'unknown field (a page turn is {text = "...", page = {line = "..."}})',
+            )
+    text = table.get("text")
+    if not isinstance(text, str) or not text.strip():
+        raise _fail(path, f"{where}.text", "is required and must be a non-empty string")
+    page = table.get("page")
+    if not isinstance(page, dict):
+        raise _fail(path, f"{where}.page", "is required and must be a table with a line")
+    for key in page:
+        if key not in ("line", "descriptor"):
+            raise _fail(path, f"{where}.page.{key}", "unknown field (line, descriptor)")
+    line = page.get("line")
+    if not isinstance(line, str) or not line.strip():
+        raise _fail(path, f"{where}.page.line", "is required and must be a non-empty string")
+    out: dict[str, Any] = {"line": line}
+    if "descriptor" in page:
+        from the_one.gleepglorp.page import validate_descriptor
+
+        descriptor, error = validate_descriptor(page["descriptor"])
+        if error is not None:
+            raise _fail(path, f"{where}.page.descriptor", error.removeprefix("value: "))
+        out["descriptor"] = descriptor
+    return PageTurn(text, out)
+
+
 def _step_turn(path: Path, table: dict, where: str) -> StepTurn:
     for key in table:
         if key not in STEP_KINDS:
@@ -603,24 +667,31 @@ def parse_scenario(
             raise _fail(
                 path,
                 f"conversations[{i}].turns",
-                "must be a non-empty list of strings, {approve = true} or {dismiss = true}",
+                "must be a non-empty list of strings, page turns, {approve = true} "
+                "or {dismiss = true}",
             )
         parsed: list[Turn] = []
         for j, t in enumerate(turns):
             where = f"conversations[{i}].turns[{j}]"
             if isinstance(t, str) and t.strip():
                 parsed.append(t)
+            elif isinstance(t, dict) and ("text" in t or "page" in t):
+                parsed.append(_page_turn(path, t, where))
             elif isinstance(t, dict):
                 parsed.append(_step_turn(path, t, where))
             else:
                 raise _fail(
-                    path, where, "must be a non-empty string, {approve = true} or {dismiss = true}"
+                    path,
+                    where,
+                    "must be a non-empty string, a {text, page} table, {approve = true} "
+                    "or {dismiss = true}",
                 )
-        if not isinstance(parsed[0], str):
+        if isinstance(parsed[0], StepTurn):
             raise _fail(
                 path,
                 f"conversations[{i}].turns[0]",
-                "the first turn must be a string (a step needs a proposal made earlier)",
+                "the first turn must be a string or a page turn "
+                "(a step needs a proposal made earlier)",
             )
         sc.conversations.append(parsed)
 

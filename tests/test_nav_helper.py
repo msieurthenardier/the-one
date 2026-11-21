@@ -406,6 +406,7 @@ def test_settings_providers_guard_self_test():
 # union with ``RETIRED_EXACT`` against ``docs/ui-testid-registry.md``'s
 # "Retired testids" table.
 RETIRED_SELECTORS = (
+    "fill-receipt-show-form",  # M36 F3 HAT step 7: receipts carry Fill now only
     "chat-chart-placeholder",  # sortie 16 L04: no streaming placeholder (the -source id too)
     "chat-chart-placeholder-source",
     "chat-widget-placeholder",

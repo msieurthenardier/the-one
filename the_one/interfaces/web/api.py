@@ -7127,3 +7127,10 @@ from the_one.interfaces.web.gleepglorp_proposals_api import (  # noqa: E402
 )
 
 router.include_router(_gleepglorp_proposals_router)
+
+# ── GleepGlorp fill routes (M36 F3 L5) live in ``gleepglorp_fills_api.py``. ──
+from the_one.interfaces.web.gleepglorp_fills_api import (  # noqa: E402
+    router as _gleepglorp_fills_router,
+)
+
+router.include_router(_gleepglorp_fills_router)

@@ -2,7 +2,7 @@
 // message's sendHeld, setInputValue, and the busy and Stop-control helpers (M31 F6 L02, split
 // out of areas/chat.js, moved verbatim apart from the ctx./state. prefixes).
 //
-// Exposes: isCurrentBusy, updateStopControl, performSend, sendHeld, setInputValue, send, sendText.
+// Exposes: isCurrentBusy, ownsTurn, updateStopControl, performSend, sendHeld, setInputValue, send, sendText.
 (function () {
   'use strict';
   window.App = window.App || {};
@@ -12,6 +12,13 @@
     var state = ctx.state;
     var chatState = ctx.chatState;
     var composer = ctx.composer;
+
+    // True while THIS instance sent the turn that is running in the session (set at send, cleared
+    // at done, stop, error and leave). A form fill is applied only by the instance that owns the
+    // turn (M36 F3 L6, DD7).
+    function ownsTurn(sid) {
+      return !!(sid && state.ownTurn[sid]);
+    }
 
     // Busy while starting (the first turn is on its way, whatever the
     // in-flight map says), else when the active session has a turn in flight.
@@ -44,7 +51,19 @@
     // same shape the server will broadcast/persist. Staged images are
     // cleared after every send, sent or held (HAT fix round 2: now the
     // whole `stagedImages` array, not a single-shot slot).
+    //
+    // M36 F3 L4: a profile with a page hook (the drawer) adds `page` to the payload. A held
+    // message carries the page it captured when it was queued (possibly null); every other send
+    // reads the hook now. Chats has no hook, so its payload has no `page` key.
+    function currentPage() {
+      return ctx.config.pageContext ? ctx.config.pageContext() : null;
+    }
+
+    // `text` is a string, or a held entry {text, page} (sendHeld): the page it captured when it
+    // was queued, possibly null, is the one it carries.
     function performSend(text, opts) {
+      var entry = text !== null && typeof text === 'object' ? text : null;
+      if (entry) text = entry.text;
       var payload = { message: text };
       var displayText = text;
       if (!(opts && opts.textOnly) && ctx.attachments.staged().length) {
@@ -52,8 +71,12 @@
         displayText = text ? text + ' [image]' : '[image]';
         ctx.attachments.clearStagedImages();
       }
+      var page = entry ? entry.page : currentPage();
+      if (page) payload.page = page;
       ctx.turnWork.onUserEvent();
-      ctx.transcript.addMsg('user', displayText, 'You');
+      var bubble = ctx.transcript.addMsg('user', displayText, 'You');
+      // The one slot a `page_line` frame fills (the sender gets no `user` echo).
+      state.pendingPageBubble = page ? bubble : null;
       ctx.ws().send(JSON.stringify(payload));
       // Keyed on activeId() (AC6): the joined session (the `done` handler's
       // held message also comes through here, on the joined path).
@@ -125,7 +148,7 @@
         // as a plain message (AC6).
         if (!active) return;
         // At the cap nothing is held and the text stays in the box (a note says why).
-        if (!ctx.holdQueue.push(active, text)) {
+        if (!ctx.holdQueue.push(active, text, currentPage())) {
           ctx.holdQueue.showFull();
           return;
         }
@@ -162,7 +185,7 @@
       var active = chatState.activeId();
       if (!active) return false;
       if (isCurrentBusy()) {
-        if (!ctx.holdQueue.push(active, text)) {
+        if (!ctx.holdQueue.push(active, text, currentPage())) {
           ctx.holdQueue.showFull();
           return false;
         }
@@ -177,6 +200,7 @@
     return {
       sendText: sendText,
       isCurrentBusy: isCurrentBusy,
+      ownsTurn: ownsTurn,
       updateStopControl: updateStopControl,
       performSend: performSend,
       sendHeld: sendHeld,

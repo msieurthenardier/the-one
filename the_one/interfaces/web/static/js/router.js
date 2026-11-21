@@ -439,6 +439,37 @@
     };
   }
 
+  var routeHooks = [];
+  var inCommit = false; // true from commit's step 4 to its end (a sync inside does not notify)
+
+  // onRouteChange(fn) -> unsubscribe (M36 F3 L2). fn({route, destination, parts}) runs at the
+  // end of every commit (after the area's mount and hydrate) and after every successful sync,
+  // with `parts` as describeRoute names them (the announcer's words). Unlike onCommit it also
+  // sees an in-area change. A throwing subscriber never breaks a commit or a sync.
+  function onRouteChange(fn) {
+    routeHooks.push(fn);
+    return function unsubscribe() {
+      var idx = routeHooks.indexOf(fn);
+      if (idx !== -1) routeHooks.splice(idx, 1);
+    };
+  }
+
+  // {route, destination, parts} for the current route, or null before the first commit.
+  // `parts` is read now, so an item named by a store that has loaded since reads its name.
+  function describeCurrent() {
+    if (!current) return null;
+    var d = describeRoute(current.route);
+    return { route: current.route, destination: current.destination, parts: d ? d.parts.slice() : [] };
+  }
+
+  function notifyRouteChange() {
+    if (!routeHooks.length) return;
+    var hooks = routeHooks.slice();
+    for (var i = 0; i < hooks.length; i++) {
+      try { hooks[i](describeCurrent()); } catch (err) { /* a subscriber must never break a commit */ }
+    }
+  }
+
   // ── Route announcer + document title (WCAG 4.1.3 / 2.4.2) ───────────────
 
   // The Library section labels. The Settings ones come from App.settingsPages
@@ -623,23 +654,32 @@
   function commit(target, fresh, first) {
     // 4. current + lastRoute BEFORE hydrate, so syncs fired while hydrating
     //    are kept (the destination rule sees the new destination).
-    current = { route: target.route, destination: target.destination, area: target.area, sub: target.sub };
-    lastRoutes[target.destination] = target.route;
-    // 5. shell bits
-    applyShell(target.destination);
-    applyTitle(target.route);
-    announce(target.route, !!first);
-    // 6. mountArea (panel lifecycle only; the module-change rule lives there)
-    host.mountArea(target.area, target.destination);
-    // 7. hydrate
-    var area = host.getArea(target.area);
-    if (area && typeof area.hydrateState === 'function') area.hydrateState(target.sub, { fresh: !!fresh });
-    // 8. post-hydrate canonicalisation (default sub-routes, retained state).
-    //    An area with nothing to serialise (chat before a join) leaves the URL.
-    if (area && typeof area.serializeState === 'function') {
-      var serialized = area.serializeState();
-      if (serialized) sync(target.area, serialized);
+    inCommit = true;
+    try {
+      current = { route: target.route, destination: target.destination, area: target.area, sub: target.sub };
+      lastRoutes[target.destination] = target.route;
+      // 5. shell bits
+      applyShell(target.destination);
+      applyTitle(target.route);
+      announce(target.route, !!first);
+      // 6. mountArea (panel lifecycle only; the module-change rule lives there)
+      host.mountArea(target.area, target.destination);
+      // 7. hydrate
+      var area = host.getArea(target.area);
+      if (area && typeof area.hydrateState === 'function') area.hydrateState(target.sub, { fresh: !!fresh });
+      // 8. post-hydrate canonicalisation (default sub-routes, retained state).
+      //    An area with nothing to serialise (chat before a join) leaves the URL.
+      if (area && typeof area.serializeState === 'function') {
+        var serialized = area.serializeState();
+        if (serialized) sync(target.area, serialized);
+      }
+    } finally {
+      // A throwing mount or hydrate must not leave the flag set for the session.
+      inCommit = false;
     }
+    // 9. route-change subscribers, once per commit: a sync made while this commit runs
+    //    (hydrate, step 8) does not notify on its own, so the settled route is announced once.
+    notifyRouteChange();
   }
 
   // ── Decisions: guard, join, settle ──────────────────────────────────────
@@ -783,6 +823,7 @@
       var elementOnly = resolve(location.hash).kind === 'element' && sameRoute(oldRoute, parsed.route);
       if (!elementOnly) writeUrl(parsed.route, true);
     }
+    if (!inCommit) notifyRouteChange();
     return true;
   }
 
@@ -872,6 +913,8 @@
       return current ? { route: current.route, destination: current.destination, area: current.area, sub: current.sub } : null;
     },
     onCommit: onCommit,
+    onRouteChange: onRouteChange,
+    describeCurrent: describeCurrent,
     lastRoute: function (destId) { return lastRoutes[destId] || rootOf(destId); },
     isDeciding: function () { return !!deciding; }
   };

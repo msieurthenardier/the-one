@@ -17,7 +17,9 @@
 # M32_DATA_DIR (the default data dir), M32_APP_LOG ("$HOME/Library/Logs/GleepGlorp AI/app.log"),
 # M32_DMG_N (the N .dmg: L0 mounts it and copies the .app out; absent -> the build-dir copy, said in
 # the L0 row; N+1 has no .dmg, so L9 installs it from the build dir), M32_CRASH_DIR ("$HOME/Library/Logs/DiagnosticReports"), M32_EXE_PRODUCT (the-one),
-# M32_BUDGET (a step is skipped once this many seconds have passed, 850), M32_SCALE (multiplies
+# M32_BUDGET (a step is skipped once this many seconds have passed; the 850 default is unchanged by
+# L9b because the workflow always passes its bound minus 200 s, now up to 1250 s; only the rehearsal
+# uses the default), M32_L9B_PORT (the drawer step's own port, 8486), M32_SCALE (multiplies
 # the series offsets and settle sleeps; the rehearsal uses a small value; it never changes a
 # bound), M32_STOP_WAIT (seconds between TERM and KILL, 8).
 #
@@ -27,7 +29,15 @@
 # (so one failure does not cascade into nine) and says so in its evidence:
 #   L1 launch + install route + first-paint series   L2 close button   L3 reopen (+ Cmd-W, info)
 #   L4 second process   L5 geometry across Cmd-Q   L6 quit Apple event   L7 the-one quit --wait
-#   L8 Cmd-Q keystroke   L9 upgrade to N+1 with data   L10 trash (data survives)
+#   L8 Cmd-Q keystroke   L9 upgrade to N+1 with data   L9b the GleepGlorp drawer (M36 F3 L9)
+#   L10 trash (data survives)
+# L9b runs between L9 and L10 (L10 deletes the app): it quits the running N+1, launches a SECOND,
+# throwaway instance of it on its own port (M32_L9B_PORT, 8486) and scratch data dir under its step
+# directory, in dev mode, seeds a scripted mock GleepGlorp (scripts/gleepglorp_drawer_seed.py, run with
+# the runner's python3; the desktop app creates the credential), drives Jump to (Cmd K) to Settings and
+# then "Ask GleepGlorp", sends one message, waits for `--check-fill` to exit 0 (the fill reached
+# `filled`, no agent was created) and presses Esc. The proof is the HTTP API plus screenshots; focus
+# after Esc and the CSS width (inferred from the window size) are screenshot-only. L1-L10 are unchanged.
 # The log lines asserted are exactly leg 4's AC5 table (flight-log.md, ### macos-dock-mode).
 #
 # Rules: the log is read from the entry shim's redirect by BYTE OFFSET per step; apps are
@@ -52,6 +62,7 @@ CAP_L1="${M32_CAP_L1:-110}"; CAP_L2="${M32_CAP_L2:-50}"; CAP_L3="${M32_CAP_L3:-7
 CAP_L4="${M32_CAP_L4:-50}"; CAP_L5="${M32_CAP_L5:-200}"; CAP_L6="${M32_CAP_L6:-130}"
 CAP_L7="${M32_CAP_L7:-120}"; CAP_L8="${M32_CAP_L8:-130}"; CAP_L9="${M32_CAP_L9:-190}"
 CAP_L10="${M32_CAP_L10:-70}"
+CAP_L9B="${M32_CAP_L9B:-180}" # M36 F3 L9: the drawer step (stop N+1, own instance, seed, drive, quit)
 
 MODE=main
 if [ "${1:-}" = "--run" ]; then MODE=child; STEP="${2:?step}"; shift 2; fi
@@ -200,7 +211,11 @@ crash_new() { crash_list | comm -13 "$1" - 2> /dev/null; } # $1 = the list taken
 open_run() { # $1 = out file; rest = open's own arguments (flags, then -a PATH). Sets RC
   local f="$1"
   shift
-  if [ "$CUSTOM" = 1 ]; then
+  if [ "$CUSTOM" = 1 ] && [ "${DEV_MODE:-0}" = 1 ]; then
+    # L9b only: its own instance runs in dev mode (the mock provider is dev-mode gated)
+    runrc "$f" "$T_OPEN" open "$@" --env "THE_ONE_PORT=$PORT" --env "THE_ONE_DATA_DIR=$DATA_DIR" \
+      --env "THE_ONE_DEV_MODE=true"
+  elif [ "$CUSTOM" = 1 ]; then
     runrc "$f" "$T_OPEN" open "$@" --env "THE_ONE_PORT=$PORT" --env "THE_ONE_DATA_DIR=$DATA_DIR"
   else
     runrc "$f" "$T_OPEN" open "$@"
@@ -625,6 +640,108 @@ for p in json.load(sys.stdin):
   step_end L9 "upgrade to N+1 keeps the data and the credential"
 }
 
+# ---- L9b -----------------------------------------------------------------------------------
+# M36 F3 L9 (DD11): the GleepGlorp drawer and a fill in WKWebView. No DOM access here: the proof is
+# `--check-fill` (the fill row reached `filled`, which the browser posts only after it wrote the editor,
+# and no agent exists) plus screenshots. No keystroke result is asserted for Esc.
+L9B_SEED="$(dirname "$SELF")/../../scripts/gleepglorp_drawer_seed.py"
+L9B_MSG="Fill in a new agent for me" # no characters AppleScript or the palette would treat specially
+l9b_seed() { tl 60 python3 "$L9B_SEED" --base-url "$BASE" --data-dir "$DATA_DIR" --refuse-data-dir "$L9B_OLD_DATA" "$@"; }
+l9b_fill_ok() { l9b_seed --check-fill > "$SD/check-fill.json" 2>&1; }
+l9b_palette() { # $1 = tag  $2 = pid  $3 = text typed in Jump to (Cmd K, text, Return)
+  sys_events "$SD/$1.txt" "$2" -e 'set frontmost of p to true' -e 'delay 0.7' \
+    -e 'keystroke "k" using command down' -e 'delay 0.8' \
+    -e "keystroke \"$3\"" -e 'delay 0.8' -e 'key code 36'
+  sleep_s 1.2 # the palette closes before the next Cmd K
+}
+l9b() {
+  step_begin L9b
+  local pid old_pid rc left
+  L9B_OLD_DATA="$DATA_DIR"
+  # N+1 is still running from L9 (`open -a` on a running app ignores --env, so it must go first)
+  old_pid="$(cur_pid)"
+  if [ -n "$old_pid" ] && live; then
+    cli_run "$T_CLI" "$EXE" quit --wait > "$SD/quit-n1.txt" 2>&1
+    rc=$?
+    chk "quit N+1 on the product port ($(rcnote "$rc" "$SD/quit-n1.txt"))" "$rc"
+    wait_exit "$old_pid" 70; rc=$?
+    chk "N+1 exited ($(exit_note))" "$rc"
+    alive "$old_pid" && stop_pid "$old_pid"
+  else
+    inf "no N+1 was running on the product port"
+  fi
+  sleep_s 2
+  chk "no listener on the product port $PORT ($(listeners))" "$(yes0 test -z "$(listeners)")"
+  # the step's own instance: its own port and data dir, dev mode (child-run globals, reassigned here)
+  PORT="${M32_L9B_PORT:-8486}"
+  BASE="http://127.0.0.1:$PORT"
+  DATA_DIR="$SD/data"
+  CRED_FILE="$DATA_DIR/api-credential"
+  CUSTOM=1
+  DEV_MODE=1
+  mkdir -p "$DATA_DIR"
+  open_run "$SD/launch.open" -a "$INSTALLED"
+  chk "open -a with port $PORT, a scratch data dir and dev mode ($(rcnote "$RC" "$SD/launch.open"))" "$RC"
+  gate_wait 60 live
+  chk "/api/live on $PORT" $?
+  # the desktop app creates the credential; wait 30 s, else mint one for this data dir
+  if ! gate_wait 30 test -s "$CRED_FILE"; then
+    cli_run "$T_CLI" "$EXE" rotate-api-credential > "$SD/rotate.txt" 2>&1
+    inf "credential absent after 30 s: rotate-api-credential ($(rcnote "$?" "$SD/rotate.txt"))"
+  fi
+  pid=""
+  if gate_wait 10 have_pid; then pid="$(cur_pid)"; fi
+  [ -z "$pid" ] || track "$pid" "app:l9b"
+  rc=1
+  if [ -n "$pid" ]; then rc=0; fi
+  chk "the instance's pid from /api/window/state (${pid:-none})" "$rc"
+  if [ -n "$pid" ]; then
+    l9b_seed > "$SD/seed.json" 2> "$SD/seed.err"
+    rc=$?
+    chk "seed script ($(rcnote "$rc" "$SD/seed.err")) $(tail -c 200 "$SD/seed.json" 2> /dev/null)" "$rc"
+  fi
+  if [ -n "$pid" ] && [ "$S_OK" = 1 ]; then
+    poll_state visible true 25 || inf "window not visible after 25 s"
+    window_state "$pid"
+    inf "window $WS_NOTE (the CSS width is inferred from this size; push mode needs 1280 or more)"
+    # leave Chats (the corner button and the drawer are hidden there), then open the drawer
+    l9b_palette leave-chats "$pid" "Appearance"
+    shot "$SD/settings-appearance.png"
+    l9b_palette open-drawer "$pid" "Ask GleepGlorp"
+    shot "$SD/drawer-open.png"
+    inf "drawer-open.png ${SHOT_BYTES} bytes"
+    sys_events "$SD/send.txt" "$pid" -e 'set frontmost of p to true' -e 'delay 0.5' \
+      -e "keystroke \"$L9B_MSG\"" -e 'delay 0.6' -e 'key code 36'
+    chk "message typed and sent ($(rcnote "$RC" "$SD/send.txt"))" "$RC"
+    gate_wait 90 l9b_fill_ok
+    rc=$?
+    chk "--check-fill exit 0 within 90 s: the fill is filled and no agent exists ($(tail -c 160 "$SD/check-fill.json" 2> /dev/null | tr '\n' ' '))" "$rc"
+    sleep_s 1
+    shot "$SD/fill-applied.png"
+    inf "fill-applied.png ${SHOT_BYTES} bytes"
+    # Esc: screenshot-only evidence (no DOM here, so focus after the close is not asserted)
+    sys_events "$SD/esc.txt" "$pid" -e 'set frontmost of p to true' -e 'delay 0.5' -e 'key code 53'
+    sleep_s 1
+    shot "$SD/after-esc.png"
+    inf "Esc sent ($(rcnote "$RC" "$SD/esc.txt")); after-esc.png ${SHOT_BYTES} bytes (focus not asserted)"
+  fi
+  # quit the step's instance the same way, and prove its port is free
+  if [ -n "$pid" ]; then
+    cli_run "$T_CLI" "$EXE" quit --wait > "$SD/quit-l9b.txt" 2>&1
+    rc=$?
+    chk "quit the step's instance ($(rcnote "$rc" "$SD/quit-l9b.txt"))" "$rc"
+    wait_exit "$pid" 70; rc=$?
+    chk "the step's instance exited ($(exit_note))" "$rc"
+    alive "$pid" && stop_pid "$pid"
+  fi
+  sleep_s 1
+  left="$(listeners)"
+  chk "no listener on the step's port $PORT (${left:-none})" "$(yes0 test -z "$left")"
+  tail -n 80 "$APP_LOG" > "$SD/app-log-tail.txt" 2> /dev/null || :
+  rm -rf "$DATA_DIR" # a throwaway credential and database stay out of the uploaded evidence
+  step_end L9b "the GleepGlorp drawer opens and a mock fill lands (WKWebView)"
+}
+
 # ---- L10 -----------------------------------------------------------------------------------
 l10() {
   step_begin L10
@@ -657,7 +774,7 @@ if [ "$MODE" = child ]; then
   mkdir -p "$OUT/$STEP"
   case "$STEP" in
     L1) l1 ;; L2) l2 ;; L3) l3 ;; L4) l4 ;; L5) l5 ;;
-    L6) l6 ;; L7) l7 ;; L8) l8 ;; L9) l9 ;; L10) l10 ;;
+    L6) l6 ;; L7) l7 ;; L8) l8 ;; L9) l9 ;; L9b) l9b ;; L10) l10 ;;
     *) echo "lifecycle.sh: unknown step $STEP" >&2; exit 2 ;;
   esac
   exit 0
@@ -723,7 +840,7 @@ else
 fi
 if crash_dirs_state; then emit PASS LCRASH "crash report directories:$CRASH_NOTE"; else emit FAIL LCRASH "a crash report directory is unreadable, so 'no new crash report' proves nothing:$CRASH_NOTE"; fi
 
-for entry in L1:$CAP_L1 L2:$CAP_L2 L3:$CAP_L3 L4:$CAP_L4 L5:$CAP_L5 L6:$CAP_L6 L7:$CAP_L7 L8:$CAP_L8 L9:$CAP_L9 L10:$CAP_L10; do
+for entry in L1:$CAP_L1 L2:$CAP_L2 L3:$CAP_L3 L4:$CAP_L4 L5:$CAP_L5 L6:$CAP_L6 L7:$CAP_L7 L8:$CAP_L8 L9:$CAP_L9 L9b:$CAP_L9B L10:$CAP_L10; do
   name="${entry%%:*}"; cap="${entry##*:}"
   if [ "$INSTALL_OK" != 1 ]; then emit FAIL "$name" "skipped: the install failed"; continue; fi
   if [ "$SECONDS" -gt "$BUDGET" ]; then emit FAIL "$name" "skipped: the global budget of ${BUDGET} s is spent"; continue; fi

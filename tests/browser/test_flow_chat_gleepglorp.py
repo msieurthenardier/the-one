@@ -77,7 +77,9 @@ _HOLD_JS = """
       if (!user) return;
       var d = null;
       try { d = JSON.parse(e.data); } catch (err) { d = null; }
-      if (window.__ggHold.on && d && HELD[d.type]) {
+      // M36 F3 L3: only the last constructed socket (Chats') is held; the drawer's earlier
+      // socket (opened at page load) passes its frames through.
+      if (window.__ggHold.on && d && HELD[d.type] && window.__ggHold.ws === ws) {
         window.__ggHold.queue.push({ type: d.type, e: e });
         return;
       }

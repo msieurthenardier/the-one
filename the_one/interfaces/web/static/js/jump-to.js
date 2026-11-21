@@ -163,6 +163,13 @@
     for (i = 0; i < pages.length; i++) {
       out.push({ kind: 'settings', key: pages[i].section, label: pages[i].label, where: settingsWhere(pages[i]) });
     }
+    // M36 F3 L2: open the GleepGlorp drawer, off Chats while GleepGlorp is enabled (on Chats the
+    // GleepGlorp candidate above already starts a chat). Last, so the empty query never shows it
+    // ahead of the board-order fill.
+    var here = App.router && App.router.current && App.router.current();
+    if (gg && gg.enabled && here && here.destination !== 'chats') {
+      out.push({ kind: 'gleepglorp-ask', key: 'ask', label: 'Ask GleepGlorp', where: 'Assistant' });
+    }
     return out;
   }
 
@@ -280,6 +287,10 @@
     } else if (c.kind === 'gleepglorp') {
       // The pending GleepGlorp chat, through the router (a dirty editor asks once).
       R.go(R.href({ destination: 'chats', create: true, agent: c.key }), goOpts);
+    } else if (c.kind === 'gleepglorp-ask') {
+      // Runs from the modal's onClose, after focus went back to the opener, so the drawer's own
+      // focus move (to its title) is the last one.
+      if (App.gleepglorpDrawer) App.gleepglorpDrawer.open();
     } else if (c.kind === 'chat') {
       R.go(R.href({ destination: 'chats', id: c.key }), goOpts);
     } else if (c.kind === 'action') {

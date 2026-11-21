@@ -194,7 +194,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-stopped` | chat | The muted "Stopped." line after a `cancelled` frame; never stored, so a re-join shows none (M31 F6 L05c, B9) |
 | `chat-step-limit` | chat | The muted step-limit line after a `step_limit` frame; never stored, so a re-join shows none (M31 F6 L06, DD8) |
 | `chat-step-limit-link` | chat | Its "max iterations" link to `#agents/{name}`; absent for the default or a deleted agent (M31 F6 L06) |
-| `proposal-card` | chat | The GleepGlorp proposal card, a `<section>` with `data-proposal-id`, `data-state` (`pending`, `applying`, `applied`, `dismissed`, `failed`, `stale`, `withdrawn`) and `aria-label` "Proposed change: {title}"; `aria-busy` while applying. Placed after the turn that made it (M36 F2 L6, DD6). Part of the behavior tests' contract (DD14): a change here re-authors `tests/behavior/gleepglorp-proposal-*.md` |
+| `proposal-card` | chat | The GleepGlorp proposal card, a `<section>` with `data-proposal-id`, `data-state` (`pending`, `applying`, `applied`, `dismissed`, `failed`, `stale`, `withdrawn`) and `aria-label` "Proposed change: {title}"; `aria-busy` on its `.chat-proposal-body` (never the root, which holds the status node) while applying. Placed after the turn that made it (M36 F2 L6, DD6). Part of the behavior tests' contract (DD14): a change here re-authors `tests/behavior/gleepglorp-proposal-*.md` |
 | `proposal-title` | chat | The card's title `h3` ("Create agent “X”", "Change rule N of “X”", ...) |
 | `proposal-table` | chat | The card's `App.ui.changeTable` (the fields; two columns for a change; or the stale panel's Current and Proposed); a long value's Show all button is `proposal-table-more` (one column) or `proposal-table-more-now` / `proposal-table-more-proposed` (two columns, `data-column`, named "Show all {label} (now|proposed)") |
 | `proposal-announce` | chat | The card's one polite `role=status` node (visually hidden), which speaks "GleepGlorp proposed a change: {title}." on a live arrival and then each resolved state once; the card root is `aria-live="off"` |
@@ -211,6 +211,18 @@ caught — but it cannot see where the attribute is emitted.
 | `proposal-details` | chat | The folded (applied or dismissed) card's "Details" `App.ui.disclosure` (plain), holding the table |
 | `proposal-open-agent` | chat | The applied line's "Open agent" link to `#agents/{name}` (`/rules-and-notes` or `/routines` for a rule or routine) |
 | `proposal-status-line` | chat | The folded line of an applied, dismissed or withdrawn card |
+| `fill-receipt` | chat | The GleepGlorp form-fill receipt, a `div[role=group]` (not a region landmark) with `data-fill-id` and `data-status` (`sent`, `applying`, `filled`, `partly_filled`, `not_filled`, `replaced`) and `aria-label` "Form fill: {title}"; `aria-busy` on its `.chat-proposal-body` (never the root, which holds the status node) while `sent` or `applying`; also carries `data-card-kind="fill"`, `data-card-id`, `data-card-created` and `data-card-call` (the order shared with the proposal cards). Drawn in every chat instance showing the conversation, literal and unprefixed (tell the drawer's apart by `#gleepglorp-drawer`); held while a turn runs, then placed after the turn that made it (M36 F3 L6) |
+| `fill-receipt-headline` | chat | The receipt's status words: "Filling the form…", "Form filled", "Form partly filled", "Form not filled", "Replaced by a newer fill." |
+| `fill-receipt-title` | chat | The fill's title `h3` ("Change agent “X”", "Create agent “X”"); not drawn on a replaced receipt |
+| `fill-receipt-detail` | chat | "{n} fields · Not saved" on a filled or partly filled receipt |
+| `fill-receipt-kept` | chat | A partly filled receipt's "You had changed {labels} and not saved them, so I left them." |
+| `fill-receipt-reason` | chat | A not-filled receipt's reason line (in Chats, stayed on the page, editor could not open, agent gone) |
+| `fill-receipt-stale` | chat | "Changed since GleepGlorp filled it: {labels}." on a receipt that offers Fill now and has changed fields |
+| `fill-receipt-flag` | chat | The "Check this form fill" `App.ui.noteFlag` (subject `fill`) on a fill made after untrusted content |
+| `fill-receipt-fill-now` | chat | Fill now (primary), drawer only: on a not-filled receipt (not "agent gone"), on a sent fill this window is not applying, and on an applying fill whose claim is over 120 s old; calls the instance's `fillHooks.fillNow(view)` |
+| `fill-receipt-notice` | chat | "Still being applied in another window." on an applying receipt after a Fill now whose claim was refused (M36 F3 L6 Part B); gone when the fill's status next changes |
+| `agent-filled-note` | studio | Agent editor — a quiet caption ("Filled by GleepGlorp · {time}", bot icon) under each control a GleepGlorp form fill wrote, in create and edit mode; `data-field` is the stored key (`name`, `description`, `llm_model` for the provider and model pair, `system_prompt`, `max_iterations`, `chat_history_retention_days`, `rich_visuals`, or `tools` / `mcp_source_ids` / `kb_ids` with `data-item`). Coexists with `agent-approved-change-note`; drawn by `agent-editor-fill.js` at every mount and after a fill, only for a control that still holds the written value; gone after Save, Cancel, a patch and closing the editor (M36 F3 L6 Part B) |
+| `fill-receipt-announce` | chat | The receipt's one polite `role=status` node (visually hidden): it says the headline, title, field count and (partly filled) the kept sentence once per status change, and "Still being applied in another window." once per Fill now press that produces it; silent on a reload or replay draw |
 | `chat-step-limit-continue` | chat | The step-limit notice's Continue button: sends `continue` through `send.sendText`; only the latest notice carries one, a new user message or log wipe removes it (M31 F6 L10d) |
 | `chat-telemetry` | chat | The context-usage readout (`App.ui.telemetry`) in the composer's telemetry row; `role=status`, `tabindex=0`, shown only while a chat is joined; the chat area's `_telemetry()` is its handle (M31 F6 L05c) |
 | `chat-send-btn` | chat | The composer's Send (`btn-filled-primary`, the send icon and label, `aria-keyshortcuts="Enter"`), at the toolbar's end |
@@ -352,6 +364,31 @@ caught — but it cannot see where the attribute is emitted.
 | `knowledge-reconcile-interval-echo` | admin | Knowledge settings panel — the interval echoed in words beside the field, empty when invalid (A22, M31 F4 L10) |
 | `knowledge-settings-chunking-section` | admin | Knowledge settings panel — Chunking section container (M24 F06 L04) |
 | `knowledge-settings-embedding-section` | admin | Knowledge settings panel — Embedding (read-only) section container (M24 F06 L04) |
+| `gg-corner-button` | shell | The GleepGlorp corner button "Ask GleepGlorp" (`App.ui.cornerButton`, `id="gleepglorp-corner-button"`), last child of `.app-shell-row`; `aria-expanded`/`aria-controls="gleepglorp-drawer"`; hidden on Chats, while GleepGlorp is off and until its state is known (M36 F3 L2) |
+| `gg-drawer` | shell | The GleepGlorp drawer `<aside id="gleepglorp-drawer" aria-label="GleepGlorp">` after `#chat-drawer` (also set by `App.ui.drawer`'s test id option in `gleepglorp-drawer/shell.js`): 360px, push at 1280px and wider, overlay below; closed by default (M36 F3 L2) |
+| `gg-drawer-actions` | shell | The header slot holding New chat and Open in Chats, before Close (M36 F3 L2, L3) |
+| `gg-drawer-body` | shell | The body slot the drawer chat mounts into (`App.gleepglorpDrawer.bodySlot()`; carries `.chat-instance`; M36 F3 L3) |
+| `gg-drawer-close` | shell | The header's labelled Close button (`aria-keyshortcuts="Escape"`) |
+| `gg-drawer-context` | shell | The "Looking at" line under the header: the current page from `App.router.onRouteChange` parts, joined by " › " |
+| `gg-drawer-setup` | shell | The setup block shown while GleepGlorp needs a model or lost its provider: the chat banner's sentence and the link below |
+| `gg-drawer-setup-action` | shell | The setup block's primary "Choose a model" link to `#settings/gleepglorp` |
+| `gg-drawer-title` | shell | The drawer's `h2` "GleepGlorp" (`tabindex="-1"`): the open focus fallback (the setup link while the setup block shows, else the composer, else this; M36 F3 L3) |
+| `gg-drawer-new-chat` | shell | The header's icon-only "New chat" button: a fresh pending GleepGlorp chat, the stored id cleared, focus to the composer (M36 F3 L3) |
+| `gg-drawer-open-in-chats` | shell | The header's icon-only "Open in Chats" button, shown only while a conversation is joined: a guarded go to `#chats/{id}` (M36 F3 L3) |
+| `gg-drawer-empty` | shell | The drawer chat's empty state (a pending chat): the lead, the quiet "Nothing is saved until you click." line and the suggestion (M36 F3 L3) |
+| `gg-drawer-suggestion` | shell | The empty state's "What does this page do?" button; sends that text, disabled while the composer is blocked (M36 F3 L3) |
+| `gg-new-state` | shell | The drawer chat pane's new-chat state container (holds the empty state; `chat-pane.js` drawer mode, M36 F3 L3) |
+| `gg-chat-input` | shell | The drawer chat's message box (`App.ui.composer`, the `chat-input` of the drawer profile; M36 F3 L3) |
+| `gg-chat-attach-btn` | shell | The drawer composer's Attach images button (M36 F3 L3) |
+| `gg-chat-image-input` | shell | The drawer composer's hidden image file input (M36 F3 L3) |
+| `gg-chat-model` | shell | The drawer composer's model id (M36 F3 L3) |
+| `gg-chat-stop-btn` | shell | The drawer composer's Stop button (M36 F3 L3) |
+| `gg-chat-send-btn` | shell | The drawer composer's Send button (M36 F3 L3) |
+| `gg-chat-attachments` | shell | The drawer composer's staged-image row (M36 F3 L3) |
+| `gg-chat-attachments-status` | shell | The drawer composer's staged-image live status (M36 F3 L3) |
+| `gg-pending-queued-region` | shell | The drawer composer's queued-message region (M36 F3 L3) |
+| `gg-chat-telemetry` | shell | The drawer chat's telemetry readout, shown only while joined (M36 F3 L3) |
+| `gg-chat-copy-status` | shell | The drawer chat's visually hidden "Copy reply" status node (M36 F3 L3) |
 | `gleepglorp-behavior-section` | admin | GleepGlorp page — the Behavior `App.ui.section` (the three switches and "Keep chats for"; M36 F1 L03) |
 | `gleepglorp-cancel-btn` | admin | GleepGlorp page — Cancel in the page header; patches the fields back to the baseline (M36 F1 L03) |
 | `gleepglorp-enabled` | admin | GleepGlorp page — the "GleepGlorp" switch (on the native input; M36 F1 L03) |
@@ -459,6 +496,7 @@ caught — but it cannot see where the attribute is emitted.
 | `mcp-tools-list` | studio | The tool disclosures, reconciled by name in place; hidden until tools are loaded (M31 F5 L09) |
 | `mcp-tools-section` | studio | The "Tools" `App.ui.section` (M31 F5 L09) |
 | `message` | chat | A transcript bubble (`App.ui.message`, roles `ui-message--user|assistant|tool|system`); browser tests name it through `tests/browser/_chats.py` `message_sel` / `messages` (M31 F6 L05c) |
+| `message-context` | chat | The quiet page line above a user bubble, "Library › MCP servers › New MCP server" (`App.ui.message.context`, M36 F3 L4): a sibling of the bubble, never counted as a message; drawn from the server's `page_line` frame (the sender), the live `user` event's `page.line` and a history replay's UI event, in both chat instances (the testid is not drawer-prefixed) |
 | `message-copy` | chat | The icon-only "Copy reply" in a finished agent reply's attribution row (`App.ui.message.attribution`'s `copyTestid`); copies the reply's stored markdown (M31 F6 L05c, F1) |
 | `modal-cancel-btn` | shell | |
 | `modal-confirm-btn` | shell | |
@@ -747,6 +785,7 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `fill-receipt-show-form` | chat | M36 F3 HAT step 7 (operator decision) — the fill receipt's "Show the form" button had no use case: a fill from another page already navigates to the editor, and the drawer shows only on those pages; receipts carry Fill now only |
 | `mcp-agent-cred-state-` | studio | Sortie 09 L06 (DD12) — the per-row state text of the leg 3 credential layout; the tile is now the Library headers table (locked or unlocked) and a row's state is its value and the "overridden" pill |
 | `mcp-agent-cred-set-` | studio | Sortie 09 L06 — the per-row "Set for this agent" button; **Override headers** (`mcp-agent-cred-override-`) unlocks the whole table |
 | `mcp-agent-cred-replace-` | studio | Sortie 09 L06 — the per-row "Replace" button; type into the row's value |

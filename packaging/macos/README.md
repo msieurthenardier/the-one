@@ -84,7 +84,7 @@ which runs even when `checks.sh` failed, as long as both `.app` bundles exist. T
 `A/SUMMARY.txt` or `lifecycle/SUMMARY.txt` starts with `FAIL` (anchored: evidence text that says "FAIL" never
 trips it), when a build step failed, or when the lifecycle summary is missing in lifecycle mode.
 
-`lifecycle.sh` installs N in `/Applications` the way a user does (attaches the N `.dmg` read-only, `ditto`s the `.app` out of the volume, detaches; `M32_DMG_N`; without a `.dmg` it copies from the build dir and the L0 row says so; N+1 has no `.dmg`, so L9 copies it from the build dir), checks that the crash-report directories are readable (an unreadable one is `FAIL LCRASH`), then runs ten steps, each as a child under its own cap and
+`lifecycle.sh` installs N in `/Applications` the way a user does (attaches the N `.dmg` read-only, `ditto`s the `.app` out of the volume, detaches; `M32_DMG_N`; without a `.dmg` it copies from the build dir and the L0 row says so; N+1 has no `.dmg`, so L9 copies it from the build dir), checks that the crash-report directories are readable (an unreadable one is `FAIL LCRASH`), then runs eleven steps (L9b, the drawer, between L9 and L10), each as a child under its own cap and
 each writing one `PASS`/`FAIL` row with its evidence (a step that finds no app running starts one and says so).
 It reads leg 4's observables: the log `~/Library/Logs/GleepGlorp AI/app.log` by byte offset per step, and
 `GET /api/window/state` (`visible`, `tray`, `pid`, `version`, `mode`).
@@ -100,10 +100,11 @@ It reads leg 4's observables: the log `~/Library/Logs/GleepGlorp AI/app.log` by 
 | L7 | `the-one quit --wait` | the same lines, exit 0 | 120 |
 | L8 | Cmd-Q keystroke | the same lines | 130 |
 | L9 | seed a provider, agent and chat; quit; remove and `ditto` N+1; launch | `/api/info` version N+1, seeded rows present, credential `loc_<id>` prefix unchanged | 190 |
+| L9b | (M36 F3 L9) quit N+1; launch it again on its own port (`M32_L9B_PORT`, 8486), scratch data dir and `THE_ONE_DEV_MODE=true`; seed a scripted mock GleepGlorp (`scripts/gleepglorp_drawer_seed.py`); Cmd K to Settings, Cmd K "Ask GleepGlorp", send a message, Esc; screenshots | `--check-fill` exits 0 (the fill is `filled`, no agent "Filled by mock"); no listener on the step's port after its quit; focus after Esc and the CSS width are screenshot-only | 180 |
 | L10 | quit; remove the app | `the-one.db` and `api-credential` still there | 70 |
 
 The driver skips a step once `M32_BUDGET` seconds have passed (`FAIL Ln skipped`; default 850; the workflow
-passes the step's bound minus 200 s). No step's cap exceeds 200 s, so a step that starts runs out before the
+passes the step's bound minus 200 s, so up to 1250 s since L9b; the 850 default is only the rehearsal's). No step's cap exceeds 200 s, so a step that starts runs out before the
 bound. The port is `M32_PRODUCT_PORT` (default 8484) and the data directory `M32_DATA_DIR` (default the user's),
 so the Linux rehearsal never touches 8484/8485.
 
@@ -111,9 +112,9 @@ so the Linux rehearsal never touches 8484/8485.
 lifecycle 5-8, uploads 1). The caps are layered: the job is 60 min; the step caps before lifecycle are checkout 2,
 paths 1, runner evidence 2, setup-python 3, versions 1, export 5, build 12, checks 10, N+1 build 6 (42 min in all);
 after it, Summary 1, log upload 3, `.dmg` upload 2 and the final check 1 (7 min). The Paths step records
-`M32_T0`; the Lifecycle step computes `B = 3600 - elapsed - 420`, caps it at 1200 s, and if `B < 300` writes
+`M32_T0`; the Lifecycle step computes `B = 3600 - elapsed - 420`, caps it at 1450 s (1200 s before L9b; the caps now sum to 1300 s), and if `B < 300` writes
 `FAIL L0 no time left` and skips. Otherwise it runs lifecycle.sh under a `B` second bound with
 `M32_BUDGET=B-200`. Worst case, every pre-lifecycle step at its cap: 42 min used, `B = 660 s`, lifecycle ends by
 53 min, and 7 min remain for Summary, uploads and the final check; with more time left the reserve is larger,
-never smaller than 7 min. The step's own `timeout-minutes` is 21, above the 1200 s maximum bound. A step that
+never smaller than 7 min. The step's own `timeout-minutes` is 25, above the 1450 s maximum bound. A step that
 hits its cap is already a failed run whose logs the `always()` steps upload.

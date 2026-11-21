@@ -228,6 +228,7 @@ class Agent:
         user_input: str | list[ContentBlock],
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
         on_usage: Callable[[TokenUsage], Awaitable[None]] | None = None,
+        page: dict | None = None,
     ) -> AsyncIterator[Message]:
         """Process a user message through the agent loop.
 
@@ -247,9 +248,13 @@ class Agent:
         in the web layer) handles end-of-step accumulation. Back-compat:
         providers that never emit interim usage just never fire the
         callback. Defaults to None.
+
+        ``page``: M36 F3 L4 — optional ``{"line": str}`` stored on the appended user message.
         """
         self.stopped_at_step_limit = False
         self.messages.append(Message.user(user_input))
+        if page is not None:
+            self.messages[-1].page = page
         # F5 L3: clear stale pause state at the start of a new step and
         # re-prime the iteration budget. ``_run_iterations`` decrements
         # ``_remaining_iterations`` at the top of each iteration body.

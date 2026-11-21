@@ -98,7 +98,34 @@
     // result once that mount or panel build is gone.
     var currentGuard = function () { return true; };
 
+    // The count of model-list fetches in flight (M36 F3 L6): the form fill waits for it to reach
+    // zero, so its write is never rebased by a late list. Up at entry, down exactly once when the
+    // returned promise settles (an early return, an abort, a dropped response and a failure all
+    // settle it).
+    var modelsInFlight = 0;
+
     function fetchModelsForProvider(providerId) {
+      modelsInFlight += 1;
+      var done = false;
+      var release = function () {
+        if (done) return;
+        done = true;
+        modelsInFlight -= 1;
+      };
+      var p;
+      try {
+        p = fetchModels_(providerId);
+      } catch (err) {
+        release();
+        throw err;
+      }
+      p.then(release, release);
+      return p;
+    }
+
+    function modelsSettled() { return modelsInFlight === 0; }
+
+    function fetchModels_(providerId) {
       var selectEl = editorEl.querySelector('#studio-model');
       var loadingEl = editorEl.querySelector('.model-loading');
       if (!selectEl) return Promise.resolve();
@@ -395,6 +422,7 @@
     return {
       wireEditorEvents: wireEditorEvents,
       fetchModelsForProvider: fetchModelsForProvider,
+      modelsSettled: modelsSettled,
       renderModelCapabilities: renderModelCapabilities
     };
   }

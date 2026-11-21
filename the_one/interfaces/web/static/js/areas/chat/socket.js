@@ -49,14 +49,53 @@
       boundOn = ws;
     }
 
+    // M36 F3 L1 (destroy): stop the reconnect timer, suppress onclose's reconnect (the socket is
+    // detached first, so every handler sees it as superseded) and close the socket. Final: a later
+    // connect() does nothing. The Chats instance never calls it.
+    var closed = false;
+    function close() {
+      closed = true;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      var sock = ws;
+      ws = null;
+      if (sock) { try { sock.close(); } catch (e) { /* already closed */ } }
+    }
+
     function connect() {
+      if (closed) return;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       var proto = location.protocol === 'https:' ? 'wss' : 'ws';
       var sock = new WebSocket(proto + '://' + location.host + '/ws');
       ws = sock;
 
+      // The drawer profile's startup (M36 F3 L3): it only re-joins ITS OWN conversation, directly
+      // (never through reconnectAction, which needs a session list), and sends nothing while
+      // pending with no rejoin asked for. It never reads agents, providers or GleepGlorp (the
+      // Chats activation does), never sends list_sessions and never runs the idle rules.
+      function drawerOnOpen() {
+        var st = chatState.state();
+        var boundEarlier = boundOn !== null && boundOn !== sock;
+        if (st.name === 'starting' && boundEarlier) {
+          var act = chatState.reconnectAction(null, true);
+          if (act.send === 'start_session' && act.frame) sendBinding(act.frame);
+          return;
+        }
+        if ((st.name === 'joined' || st.name === 'joining') && boundEarlier) {
+          // The fresh socket is unbound until the re-join lands; Send and Stop wait.
+          state.rebinding = true;
+          ctx.sessionFlow.openConversation(st.id);
+          return;
+        }
+        if (state.pendingRejoinId && st.name === 'pending') {
+          var rejoin = state.pendingRejoinId;
+          state.pendingRejoinId = null;
+          ctx.sessionFlow.openConversation(rejoin);
+        }
+      }
+
       sock.onopen = function () {
         if (sock !== ws) { sock.close(); return; } // superseded before it opened
+        if (ctx.profile === 'drawer') { drawerOnOpen(); return; }
         state.firstListPending = true;
         var st = chatState.state();
         var boundEarlier = boundOn !== null && boundOn !== sock;
@@ -95,6 +134,7 @@
           ctx.applyComposerState();
           // M36 F2 L6: the turn is gone with the socket, so a held proposal card lands.
           ctx.proposalCards.turnEnded();
+          ctx.fillReceipts.turnEnded();
         }
         reconnectTimer = setTimeout(connect, 2000);
       };
@@ -110,29 +150,32 @@
           // the idle rules, a render call or the open conversation.
           state.sessions = data.sessions || [];
           ctx.sessionFlow.pruneDrafts(state.sessions.map(function (s) { return s.id; }));
-          App.store.prime('sessions', state.sessions.map(toSessionSummary));
+          // M36 F3 L3: every socket in the window gets this push, so the store is primed only
+          // when the list differs from its current value (the other socket's prime already ran).
+          var pushedRows = state.sessions.map(toSessionSummary);
+          if (App.chat.windowFrames.sessionsChanged(pushedRows)) App.store.prime('sessions', pushedRows);
+          // The drawer profile: its bound conversation is gone from the list (deleted, purged).
+          ctx.sessionFlow.dropGoneBound(state.sessions);
           return;
         }
 
         if (data.type === 'config_changed') {
           // An approved GleepGlorp change reached the stored configuration (any window, any
-          // state, so before the gate): the editors, list and drawer follow it (M36 F2 L7).
-          App.approvals.record(data);
+          // state, so before the gate): the editors, list and drawer follow it (M36 F2 L7). The
+          // global effect is shared by every socket (App.chat.windowFrames, M36 F3 L3).
+          App.chat.windowFrames.handle(data);
           return;
         }
 
         if (data.type === 'gleepglorp_changed') {
           // GleepGlorp's settings changed (any tab, any state, so before the gate): update the
-          // client's copy, then follow it. A joined GleepGlorp chat re-joins (deferred until
-          // its own turn ends) so its banner and composer follow. A pending one, the picker and
-          // the drawer re-render from chat.js's App.gleepglorp subscription (prime notifies).
-          // A notes-only push (L06: a delete or Clear all in Settings > GleepGlorp) carries
+          // client's copy (once for the window, App.chat.windowFrames), then follow it. A joined
+          // GleepGlorp chat re-joins (deferred until its own turn ends), per instance, so its
+          // banner and composer follow. A pending one, the picker and the drawer re-render from
+          // their App.gleepglorp subscriptions (prime notifies). A notes-only push (L06) carries
           // no settings: it only tells an open Memory list to reload.
-          if (!data.settings) {
-            window.dispatchEvent(new Event('gleepglorp-notes-changed'));
-            return;
-          }
-          App.gleepglorp.prime(data.settings);
+          App.chat.windowFrames.handle(data);
+          if (!data.settings) return;
           if (chatState.state().name === 'joined' && state.currentAgentName === App.chat.GLEEPGLORP) {
             ctx.sessionFlow.requestRefresh(chatState.boundId());
           }
@@ -220,8 +263,10 @@
           }
           var joinedId = data.session_id;
           if (joinedEff.fromStart) ctx.sessionFlow.promoteDraft(joinedId);
+          // The drawer profile stores the bound id (its one write site besides the clears).
+          ctx.sessionFlow.sessionChanged(joinedId);
           App.perf.mark('session-join:received');
-          App.router.sync('chat', joinedEff.sync);
+          ctx.router.sync(joinedEff.sync);
           state.currentAgentName = data.agent_name;
           // M23 F02 L03: capture the joined session's connector platform
           // (undefined on a degraded-session payload's older clients / any
@@ -364,6 +409,8 @@
           ctx.sessionFlow.dropDraft(failedOwner);
           ctx.sessionFlow.setWelcomeNotice(joinFailedEff.notice);
           ctx.sessionFlow.refreshSessionList();
+          // The drawer profile is never idle: a fresh pending chat, the stored id cleared.
+          if (ctx.profile === 'drawer') ctx.sessionFlow.drawerToPending();
           return;
         }
 
@@ -386,6 +433,7 @@
             }
             // Don't auto-create — the session_list refresh below runs the
             // idle rules.
+            if (ctx.profile === 'drawer') ctx.sessionFlow.drawerToPending();
           }
           ctx.sessionFlow.refreshSessionList();
           return;
@@ -394,7 +442,7 @@
         // OAuth: the popup close is global (it may belong to any session);
         // only the inline rendering below is gated (AC3).
         if (data.type === 'auth_resolved' || data.type === 'auth_failed') {
-          ctx.signIn.settleClose(data);
+          if (ctx.signIn) ctx.signIn.settleClose(data);
         }
 
         // AC3, the frame gate: every other frame is session-scoped (it
@@ -409,6 +457,7 @@
 
     return {
       connect: connect,
+      close: close,
       ws: function () { return ws; },
       socketOpen: socketOpen,
       sendBinding: sendBinding

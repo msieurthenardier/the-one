@@ -32,16 +32,17 @@
 
     function count(sid) { return list(sid).length; }
 
-    // Append a message; false (nothing stored) at the cap.
-    function push(sid, text) {
+    // Append a message ({text, page}: the page descriptor is captured when the message is
+    // queued, M36 F3 L4; null for a profile with no page hook); false (nothing stored) at the cap.
+    function push(sid, text, page) {
       var q = list(sid);
       if (q.length >= MAX) return false;
       if (!q.length) state.pendingQueuedMessages[sid] = q = [];
-      q.push(text);
+      q.push({ text: text, page: page || null });
       return true;
     }
 
-    // Remove and return the first held message (the key goes with the last one), or null.
+    // Remove and return the first held entry {text, page} (the key goes with the last), or null.
     function shift(sid) {
       var q = list(sid);
       if (!q.length) return null;
@@ -64,6 +65,7 @@
         statusEl = document.createElement('span');
         statusEl.className = 'visually-hidden';
         statusEl.setAttribute('data-testid', 'pending-queued-status');
+        ctx.prefixTestids(statusEl);
         pendingQueuedRegionEl.appendChild(statusEl);
       }
       statusEl.textContent = n === 0 ? '' : (n === 1 ? '1 message queued' : n + ' messages queued');
@@ -81,12 +83,12 @@
 
     // Render one chip per held message of the list, in order (rebuilds all, so the names
     // "Cancel queued message {i} of {n}" are always current).
-    function showPendingQueued(texts) {
+    function showPendingQueued(entries) {
       clearPendingQueued();
-      if (!texts || !texts.length || !pendingQueuedRegionEl) return;
-      var n = texts.length;
+      if (!entries || !entries.length || !pendingQueuedRegionEl) return;
+      var n = entries.length;
       for (var i = 0; i < n; i++) {
-        chipEls.push(buildChip(texts[i], i, n));
+        chipEls.push(buildChip(entries[i].text, i, n));
       }
       for (var j = 0; j < chipEls.length; j++) {
         pendingQueuedRegionEl.insertBefore(chipEls[j], statusEl);
@@ -111,6 +113,7 @@
         dataset: { index: String(index) }
       });
       chip.setAttribute('aria-live', 'off');
+      ctx.prefixTestids(chip);
       return chip;
     }
 
@@ -131,7 +134,7 @@
       refresh();
       if (!hadFocus) return;
       var target = chipEls[index] || chipEls[index - 1];
-      var btn = target && target.querySelector('[data-testid="pending-queued-cancel"]');
+      var btn = target && target.querySelector('[data-testid$="pending-queued-cancel"]');
       if (btn) btn.focus();
       else if (ctx.composer.input) ctx.composer.input.focus();
     }
@@ -157,6 +160,7 @@
       fullEl.className = 'pending-queued-full';
       fullEl.setAttribute('role', 'status');
       fullEl.setAttribute('data-testid', 'pending-queued-full');
+      ctx.prefixTestids(fullEl);
       host.insertBefore(fullEl, ctx.composer.el.nextSibling);
       // A status node inserted with its text may stay silent: insert empty, write next tick.
       var node = fullEl;
@@ -176,6 +180,7 @@
       discardAll: discardAll,
       refresh: refresh,
       showFull: showFull,
+      destroy: hideFull,
       showPendingQueued: showPendingQueued,
       clearPendingQueued: clearPendingQueued,
       cancelPendingQueued: cancelPendingQueued

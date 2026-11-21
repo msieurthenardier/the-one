@@ -8,7 +8,7 @@
      .sidebar-actions, .agent-select) took their rules with them. */
 
   /* === Agent picker (M25 F4 L4a, reference spec 5.6) === */
-  /* The picker's <dialog> lives under <body>, outside .area-chat, so these
+  /* The picker's <dialog> lives under <body>, outside .chat-instance, so these
      rules are not area-scoped. Its card is the App.ui.modal chooser (640 wide
      at top 72); the body here is the App.ui.searchList: the search field in
      a 0 20px 12px band, then the list under a hairline, padded 0 12px 12px,
@@ -25,14 +25,14 @@
   /* === Chat Area: Content === */
   /* Chrome wraps the header, the new-chat state, the messages and the
      composer; toggled with the welcome via `hidden`. */
-  .area-chat .chat-chrome { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
+  .chat-instance .chat-chrome { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
   /* M25 F4 L4b (reference spec 5.2): the chat header. 48px (the board's
      --topbar-h, which the app does not define), a hairline under it, the
      title an h1 (the page's one h1 while a chat is open) at 13px/600 with
      an ellipsis, then "with {agent}" at 12px in --fg-muted (body AA on --bg,
      gated by test_body_text_passes_aa). Hidden while idle; the [hidden]
      rule beats the display: flex. The drawer toggle (M25 F4 L6) sits at its end. */
-  .area-chat .chat-header {
+  .chat-instance .chat-header {
     height: 48px;
     flex-shrink: 0;
     display: flex;
@@ -42,7 +42,7 @@
     border-bottom: 1px solid var(--border);
     min-width: 0;
   }
-  .area-chat .chat-header-title {
+  .chat-instance .chat-header-title {
     margin: 0;
     min-width: 0;
     font-size: var(--font-size-body);
@@ -52,7 +52,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .area-chat .chat-agent-line {
+  .chat-instance .chat-agent-line {
     min-width: 0;
     font-size: var(--font-size-body-sm);
     color: var(--fg-muted);
@@ -64,18 +64,18 @@
      end (btn-ghost btn-icon, 32x32 with the 16px panel-right icon; the board
      renders it unsquared at 42x32). The ghost button's display would defeat
      [hidden] (no chat view, no toggle). */
-  .area-chat .chat-header .chat-drawer-toggle { margin-left: auto; flex-shrink: 0; }
+  .chat-instance .chat-header .chat-drawer-toggle { margin-left: auto; flex-shrink: 0; }
   /* Below 1280px the open drawer overlays the chat pane from the top (z-index
      10), header included, and the reference draws no close control inside
      it: the toggle stays ABOVE the overlay, so a pointer user can always
      close it. It then sits in the drawer header's right corner (the main
      pane's right edge is the drawer's), which the overlay's header keeps
      clear: 16px + the 32px toggle + 8px. */
-  .area-chat .chat-header .chat-drawer-toggle { position: relative; z-index: 11; }
+  .chat-instance .chat-header .chat-drawer-toggle { position: relative; z-index: 11; }
 
   /* === The agent drawer's content (M25 F4 L6; DD7, A13, A20, A21;
      reference spec 5.7) ===
-     The drawer is the shell slot #chat-drawer, outside .area-chat, so these
+     The drawer is the shell slot #chat-drawer, outside .chat-instance, so these
      rules are not area-scoped. The App.ui.drawer factory draws the frame
      (components.css); here: the header's name (13px/600, ellipsis) and the
      provider-type badge, then the body column (16px gaps): the description
@@ -230,7 +230,7 @@
      carries .chat-chrome--new: the message log shrinks to its notices (a
      start failure's error, the /reset notice), zero height when empty, so
      they show in the pending pane under the new-chat state. */
-  .area-chat .chat-new-state {
+  .chat-instance .chat-new-state {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
@@ -239,7 +239,7 @@
     justify-content: center;
     padding: 24px;
   }
-  .area-chat .chat-new-state-inner {
+  .chat-instance .chat-new-state-inner {
     width: 100%;
     max-width: 480px;
     display: flex;
@@ -248,36 +248,36 @@
     gap: 8px;
     text-align: center;
   }
-  .area-chat .chat-new-state-agent {
+  .chat-instance .chat-new-state-agent {
     margin: 4px 0 0;
     font-size: var(--font-size-h1);
     font-weight: var(--font-weight-semibold);
     color: var(--fg);
     overflow-wrap: anywhere;
   }
-  .area-chat .chat-new-state-description {
+  .chat-instance .chat-new-state-description {
     margin: 0;
     font-size: var(--font-size-body-lg);
     line-height: var(--line-height-normal);
     color: var(--fg-secondary);
   }
-  .area-chat .chat-new-state-pick { margin-top: 8px; }
-  .area-chat .chat-new-state-model {
+  .chat-instance .chat-new-state-pick { margin-top: 8px; }
+  .chat-instance .chat-new-state-model {
     margin: 0;
     font-size: var(--font-size-body-sm);
     font-family: var(--font-family-mono);
     color: var(--fg-secondary);
   }
-  .area-chat .chat-chrome--new .messages { flex: 0 1 auto; }
-  .area-chat .chat-chrome--new .messages:empty { padding: 0; }
+  .chat-instance .chat-chrome--new .messages { flex: 0 1 auto; }
+  .chat-instance .chat-chrome--new .messages:empty { padding: 0; }
 
   /* The health banner is App.ui.banner (a persistent warning live region above the composer);
      only its place in the chrome column is the area's. */
-  .area-chat .chat-health-banner { flex-shrink: 0; }
-  .area-chat .chat-health-banner .btn { margin-left: 12px; vertical-align: middle; }
+  .chat-instance .chat-health-banner { flex-shrink: 0; }
+  .chat-instance .chat-health-banner .btn { margin-left: 12px; vertical-align: middle; }
   /* M36 F1 L04: the new-chat state's GleepGlorp setup block (option A, "quiet next step":
      one muted line with an info icon, then the one action; no box or warning tone). */
-  .area-chat .chat-new-gleepglorp-setup {
+  .chat-instance .chat-new-gleepglorp-setup {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -285,7 +285,7 @@
     margin-top: 8px;
     text-align: center;
   }
-  .area-chat .chat-new-gleepglorp-setup-line {
+  .chat-instance .chat-new-gleepglorp-setup-line {
     margin: 0;
     display: flex;
     align-items: center;
@@ -294,16 +294,16 @@
     font-size: var(--font-size-body);
     color: var(--fg-secondary);
   }
-  .area-chat .chat-new-gleepglorp-setup-line svg { width: 14px; height: 14px; flex: none; }
-  .area-chat .chat-new-gleepglorp-setup-action { margin-top: 0; }
-  .area-chat .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .chat-instance .chat-new-gleepglorp-setup-line svg { width: 14px; height: 14px; flex: none; }
+  .chat-instance .chat-new-gleepglorp-setup-action { margin-top: 0; }
+  .chat-instance .messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
   /* MCP OAuth "Login required" button rendered inline in the chat history.
      The .messages container is a flex column with default align-items:
      stretch, which would otherwise pull the button to full width. */
-  .area-chat .messages .login-required-btn { align-self: flex-start; }
+  .chat-instance .messages .login-required-btn { align-self: flex-start; }
   /* L05: the sign-in group (an auth_required event's attribution and button) in the log:
      the same align-self + column layout. */
-  .area-chat .messages .login-required-group {
+  .chat-instance .messages .login-required-group {
     align-self: flex-start;
     display: flex;
     flex-direction: column;
@@ -315,7 +315,7 @@
      ~4.60:1 — passes AA only by a hair, and L03's empirical finding showed
      --fg-muted failing against the same effective background. --fg-secondary
      gives generous AA+ headroom in BOTH themes. Mirrors L03's swap. */
-  .area-chat .login-required-attribution {
+  .chat-instance .login-required-attribution {
     color: var(--fg-secondary);
     font-size: var(--font-size-body-sm);
     font-style: italic;
@@ -323,26 +323,26 @@
   /* The composer is App.ui.composer (css/components.css `.ui-composer*`), the staged-image and
      queued chips are App.ui.chip (M31 F6 L05a); only the queued chip's "Queued" lead is the
      area's. */
-  .area-chat .pending-queued-full { margin: 4px 0 0; font-size: var(--font-size-caption); color: var(--fg-secondary); }
-  .area-chat .pending-queued-lead { font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-secondary); }
+  .chat-instance .pending-queued-full { margin: 4px 0 0; font-size: var(--font-size-caption); color: var(--fg-secondary); }
+  .chat-instance .pending-queued-lead { font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-secondary); }
 
   /* === Chat Area: Welcome canvas === */
-  .area-chat .chat-welcome { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 40px 24px; overflow-y: auto; }
-  .area-chat .chat-welcome-inner { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; text-align: center; }
-  .area-chat .chat-welcome-greeting { font-size: var(--font-size-display); font-weight: var(--font-weight-bold); color: var(--fg); margin: 0; letter-spacing: -0.02em; }
-  .area-chat .chat-welcome-prompt { font-size: var(--font-size-body-lg); color: var(--fg-secondary); margin: 0 0 20px 0; line-height: var(--line-height-normal); }
+  .chat-instance .chat-welcome { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 40px 24px; overflow-y: auto; }
+  .chat-instance .chat-welcome-inner { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; text-align: center; }
+  .chat-instance .chat-welcome-greeting { font-size: var(--font-size-display); font-weight: var(--font-weight-bold); color: var(--fg); margin: 0; letter-spacing: -0.02em; }
+  .chat-instance .chat-welcome-prompt { font-size: var(--font-size-body-lg); color: var(--fg-secondary); margin: 0 0 20px 0; line-height: var(--line-height-normal); }
   /* M25 F4 L4b (DD3): the empty state's New chat (setup complete). The
      retired agent list (.chat-welcome-list, .chat-welcome-item) took its
      rules with it; the agent picker replaces it. */
-  .area-chat .chat-welcome-actions { display: flex; justify-content: center; }
+  .chat-instance .chat-welcome-actions { display: flex; justify-content: center; }
   /* Setup-incomplete guidance line — inline links deep-link to Settings / Studio. */
-  .area-chat .chat-welcome-guidance { margin: 0; padding: 4px 0; color: var(--fg-secondary); font-size: var(--font-size-body-lg); line-height: var(--line-height-normal); }
-  .area-chat .chat-welcome-link { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.15s ease; }
-  .area-chat .chat-welcome-link:hover { border-bottom-color: var(--accent); }
-  .area-chat .chat-welcome-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+  .chat-instance .chat-welcome-guidance { margin: 0; padding: 4px 0; color: var(--fg-secondary); font-size: var(--font-size-body-lg); line-height: var(--line-height-normal); }
+  .chat-instance .chat-welcome-link { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.15s ease; }
+  .chat-instance .chat-welcome-link:hover { border-bottom-color: var(--accent); }
+  .chat-instance .chat-welcome-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 
   /* Welcome-canvas mascot — decorative, centered above greeting. */
-  .area-chat .chat-welcome-mascot {
+  .chat-instance .chat-welcome-mascot {
     display: block;
     width: 96px;
     height: 96px;
@@ -355,7 +355,7 @@
   /* One card per GleepGlorp proposal, after the turn that made it. Built from library controls
      (changeTable, noteFlag, status, banner, disclosure, button); only the layout is here. The
      folded states (applied, dismissed, withdrawn) are one quiet line. */
-  .area-chat .chat-proposal {
+  .chat-instance .chat-proposal {
     align-self: stretch;
     max-width: min(100%, 46rem);
     box-sizing: border-box;
@@ -366,15 +366,15 @@
     font-size: var(--font-size-body-sm);
     line-height: var(--line-height-normal);
   }
-  .area-chat .chat-proposal--applied,
-  .area-chat .chat-proposal--dismissed,
-  .area-chat .chat-proposal--withdrawn {
+  .chat-instance .chat-proposal--applied,
+  .chat-instance .chat-proposal--dismissed,
+  .chat-instance .chat-proposal--withdrawn {
     padding: 8px 12px;
     background: none;
     color: var(--fg-secondary);
   }
-  .area-chat .chat-proposal-body { display: contents; }
-  .area-chat .chat-proposal-head {
+  .chat-instance .chat-proposal-body { display: contents; }
+  .chat-instance .chat-proposal-head {
     display: flex;
     align-items: center;
     gap: 8px;
@@ -384,35 +384,39 @@
     text-transform: uppercase;
     color: var(--fg-tertiary);
   }
-  .area-chat .chat-proposal-time { margin-left: auto; font-weight: 400; letter-spacing: normal; text-transform: none; }
-  .area-chat .chat-proposal-title {
+  .chat-instance .chat-proposal-time { margin-left: auto; font-weight: 400; letter-spacing: normal; text-transform: none; }
+  .chat-instance .chat-proposal-title {
     margin: 4px 0 8px;
     font-size: var(--font-size-body);
     font-weight: var(--font-weight-semibold);
     color: var(--fg);
   }
-  .area-chat .chat-proposal-hint { margin: 0 0 8px; color: var(--fg-secondary); }
-  .area-chat .chat-proposal-foot {
+  .chat-instance .chat-proposal-hint { margin: 0 0 8px; color: var(--fg-secondary); }
+  .chat-instance .chat-proposal-foot {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     margin-top: 12px;
   }
-  .area-chat .chat-proposal-foot-note { margin-left: auto; color: var(--fg-tertiary); }
-  .area-chat .chat-proposal-wait { flex-basis: 100%; margin: 0; color: var(--fg-tertiary); }
-  .area-chat .chat-proposal-block { margin: 8px 0; }
-  .area-chat .chat-proposal-line {
+  .chat-instance .chat-proposal-foot-note { margin-left: auto; color: var(--fg-tertiary); }
+  .chat-instance .chat-proposal-wait { flex-basis: 100%; margin: 0; color: var(--fg-tertiary); }
+  .chat-instance .chat-proposal-block { margin: 8px 0; }
+  .chat-instance .chat-proposal-line {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: 4px 8px;
   }
-  .area-chat .chat-proposal-state { font-weight: var(--font-weight-semibold); }
-  .area-chat .chat-proposal-state--applied { color: var(--status-success); }
-  .area-chat .chat-proposal-state--applied svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
-  .area-chat .chat-proposal-details { margin-top: 6px; }
+  .chat-instance .chat-proposal-state { font-weight: var(--font-weight-semibold); }
+  .chat-instance .chat-proposal-state--applied { color: var(--status-success); }
+  .chat-instance .chat-proposal-state--applied svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }
+  .chat-instance .chat-proposal-details { margin-top: 6px; }
+  /* The form-fill receipt (M36 F3 L6) reuses the proposal card's frame; these are its lines. */
+  .chat-instance .chat-fill-headline { margin: 4px 0 0; font-weight: var(--font-weight-semibold); color: var(--fg); }
+  .chat-instance .chat-fill-line { margin: 0 0 4px; color: var(--fg-secondary); }
+  .chat-instance .chat-fill .chat-proposal-title { margin: 2px 0 6px; font-weight: 400; color: var(--fg-secondary); }
 }
 
 /* L10d: the step-limit notice's Continue button sits on its own line below the text, centred. */
-.area-chat .chat-step-limit-actions { display: block; margin-top: var(--space-2, 8px); text-align: center; }
+.chat-instance .chat-step-limit-actions { display: block; margin-top: var(--space-2, 8px); text-align: center; }

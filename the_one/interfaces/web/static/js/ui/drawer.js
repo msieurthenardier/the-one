@@ -29,6 +29,10 @@
   //   testid     placed on the <aside>
   //   onOpenChange(open)  after every change of the open state, however it
   //              was made (open, close, toggle, Escape)
+  //   beforeClose()  M36 F3 L2: called at the start of every close that will happen (close(),
+  //              toggle, Escape), BEFORE focus returns to the opener and never when the drawer
+  //              is already hidden; an exception is swallowed. It lets a caller show an opener
+  //              it hid while the drawer was open.
   //
   // Behaviour:
   //   - Built closed (`hidden`) in push mode. open() never moves focus (a
@@ -37,6 +41,8 @@
   //     one stays. close() returns focus to that opener ONLY when focus is
   //     inside the drawer at that moment (so hiding it never drops focus to
   //     <body>, and a close from elsewhere never steals focus).
+  //   - The <aside> has tabindex="-1" (never a tab stop): a click on a non-focusable area
+  //     inside keeps focus in the drawer instead of dropping it to <body>.
   //   - Escape while focus is inside closes it (preventDefault and
   //     stopPropagation; ignored while an IME composes), so focus returns to
   //     the opener (the Flight 1 DD8 rule).
@@ -68,6 +74,9 @@
     root.textContent = '';
     root.classList.add('ui-drawer');
     root.setAttribute('aria-label', opts.label);
+    // HAT fix: a programmatic focus target (not a tab stop), so a click on a non-focusable
+    // area inside the drawer keeps focus within it and Escape and the focus return still work.
+    root.tabIndex = -1;
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
 
     var header = util.el('div', { className: 'ui-drawer-header' });
@@ -102,6 +111,15 @@
 
     function close() {
       if (root.hidden) return;
+      // beforeClose runs first, before focus is returned, so a caller can show the opener
+      // (hidden while the drawer was open) in time to take focus. Never on a no-op close.
+      if (typeof opts.beforeClose === 'function') {
+        try {
+          opts.beforeClose();
+        } catch (e) {
+          /* a caller's hook must never keep the drawer open */
+        }
+      }
       var active = document.activeElement;
       // contains() is true for the <aside> itself too.
       if (active && root.contains(active)) {

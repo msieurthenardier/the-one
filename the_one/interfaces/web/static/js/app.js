@@ -195,6 +195,12 @@
   document.addEventListener('DOMContentLoaded', function () {
     mountRail();
     installJumpToKey();
+    // M36 F3 L2: the GleepGlorp corner button and drawer shell, subscribed before the router's
+    // first commit so it sees it.
+    if (App.gleepglorpDrawer) App.gleepglorpDrawer.mount();
+    // M36 F3 L3: the drawer's chat instance and its own socket, opened at page load (the window
+    // socket: it carries the window-wide frames on every page, Chats or not).
+    if (App.gleepglorpDrawerChat) App.gleepglorpDrawerChat.mount();
     // Boot-block on /api/config so window.App.config is populated before
     // any area.init() runs. Areas read App.config.dev_mode in their init
     // closures (e.g. settings' category list).

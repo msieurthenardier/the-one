@@ -580,6 +580,11 @@ class AgentFactory:
 
             propose_tool = ProposeChangeTool(agent_name=name)
             registry.register(propose_tool)
+            # M36 F3 L5 (DD6): the fill tool, beside the proposal tool; same binding.
+            from the_one.gleepglorp.fill.tool import FillFormTool
+
+            fill_tool = FillFormTool(agent_name=name)
+            registry.register(fill_tool)
 
         for provider in self.tool_providers:
             # Mission 23 Flight 1 (backend-removal leg): this used to branch
@@ -815,6 +820,7 @@ class AgentFactory:
             routine_tool.bind_agent(agent)  # type: ignore[attr-defined]
         if gleepglorp:
             propose_tool.bind_agent(agent)
+            fill_tool.bind_agent(agent)
         return agent
 
     async def list_agents(self) -> list[str]:

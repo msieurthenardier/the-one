@@ -244,6 +244,11 @@ class Message:
     # ``approved_no_turn`` an approval appended with no turn, ``dismissed`` a dismissal.
     proposal_id: int | None = None
     proposal_event: Literal["approved", "approved_no_turn", "dismissed"] | None = None
+    # M36 F3 L4: the page the operator was on when a drawer message was sent, ``{"line": str}``
+    # only (the resolved, sanitised line, never re-resolved). USER-only; stored, shown in UI
+    # events, and projected to the provider as one leading ``[Page: ...]`` line by
+    # ``build_user_message_content``.
+    page: dict | None = None
     # Fix: message-timestamp-on-replay. Per-message creation timestamp (ISO
     # 8601, UTC) so historical USER/ASSISTANT turns can render a "You ·
     # HH:MM UTC" / "<agent> · HH:MM UTC" attribution on session replay —
@@ -477,6 +482,19 @@ def build_user_message_content(msg: Message) -> str | list[ContentBlock]:
     """
     if msg.role != Role.USER:
         return msg.content
+    page_line = msg.page.get("line") if isinstance(msg.page, dict) else None
+    if isinstance(page_line, str) and page_line:
+        # M36 F3 L4: lead with the page line; the rest is today's result, untouched.
+        page_prefix = f"[Page: {page_line}]"
+        inner = _project_user_content(msg)
+        if isinstance(inner, list):
+            return [TextContent(text=page_prefix), *inner]
+        return f"{page_prefix}\n{inner}"
+    return _project_user_content(msg)
+
+
+def _project_user_content(msg: Message) -> str | list[ContentBlock]:
+    """The peer/channel projection of ``build_user_message_content`` (no page)."""
     peer = msg.peer_name
     ch = msg.channel_name
     if isinstance(msg.content, list):

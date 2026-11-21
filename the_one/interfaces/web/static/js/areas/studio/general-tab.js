@@ -326,7 +326,9 @@
     // without any dirty or announcement side effect (the caller rebases the baseline).
     function setField(key, value) {
       var text = value === null || value === undefined ? '' : String(value);
-      if (key === 'description') descriptionInput.value = text;
+      // `name` is the form fill's (create mode): written like the others, clearing the name error.
+      if (key === 'name') { nameInput.value = text; nameField.setError(null); }
+      else if (key === 'description') descriptionInput.value = text;
       else if (key === 'system_prompt') promptInput.value = text;
       else if (key === 'max_iterations') iterationsInput.value = text;
       else if (key === 'chat_history_retention_days') retentionInput.value = text;
@@ -355,6 +357,7 @@
 
     // Put the approved-change note directly under the control the key names.
     var NOTE_HOSTS = {
+      name: nameField.el,
       description: descriptionField.el,
       llm_model: modelField.el,
       system_prompt: promptField.el,

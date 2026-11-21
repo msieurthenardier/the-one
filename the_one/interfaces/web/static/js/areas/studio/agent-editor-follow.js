@@ -59,6 +59,19 @@
 
   function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 
+  function parse_(s) { try { return JSON.parse(s); } catch (e) { return null; } }
+
+  // The two "operator changed it" tests (module scope since M36 F3 L6: the form fill reads them
+  // too): a field group differs from its baseline in any of its keys; a tab item differs from the
+  // baseline's switch.
+  function dirtyGroup_(g, cur, base) {
+    return g.keys.some(function (k) { return !same(cur[k], base[k]); });
+  }
+
+  function tabItemDirty_(curMap, baseMap, item) {
+    return curMap[item] !== baseMap[item];
+  }
+
   function create(ctx) {
     var self = ctx.self;
     var state = ctx.state;
@@ -149,12 +162,6 @@
 
     // ── The central apply for the General fields ─────────────────────
 
-    function dirtyGroup_(g, cur, base) {
-      return g.keys.some(function (k) { return !same(cur[k], base[k]); });
-    }
-
-    function parse_(s) { try { return JSON.parse(s); } catch (e) { return null; } }
-
     function writeClean_(general, g, updated) {
       if (g.id === 'model') {
         general.setModel(updated.provider_config_id, updated.llm_model);
@@ -197,7 +204,7 @@
       var mine = ((changedItems[updated.name] || (changedItems[updated.name] = {}))[g.id] ||
         (changedItems[updated.name][g.id] = {}));
       Object.keys(curMap).forEach(function (item) {
-        var dirty = curMap[item] !== baseMap[item];
+        var dirty = tabItemDirty_(curMap, baseMap, item);
         finalMap[item] = dirty ? curMap[item] : newMap[item];
         if (newMap[item] !== baseMap[item]) {
           mine[item] = true;
@@ -325,5 +332,11 @@
     return handle;
   }
 
-  window.App.studio.agentEditorFollow = { create: create, GROUPS: GROUPS };
+  window.App.studio.agentEditorFollow = {
+    create: create,
+    GROUPS: GROUPS,
+    TAB_GROUPS: TAB_GROUPS,
+    dirtyGroup: dirtyGroup_,
+    tabItemDirty: tabItemDirty_
+  };
 })();

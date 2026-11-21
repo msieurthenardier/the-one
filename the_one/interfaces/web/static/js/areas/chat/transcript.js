@@ -145,6 +145,8 @@
       // The proposal cards stop their placement walk at a user bubble (M36 F2 L6).
       if (role === 'user') msg.el.setAttribute('data-role', 'user');
       if (role === 'user') dropContinue();
+      // M36 F3 L4: the page line is a sibling above the bubble, never inside it.
+      if (opts.pageLine) addPageChip(null, opts.pageLine);
       messagesEl.appendChild(msg.el);
       if (attribution) {
         var ts = Object.prototype.hasOwnProperty.call(opts, 'ts') ? opts.ts : new Date().toISOString();
@@ -164,6 +166,19 @@
       else scrollToBottomIfPinned();
       App.perf.mark('addMsg:end');
       App.perf.measure('addMsg', 'addMsg:start', 'addMsg:end');
+      return msg.el;
+    }
+
+    // The quiet page line (App.ui.message.context). With a `bubble` already in the log it goes
+    // right before it (the sender's own bubble, whose line the server sends back as
+    // `page_line`); with none it is appended (addMsg then appends the bubble after it).
+    function addPageChip(bubble, line) {
+      if (typeof line !== 'string' || !line) return;
+      var chip = App.ui.message.context({ text: line, testid: 'message-context' });
+      if (bubble && bubble.parentNode === messagesEl) messagesEl.insertBefore(chip.el, bubble);
+      else if (!bubble) messagesEl.appendChild(chip.el);
+      else return;
+      scrollToBottomIfPinned();
     }
 
     // The one place a user event becomes a bubble (live frame and history replay). A routine
@@ -172,6 +187,7 @@
     function addUserEvent(ev, extra) {
       extra = extra || {};
       var opts = { ts: extra.ts, visibility: ev.visibility, peerName: ev.peer_name };
+      if (ev.page && typeof ev.page.line === 'string') opts.pageLine = ev.page.line;
       if (!Object.prototype.hasOwnProperty.call(extra, 'ts')) delete opts.ts;
       // M36 F2 L6 (DD8, board option B): an approval is the quiet line, never a bubble (the text
       // the model sees is not shown); a dismissal draws nothing (the card's Dismissed line says
@@ -204,11 +220,13 @@
     // The one log wipe (DD11 4): every handle the old log held is dropped, then the log is
     // emptied. The three wipe sites (a pending chat, a deleted chat, a history replay) call it.
     function clearLog() {
+      state.pendingPageBubble = null;
       dropContinue();
       dropModelLoading();
       if (ctx.turnWork) ctx.turnWork.reset();
       // The proposal cards go with the log; their state stays for redraw() (M36 F2 L6).
       if (ctx.proposalCards) ctx.proposalCards.clear();
+      if (ctx.fillReceipts) ctx.fillReceipts.clear();
       pinnedFlag = true;
       // Widgets (M35 F2 L6, DD7): destroy every card this log drew, then wipe, then sweep as a
       // backstop for a card that was connected once and detached by something else.
@@ -239,6 +257,7 @@
       } finally { historyAgent = undefined; }
       // The proposal cards the chat already holds are drawn again, in place (M36 F2 L6).
       if (ctx.proposalCards) ctx.proposalCards.redraw();
+      if (ctx.fillReceipts) ctx.fillReceipts.redraw();
       messagesEl.removeAttribute('aria-busy');
     }
 
@@ -431,6 +450,7 @@
     return {
       SCROLL_PIN_THRESHOLD: SCROLL_PIN_THRESHOLD,
       addMsg: addMsg,
+      addPageChip: addPageChip,
       addUserEvent: addUserEvent,
       scrollToBottomIfPinned: scrollToBottomIfPinned,
       clearLog: clearLog,

@@ -72,7 +72,15 @@ def test_top_bar_is_gone_and_the_shell_is_a_flex_row_with_a_rail(
     )
     assert out["topbar"] == 0
     # M25 F4 L6 (DD7): the agent drawer's static slot follows <main>.
-    assert out["kids"] == ["app-rail", "app-sidebar", "main-content", "chat-drawer"]
+    # M36 F3 L2: the GleepGlorp drawer's slot follows it, then its corner button.
+    assert out["kids"] == [
+        "app-rail",
+        "app-sidebar",
+        "main-content",
+        "chat-drawer",
+        "gleepglorp-drawer",
+        "gleepglorp-corner-button",
+    ]
     assert out["display"] == "flex"
     assert out["railMount"] == "ui-rail"
     # The route announcer (live region, appended at router start) is the only
@@ -124,6 +132,17 @@ def test_landmarks_and_aside_labels(app_with_agent: SeededApp, page: Page) -> No
     pairs = [tuple(x) for x in page.evaluate(_LANDMARKS_JS)]
     assert len(pairs) == len(set(pairs)), pairs
     assert ("navigation", "Settings") in pairs and ("complementary", "Settings") in pairs, pairs
+    # M36 F3 L2: the GleepGlorp drawer is a complementary landmark only while open (hidden, so
+    # out of the tree, otherwise), uniquely named.
+    gg = page.locator("aside#gleepglorp-drawer")
+    expect(gg).to_be_hidden()
+    assert ("complementary", "GleepGlorp") not in pairs
+    page.locator('[data-testid="gg-corner-button"]').click()
+    expect(gg).to_be_visible()
+    expect(page.get_by_role("complementary", name="GleepGlorp")).to_have_count(1)
+    open_gg = [tuple(x) for x in page.evaluate(_LANDMARKS_JS)]
+    assert len(open_gg) == len(set(open_gg)), open_gg
+    assert ("complementary", "GleepGlorp") in open_gg, open_gg
 
 
 def test_aside_shows_the_agents_list_column_and_main_fills_the_rest(

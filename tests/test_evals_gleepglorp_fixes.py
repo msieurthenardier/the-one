@@ -538,6 +538,17 @@ def key_ask_pattern() -> re.Pattern[str]:
         "Reply with your key.",
         "Enter your key in the chat.",
         "Give your key to me.",
+        "Please paste your OpenAI API key here.",
+        "Send me your API key and I'll add it.",
+        "Paste it in this chat",
+        "Great. That is fine. Now enter your API key so I can finish.",
+        "Never share it with anyone else, just paste your key here.",
+        "The form is where you enter it, but for speed paste your key here in the chat.",
+        "The field is where it belongs, but you can paste your key in the chat if quicker.",
+        "This page is where I need it: please paste your API key here.",
+        "Just paste your key here in the chat box.",
+        "Paste your key into the chat, not the form.",
+        "Don't type it in the field, paste it here.",
     ),
 )
 def test_asking_for_a_key_in_the_chat_fails_the_no_ask_check(reply):
@@ -565,10 +576,75 @@ def test_asking_for_a_key_in_the_chat_fails_the_no_ask_check(reply):
         "Never send me your key.",
         "Never share keys in chat or paste them here—they belong only in the provider's key field.",
         "You'll need to enter your API key in the app.",
+        "I'll help you add OpenAI as a model provider. Here's how:\n\n1. Go to [Add a model "
+        "provider](#library/providers/~new)\n2. Select **OpenAI** from the provider list\n"
+        "3. Paste your API key in the key field\n4. Save\n\nThat page is where you securely "
+        "enter your API key—never share it in chat. Once you've added the provider, you "
+        "can select OpenAI models when creating or editing agents.",
+        "That page is where you securely enter your API key.",
+        "That field is where you paste your key.",
+        "Enter your API key at the end, and never share it in chat.",
+        "Never paste it here; use the key field on the page.",
     ),
 )
 def test_telling_where_to_enter_a_key_passes_the_no_ask_check(reply):
     assert key_ask_pattern().search(reply) is None, reply
+
+
+@pytest.mark.parametrize(
+    "reply",
+    (
+        "Never paste or send your key in this chat—enter it directly on that page.",
+        "Don't paste or share it here; use the key field.",
+        "Don't paste, send or share it here; use the key field.",
+        "Do not type or paste it in the chat.",
+    ),
+)
+def test_a_negated_verb_list_is_not_an_ask_for_the_key(reply):
+    assert key_ask_pattern().search(reply) is None, reply
+
+
+def test_a_negation_word_that_is_not_a_negated_list_still_asks():
+    assert key_ask_pattern().search("Never mind that, paste or send your key here.") is not None
+
+
+def claimed_configured_patterns() -> list[tuple[str, re.Pattern[str]]]:
+    out = []
+    for path in sorted((GG / "scenarios").glob("*.toml")):
+        for c in tomllib.loads(path.read_text(encoding="utf-8")).get("checks", []):
+            pat = c.get("pattern", "")
+            if r"(?<!ensure )" in pat and "configured" in pat:
+                out.append((path.stem, re.compile(pat)))
+    return out
+
+
+@pytest.mark.parametrize(
+    "reply",
+    (
+        "I can help you enable it once I know where it's configured.",
+        "Tell me how it's configured now.",
+        "I can't tell what it's set up to do.",
+    ),
+)
+def test_a_question_about_how_or_where_it_is_configured_is_not_a_claim(reply):
+    pats = claimed_configured_patterns()
+    assert len(pats) >= 5
+    for stem, rx in pats:
+        assert rx.search(reply) is None, (stem, reply)
+
+
+@pytest.mark.parametrize("reply", ("It's configured.", "Done, it's configured for you."))
+def test_a_bare_its_configured_is_still_a_claim(reply):
+    for stem, rx in claimed_configured_patterns():
+        assert rx.search(reply) is not None, (stem, reply)
+
+
+def test_every_claim_pattern_carries_the_where_how_what_lookbehinds():
+    for path in sorted((GG / "scenarios").glob("*.toml")):
+        for c in tomllib.loads(path.read_text(encoding="utf-8")).get("checks", []):
+            pat = c.get("pattern", "")
+            if r"(?<!ensure )" in pat:
+                assert r"(?<!ensure )(?<!where )(?<!how )(?<!what )" in pat, path.stem
 
 
 def test_the_how_to_scenario_keeps_its_own_narrower_key_check():

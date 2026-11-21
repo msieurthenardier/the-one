@@ -110,7 +110,7 @@ def test_chat_session_list_primes_sessions_in_the_summary_shape() -> None:
     """AC21: one shared helper maps server rows to the REST summary keys; the
     session_list handler and the sessions_changed branch each prime
     'sessions' through it exactly once and render nothing themselves."""
-    src = _src("areas/chat.js")
+    src = _src("areas/chat/instance-render.js")  # M36 F3 L1: lifted out of chat.js
     sock = _src("areas/chat/socket.js")
     helper = _window(src, "function toSessionSummary(s) {", "\n    }")
     for key in ("id", "agent_name", "title", "created_at", "updated_at", "platform"):
@@ -149,9 +149,11 @@ def test_chats_list_renders_from_the_sessions_subscription_only() -> None:
     whole life (the chat area is never destroyed, so it never unsubscribes),
     and every state transition that moves the pending row or the selection
     calls it."""
-    src = _src("areas/chat.js")
-    assert src.count("function renderChatsList()") == 1
-    body = _window(src, "function renderChatsList()", "\n    }")
+    # M36 F3 L1: renderChatsList lives in instance-render.js, the subscription in instance.js.
+    render = _src("areas/chat/instance-render.js")
+    src = _src("areas/chat/instance.js")
+    assert render.count("function renderChatsList()") == 1
+    body = _window(render, "function renderChatsList()", "\n    }")
     assert "App.store.peek('sessions')" in body
     assert "chatState.state()" in body and "chatState.boundId()" in body
     assert "App.chat.chatsList.PENDING_ID" in body

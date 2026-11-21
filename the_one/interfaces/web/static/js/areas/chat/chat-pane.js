@@ -36,7 +36,7 @@
 // notification never rebuilds a focused control.
 //
 // API:
-//   App.chat.chatPane.create({onNewChat(btn), onPickDifferent(btn)}) -> {
+//   App.chat.chatPane.create({onNewChat(btn), onPickDifferent(btn), go(href)}) -> {
 //     welcome, welcomeInner, welcomeNotice, chrome, header, newState, messages,
 //     newChatButton, pickDifferentButton,
 //     renderWelcome(setup)      setup {hasProviders, hasAgents}
@@ -139,8 +139,44 @@
     };
   }
 
+  // The drawer profile's pane (M36 F3 L3): no header, welcome or mascot (the drawer has its own
+  // header and never idles), so none of their testids exist in the page. What is built is the
+  // message log and a new-chat state that holds the drawer's own empty state (opts.emptyState, a
+  // Node). The welcome and header members are detached, hidden stand-ins, so the instance's
+  // renders can call the same methods; they build no testid.
+  function createDrawerPane(opts) {
+    var welcome = el('div', { className: 'chat-welcome', hidden: true });
+    var welcomeInner = el('div', { className: 'chat-welcome-inner' });
+    var header = el('header', { className: 'chat-header', hidden: true });
+    var newState = el('div', { className: 'chat-new-state', hidden: true });
+    newState.setAttribute('data-testid', 'gg-new-state');
+    if (opts.emptyState) newState.appendChild(opts.emptyState);
+    // The log's live-region attributes are set by the drawer while it is open (chat.js
+    // setLive), not here: a closed drawer is hidden, and a second always-present role=log would
+    // sit beside the Chats log in the page.
+    var messages = el('div', { className: 'messages' });
+    var chrome = el('div', { className: 'chat-chrome' }, [newState, messages]);
+    function noop() {}
+    return {
+      welcome: welcome,
+      welcomeInner: welcomeInner,
+      welcomeNotice: null,
+      chrome: chrome,
+      header: header,
+      newState: newState,
+      messages: messages,
+      newChatButton: null,
+      pickDifferentButton: null,
+      renderWelcome: noop,
+      setNotice: noop,
+      renderHeader: noop,
+      renderNewState: function (view) { newState.hidden = !view || !!view.blank; }
+    };
+  }
+
   function create(opts) {
     opts = opts || {};
+    if (opts.drawer) return createDrawerPane(opts);
 
     // ── The welcome: the empty and guidance states ────────────────────
     var greeting = el('h1', { className: 'chat-welcome-greeting', text: 'Hello.' });
@@ -219,7 +255,7 @@
       label: 'Open GleepGlorp settings',
       className: 'chat-new-gleepglorp-setup-action',
       testid: 'chat-new-gleepglorp-setup-action',
-      onClick: function () { if (setupAction.dataset.href) App.router.go(setupAction.dataset.href); }
+      onClick: function () { if (setupAction.dataset.href && opts.go) opts.go(setupAction.dataset.href); }
     });
     // Built on first need and taken out of the DOM when not shown, so no other chat has a
     // (hidden) second banner beside the health banner.

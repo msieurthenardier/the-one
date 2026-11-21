@@ -186,6 +186,24 @@
     return { el: root, setTimeLabel: setTimeLabel, setCopy: setCopy };
   };
 
+  // App.ui.message.context(opts) -> {el}  (M36 F3 L4)
+  //
+  // The quiet line above a user bubble that names the page the message was sent from, such as
+  // "Library › MCP servers › New MCP server". It is a SIBLING of the bubble (the transcript
+  // inserts it before the bubble), never a .ui-message, so message counts do not see it.
+  //   text      the line (required: a missing or empty string throws); set with textContent
+  //   testid    placed on the root (supplied by the caller; the transcript uses 'message-context')
+  App.ui.message.context = function (opts) {
+    opts = opts || {};
+    if (typeof opts.text !== 'string' || !opts.text) {
+      throw new Error('App.ui.message.context: text must be a non-empty string');
+    }
+    var root = App.ui.util.el('div', { className: 'ui-message-context' });
+    if (opts.testid) root.setAttribute('data-testid', opts.testid);
+    root.textContent = opts.text;
+    return { el: root };
+  };
+
   // App.ui.message.relabel(root, fn): re-words every attribution time under root. fn(ts)
   // gets the span's data-ts string and returns the new label; a null or undefined return
   // leaves that span as it is. Used when the operator's time zone changes.

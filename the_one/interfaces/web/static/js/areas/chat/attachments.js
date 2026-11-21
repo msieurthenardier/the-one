@@ -90,7 +90,7 @@
       thumb.style.borderRadius = '4px';
       thumb.style.display = 'block';
       thumb.src = 'data:' + img.media_type + ';base64,' + img.data;
-      return App.ui.chip({
+      var chip = App.ui.chip({
         label: 'Staged image ' + displayIndex,
         labelHidden: true,
         lead: thumb,
@@ -100,6 +100,8 @@
         testid: 'chat-attachment',
         dataset: { attachmentIndex: String(idx) }
       });
+      ctx.prefixTestids(chip);
+      return chip;
     }
     function appendStagedImage(img) {
       stagedImages.push(img);
@@ -117,7 +119,7 @@
       renderAttachments();
       announceAttachmentChange('Image removed');
       if (!hadFocus) return;
-      var btns = attachmentsEl.querySelectorAll('[data-testid="chat-attachment-remove"]');
+      var btns = attachmentsEl.querySelectorAll('[data-testid$="chat-attachment-remove"]');
       var target = btns[idx] || btns[idx - 1];
       if (target) target.focus();
       else if (composer.input) composer.input.focus();

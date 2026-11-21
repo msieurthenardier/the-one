@@ -226,6 +226,34 @@ def test_escape_inside_closes_and_returns_focus_to_the_opener(engine_page: Page)
     assert p.evaluate("() => window.__changes") == [True, False]
 
 
+def test_escape_after_a_click_on_a_non_focusable_area_still_closes(engine_page: Page) -> None:
+    """HAT fix: the root is a programmatic focus target (tabindex -1, no tab stop), so a click
+    on body text keeps focus inside the drawer and Escape closes it, focus to the opener."""
+    p = engine_page
+    _mount(p)
+    p.get_by_test_id("d-opener").click()
+    p.evaluate("() => window.__d.open(window.__opener)")
+    root = p.get_by_test_id("d-root")
+    expect(root).to_have_attribute("tabindex", "-1")
+    p.get_by_text("Body text").click()
+    assert p.evaluate("() => window.__d.el.contains(document.activeElement)")
+    p.keyboard.press("Escape")
+    expect(root).to_be_hidden()
+    assert _active(p) == "d-opener"
+
+
+def test_the_root_is_not_reached_by_tab(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate("() => window.__d.open(window.__opener)")
+    p.get_by_test_id("d-opener").focus()
+    seen = []
+    for _ in range(4):
+        p.keyboard.press("Tab")
+        seen.append(p.evaluate("() => document.activeElement === window.__d.el"))
+    assert not any(seen)
+
+
 def test_escape_with_focus_outside_does_nothing(engine_page: Page) -> None:
     p = engine_page
     _mount(p)
@@ -396,3 +424,47 @@ def test_without_reserve_header_end_the_overlay_header_keeps_its_padding(engine_
     assert p.evaluate(
         "() => [getComputedStyle(window.__d.el.querySelector('.ui-drawer-header')).paddingRight, window.__d.el.className]"
     ) == ["16px", "ui-drawer ui-drawer--overlay"]
+
+
+# ── beforeClose (M36 F3 L2): runs before focus returns, never on a no-op close ──
+
+
+def test_before_close_lets_a_hidden_opener_be_shown_in_time_to_take_focus(
+    engine_page: Page,
+) -> None:
+    p = engine_page
+    _mount(
+        p,
+        "{beforeClose: () => { window.__opener.hidden = false; window.__calls.push('before'); }}",
+    )
+    p.evaluate("() => { window.__calls = []; }")
+    # The opener is hidden while the drawer is open (as the GleepGlorp corner button is).
+    p.evaluate("() => { window.__d.open(window.__opener); window.__opener.hidden = true; }")
+    p.evaluate("() => window.__d.el.querySelector('[data-testid=d-footer-btn]').focus()")
+    p.keyboard.press("Escape")
+    expect(p.get_by_test_id("d-root")).to_be_hidden()
+    assert _active(p) == "d-opener"
+    assert p.evaluate("() => window.__calls") == ["before"]
+
+
+def test_before_close_runs_for_close_and_toggle_but_not_when_already_hidden(
+    engine_page: Page,
+) -> None:
+    p = engine_page
+    _mount(p, "{beforeClose: () => { window.__calls.push('before'); }}")
+    p.evaluate("() => { window.__calls = []; }")
+    p.evaluate("() => window.__d.close()")  # hidden already: a no-op
+    assert p.evaluate("() => window.__calls") == []
+    p.evaluate(
+        "() => { window.__d.open(); window.__d.close(); window.__d.open(); window.__d.toggle(); }"
+    )
+    assert p.evaluate("() => window.__calls") == ["before", "before"]
+    assert p.evaluate("() => window.__changes") == [True, False, True, False]
+
+
+def test_a_throwing_before_close_never_keeps_the_drawer_open(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p, "{beforeClose: () => { throw new Error('nope'); }}")
+    p.evaluate("() => { window.__d.open(); window.__d.close(); }")
+    expect(p.get_by_test_id("d-root")).to_be_hidden()
+    assert p.evaluate("() => window.__changes") == [True, False]

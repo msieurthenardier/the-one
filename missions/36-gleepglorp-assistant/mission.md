@@ -155,8 +155,12 @@ at `9fea53cd`; each flight design re-verifies them.
     destination, in the browser and in the desktop app.
   - GleepGlorp knows which page and item are open, and correctly answers
     "what does this do?" about them.
-  - The overlay can be open at the same time as a chat with another agent in
-    Chats, and each keeps its own conversation.
+  - The overlay and a chat in Chats each keep their own conversation, and
+    moving between Chats and another page keeps both. *(Amended 2026-11-19,
+    operator decision at Flight 3 planning: the corner button and the drawer
+    are not offered in Chats, where GleepGlorp is reached through the Chats
+    list and the agent picker. It was "The overlay can be open at the same
+    time as a chat with another agent in Chats".)*
   - The overlay conversation continues across page changes and can be reopened
     later from Chats.
   - *(Behavior-test-backed: real overlay, real model, real page.)*
@@ -371,13 +375,31 @@ Taken with the operator on 2026-11-19, at Flight 2 planning:
   - operator sign-off before quota or a re-pin;
   - a re-baseline when the scenario set changes.
 
+Taken with the operator on 2026-11-19, at Flight 3 planning:
+
+- **The mission's Flight 3 is split.** Flight 3 builds the overlay and proves
+  form filling on the agent editor. Flight 4 brings the other kinds (MCP
+  servers, providers, knowledge bases, connectors, Library secrets' metadata,
+  tool configs and settings), each with its write service, proposals and fill
+  seam. Alignment becomes Flight 5.
+- **The overlay is a right-side drawer opened from a floating corner
+  button.**
+  - GleepGlorp's mark is the standard robot icon on a violet tile. The pixel
+    robot is dropped.
+  - The same icon marks filled fields, as a quiet note under each one.
+  - The drawer closes with a labelled Close button or Esc.
+- **No corner button or drawer in Chats.**
+- **GleepGlorp's prompt cap rises from 450 to 550 tokens.**
+
 ## Open Questions
 
-- **The overlay's chat instance.** How does the chat area become something
-  that can run twice (a `create(ctx)` refactor of the session flow and socket,
-  or a lighter second client)? Decided in Flight 3's design.
-- **The same chat in two places.** If an overlay conversation is also opened
-  in Chats in the same window, which one is live? Decided in Flight 3.
+- **The overlay's chat instance.** *(Resolved at Flight 3 planning: the chat
+  area is refactored into a factory created twice, with a Chats profile and a
+  drawer profile. There are two sockets, and the drawer's socket carries the
+  window-wide frames.)*
+- **The same chat in two places.** *(Resolved at Flight 3 planning: the
+  drawer is hidden on Chats, so one window never shows the same conversation
+  live twice. "Open in Chats" moves to Chats.)*
 - **The stale-check record.** Does a proposal store a snapshot of the fields it
   changes, or a version for the whole row? Decided in Flight 2.
 - **The Haiku pass bar.** Set when Flight 1 records the baseline.
@@ -411,7 +433,7 @@ Taken with the operator on 2026-11-19, at Flight 2 planning:
   and "attach my MCP server to ABC" work by approval. This flight carries the
   write-boundary risk. *(Scoped 2026-11-19 to agents, their rules and their
   routines; the other kinds move to Flight 3.)*
-- [ ] **Flight 3: The corner overlay and form filling.** Make the chat able to
+- [x] **Flight 3: The corner overlay and form filling.** Make the chat able to
   run twice and put the second one in a floating overlay on every page, with
   page and item awareness. Add form filling across every editor in scope
   through the change shape, with secret handoff links and the desktop-webview
@@ -419,6 +441,25 @@ Taken with the operator on 2026-11-19, at Flight 2 planning:
   the open form. *(2026-11-19: proposals for the kinds Flight 2 left out arrive
   with their form filling, through Flight 2's change shape and services.)* This flight carries the most unknowns and may split at
   planning (the overlay, then filling across the editors).
-- [ ] **Flight 4 *(optional)*: Alignment.** A hands-on session to tune
+  *(Split 2026-11-19, operator: this flight is "The GleepGlorp drawer and
+  form filling". It covers the drawer, the chat running twice, page awareness,
+  filling proven on the agent editor, the prompt, and the n=20 baseline.)*
+- [ ] **Flight 4: The other kinds.** Before adding kinds, finish Flight 2's
+  refactor:
+  - the `ApplyError` protocol;
+  - `shape.py` split by kind;
+  - the per-kind card and follow registries;
+  - squawks 0391 and 0392.
+
+  Then, for each kind (MCP servers, model providers, knowledge bases,
+  connectors, Library secrets' metadata, tool configs and app settings):
+  - its write service, extracted from the routes;
+  - proposals;
+  - the editor's fill seam.
+
+  Extend the evals. Outcome: "here's the link to the MCP server I want, set
+  it up" fills the MCP editor, and every editor in scope can be filled or
+  changed by proposal.
+- [ ] **Flight 5 *(optional)*: Alignment.** A hands-on session to tune
   GleepGlorp's prompt, tone and overlay feel with the operator, against the
   evals and the real app.

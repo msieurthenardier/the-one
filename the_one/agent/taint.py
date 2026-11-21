@@ -34,7 +34,9 @@ if TYPE_CHECKING:
 # package, never outside content. ``propose_change`` (M36 F2 L2) returns only shipped text
 # ("Proposal N is waiting..."), so one proposal never flags the next (its literal matches
 # ``PROPOSE_CHANGE_TOOL_NAME`` in ``the_one/gleepglorp/proposals/tool.py``). The
-# ``get_app_guide`` literal matches ``GET_APP_GUIDE_TOOL_NAME`` in
+# ``fill_form`` (M36 F3 L5) returns shipped text too ("Fill N is on the operator's screen...");
+# its literal matches ``FILL_FORM_TOOL_NAME`` in ``the_one/gleepglorp/fill/tool.py``.
+# The ``get_app_guide`` literal matches ``GET_APP_GUIDE_TOOL_NAME`` in
 # ``the_one/gleepglorp/guide_tool.py`` (a test pins it; that module imports the tool base).
 TRUSTED_TOOL_NAMES = frozenset(
     {
@@ -45,6 +47,7 @@ TRUSTED_TOOL_NAMES = frozenset(
         "continue",
         "get_app_guide",
         "propose_change",
+        "fill_form",
     }
 )
 

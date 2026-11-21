@@ -61,6 +61,56 @@ def agent_tabs() -> list[str]:
     return _TAB_ITEM.findall(text[start : text.index("];", start)])
 
 
+_LIBRARY_LABELS_BLOCK = re.compile(r"var LIBRARY_LABELS = \{(.*?)\};", re.S)
+_LABEL_PAIR = re.compile(r"(\w+): '([^']+)'")
+_SETTINGS_LABEL_ROW = re.compile(r"\{ section: '([^']+)', label: '([^']+)', group: '[^']+' \}")
+_TAB_LABEL_ITEM = re.compile(r"\{ id: '([^']+)', label: '([^']+)' \}")
+# The create-editor title literals (M36 F3 L4): `title: isCreate ? 'X' :` and, in
+# knowledge-create.js, `title: 'X',`.
+CREATE_TITLE_FILES = {
+    "agents": "agent-editor.js",
+    "providers": "provider-editor.js",
+    "knowledge": "knowledge-create.js",
+    "mcp": "mcp-server-editor.js",
+    "connectors": "connector-editor.js",
+    "secrets": "secret-editor.js",
+}
+_CREATE_TITLE = re.compile(r"title: (?:isCreate \? )?'(New [^']+)'")
+
+
+def library_labels() -> dict[str, str]:
+    """The router's ``LIBRARY_LABELS``: Library group to its spoken label."""
+    text = (JS / "router.js").read_text(encoding="utf-8")
+    block = _LIBRARY_LABELS_BLOCK.search(text)
+    assert block, "LIBRARY_LABELS not found in router.js"
+    return dict(_LABEL_PAIR.findall(block.group(1)))
+
+
+def settings_labels() -> dict[str, str]:
+    """The Settings page table: section to its label."""
+    text = (JS / "settings-pages.js").read_text(encoding="utf-8")
+    return dict(_SETTINGS_LABEL_ROW.findall(text))
+
+
+def agent_tab_labels() -> dict[str, str]:
+    """The agent editor's ``TAB_ITEMS``: tab id to its label."""
+    text = (JS / "areas" / "studio" / "agent-editor.js").read_text(encoding="utf-8")
+    start = text.index("var TAB_ITEMS = [")
+    return dict(_TAB_LABEL_ITEM.findall(text[start : text.index("];", start)]))
+
+
+def create_titles() -> dict[str, str]:
+    """The six create-editor titles, copied from the editors' source (key: ``agents`` or a
+    Library group)."""
+    out: dict[str, str] = {}
+    for key, name in CREATE_TITLE_FILES.items():
+        text = (JS / "areas" / "studio" / name).read_text(encoding="utf-8")
+        found = _CREATE_TITLE.findall(text)
+        assert len(found) == 1, f"{name}: expected one create title, found {found}"
+        out[key] = found[0]
+    return out
+
+
 _LINK = re.compile(r"\]\(([^)\s]*)\)")
 
 

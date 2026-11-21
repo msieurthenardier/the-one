@@ -35,7 +35,7 @@ from evals.models import (
     ollama_server_info,
     select_presets,
 )
-from evals.scenario import Scenario, ScenarioError, load_scenarios
+from evals.scenario import Scenario, ScenarioError, is_user_turn, load_scenarios
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 DEFAULT_SCENARIOS_DIR = PACKAGE_DIR / "scenarios"
@@ -102,7 +102,7 @@ class Plan:
             inst = sp.scenario.instantiate(sp.variant, "")
             # An approve or dismiss step is not a user message; the continuation turn an approval
             # sends is one more model call per approve, so this stays a lower bound.
-            turns += sum(1 for c in inst.conversations for t in c if isinstance(t, str))
+            turns += sum(1 for c in inst.conversations for t in c if is_user_turn(t))
             judge += sum(1 for d in inst.checks if d.name == "judge")
         return turns, judge
 
@@ -268,12 +268,14 @@ def build_transcript(
                 "conversation": t.conversation,
                 "user": t.user,
                 **({"step": t.step, "approve_outcome": t.approve_outcome} if t.step else {}),
+                **({"page": t.page} if t.page else {}),
                 "messages": [oc.message_to_dict(m) for m in t.messages],
             }
             for t in attempt.trace.turns
         ],
         "notes_saved": attempt.notes,
         "proposals": attempt.trace.proposals,
+        "fills": attempt.trace.fills,
         "fetch_requests": record["fetch_requests"],
         "checks": record["checks"],
         "error": f"{type(attempt.exc).__name__}: {attempt.exc}" if attempt.exc else None,

@@ -154,6 +154,21 @@
       refreshMcpSources: agentData.refreshMcpSourcesCache
     });
 
+    // GleepGlorp's form fill (M36 F3 L6): writes unsaved edits into this editor and draws its notes.
+    // The controller registers it (the drawer's applier reaches it through the module) and calls
+    // afterMount() beside follow's, and clear() wherever the editor's values are reset.
+    var fill_ = App.studio.agentEditorFill.create({
+      self: self,
+      state: state,
+      editorEl: editorEl,
+      getFormSnapshot: getFormSnapshot,
+      checkDirty: checkDirty,
+      currentData: currentData_,
+      picker: ctx.picker,
+      refreshMcpSources: agentData.refreshMcpSourcesCache,
+      setActiveTab: function (tab) { setActiveTab(tab); }
+    });
+
     function wire_(data, isCreate, agent) {
       data.wireGen += 1;
       var token = data.token;
@@ -180,6 +195,7 @@
       state.tabHandle = null;
       var data = { key: key, token: null, handle: null, wireGen: 0, noteFields: null };
       data.token = slot.mount(function () {
+        fill_.clear();
         if (data.handle) data.handle.destroy();
         data.handle = null;
         if (state.tabHandle) state.tabHandle = null;
@@ -199,6 +215,7 @@
       state.snapshot = getFormSnapshot();
       checkDirty();
       follow_.afterMount();
+      fill_.afterMount();
     }
 
     // The same-identity update (the leg's patch policy): the handle patches the
@@ -207,6 +224,7 @@
     // it differs (a hydrate's pending tab) and the snapshot is reset.
     function patchEditor_(data, agent, bag, opts) {
       data.noteFields = null; // General's setAgent (inside patch) hides the note
+      fill_.clear(); // a patch resets every value, so the fill's record and notes go
       data.handle.patch(agent, self._allProviders, bag, opts);
       wire_(data, !agent, agent);
       if (self._activeTab && data.handle.tabs.selected() !== self._activeTab) {
@@ -215,6 +233,7 @@
       state.snapshot = getFormSnapshot();
       checkDirty();
       follow_.afterMount();
+      fill_.afterMount();
     }
 
     // The callback bag is built by agent-editor-callbacks.js (M36 F2 L7 split). Every
@@ -309,6 +328,7 @@
       if (self._selectedAgent) {
         var cancelTok = App.focusAfter.begin(cancelBtnEl_());
         follow_.clear(self._selectedAgent.name);
+        fill_.clear();
         renderEditor(self._selectedAgent, { revert: true });
         state.dirty = false;
         checkDirty();
@@ -600,6 +620,7 @@
                 found.mcp_tool_cache = updated.mcp_tool_cache;
                 self._selectedAgent = found;
                 follow_.clear(found.name);
+                fill_.clear();
                 renderEditor(found);
                 App.focusAfter.restore(focusTok, editorTitleEl_);
                 showFlash('Agent saved');
