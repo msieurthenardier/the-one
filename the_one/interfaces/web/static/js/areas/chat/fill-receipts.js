@@ -7,8 +7,8 @@
 //
 // Every chat instance showing the conversation draws the receipt. Only the drawer has buttons: its
 // config's `fillHooks` ({fillNow(view), isApplying(id)}; the defaults do nothing and answer false)
-// supply the retry, and Show the form is a guarded go to the editor. This module never claims,
-// applies or reports a fill.
+// supply the retry (Fill now is the only button). This module never claims, applies or reports
+// a fill.
 //
 // State lives here, not in the DOM: a log wipe drops every receipt and redraw() draws them again.
 //
@@ -108,16 +108,6 @@
       return false;
     }
 
-    function offersShow(v) {
-      return isDrawer && !v.target_gone && (v.status === 'filled' || v.status === 'partly_filled');
-    }
-
-    function route(v) {
-      return v.action === 'create'
-        ? { destination: 'agents', create: true }
-        : { destination: 'agents', id: v.agent_name };
-    }
-
     // ── Rendering ──────────────────────────────────────────────────────
 
     // `attrs` carries the line's literal data-testid.
@@ -167,11 +157,6 @@
         var b = App.ui.button({ variant: 'primary', label: 'Fill now', testid: 'fill-receipt-fill-now' });
         b.addEventListener('click', function () { onFillNow(e); });
         buttons.push(b);
-      }
-      if (offersShow(v)) {
-        var s = App.ui.button({ variant: 'secondary', label: 'Show the form', testid: 'fill-receipt-show-form' });
-        s.addEventListener('click', function () { onShow(e); });
-        buttons.push(s);
       }
       if (buttons.length) {
         kids.push(App.ui.util.el('div', { className: 'chat-proposal-foot' }, buttons));
@@ -365,10 +350,6 @@
           }
         }, function () { /* the hook reports its own failures */ });
       }
-    }
-
-    function onShow(e) {
-      App.router.go(App.router.href(route(e.view)), { opener: ctx.composer.input });
     }
 
     return {

@@ -220,7 +220,6 @@ caught — but it cannot see where the attribute is emitted.
 | `fill-receipt-stale` | chat | "Changed since GleepGlorp filled it: {labels}." on a receipt that offers Fill now and has changed fields |
 | `fill-receipt-flag` | chat | The "Check this form fill" `App.ui.noteFlag` (subject `fill`) on a fill made after untrusted content |
 | `fill-receipt-fill-now` | chat | Fill now (primary), drawer only: on a not-filled receipt (not "agent gone"), on a sent fill this window is not applying, and on an applying fill whose claim is over 120 s old; calls the instance's `fillHooks.fillNow(view)` |
-| `fill-receipt-show-form` | chat | Show the form (secondary), drawer only, on a filled or partly filled receipt: a guarded go to `#agents/~new` or `#agents/{name}` |
 | `fill-receipt-notice` | chat | "Still being applied in another window." on an applying receipt after a Fill now whose claim was refused (M36 F3 L6 Part B); gone when the fill's status next changes |
 | `agent-filled-note` | studio | Agent editor — a quiet caption ("Filled by GleepGlorp · {time}", bot icon) under each control a GleepGlorp form fill wrote, in create and edit mode; `data-field` is the stored key (`name`, `description`, `llm_model` for the provider and model pair, `system_prompt`, `max_iterations`, `chat_history_retention_days`, `rich_visuals`, or `tools` / `mcp_source_ids` / `kb_ids` with `data-item`). Coexists with `agent-approved-change-note`; drawn by `agent-editor-fill.js` at every mount and after a fill, only for a control that still holds the written value; gone after Save, Cancel, a patch and closing the editor (M36 F3 L6 Part B) |
 | `fill-receipt-announce` | chat | The receipt's one polite `role=status` node (visually hidden): it says the headline, title, field count and (partly filled) the kept sentence once per status change, and "Still being applied in another window." once per Fill now press that produces it; silent on a reload or replay draw |
@@ -786,6 +785,7 @@ again. A retired id cannot come back.
 
 | Retired id | Surface | Retired by |
 |------------|---------|------------|
+| `fill-receipt-show-form` | chat | M36 F3 HAT step 7 (operator decision) — the fill receipt's "Show the form" button had no use case: a fill from another page already navigates to the editor, and the drawer shows only on those pages; receipts carry Fill now only |
 | `mcp-agent-cred-state-` | studio | Sortie 09 L06 (DD12) — the per-row state text of the leg 3 credential layout; the tile is now the Library headers table (locked or unlocked) and a row's state is its value and the "overridden" pill |
 | `mcp-agent-cred-set-` | studio | Sortie 09 L06 — the per-row "Set for this agent" button; **Override headers** (`mcp-agent-cred-override-`) unlocks the whole table |
 | `mcp-agent-cred-replace-` | studio | Sortie 09 L06 — the per-row "Replace" button; type into the row's value |

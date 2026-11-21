@@ -1886,6 +1886,8 @@
     border-left: 1px solid var(--border);
     color: var(--fg);
   }
+  /* The root is a programmatic focus target (tabindex -1): no ring for a pointer click. */
+  .ui-drawer:focus:not(:focus-visible) { outline: none; }
   .ui-drawer--overlay {
     position: absolute;
     top: 0;

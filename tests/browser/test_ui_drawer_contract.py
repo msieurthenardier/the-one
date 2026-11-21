@@ -226,6 +226,34 @@ def test_escape_inside_closes_and_returns_focus_to_the_opener(engine_page: Page)
     assert p.evaluate("() => window.__changes") == [True, False]
 
 
+def test_escape_after_a_click_on_a_non_focusable_area_still_closes(engine_page: Page) -> None:
+    """HAT fix: the root is a programmatic focus target (tabindex -1, no tab stop), so a click
+    on body text keeps focus inside the drawer and Escape closes it, focus to the opener."""
+    p = engine_page
+    _mount(p)
+    p.get_by_test_id("d-opener").click()
+    p.evaluate("() => window.__d.open(window.__opener)")
+    root = p.get_by_test_id("d-root")
+    expect(root).to_have_attribute("tabindex", "-1")
+    p.get_by_text("Body text").click()
+    assert p.evaluate("() => window.__d.el.contains(document.activeElement)")
+    p.keyboard.press("Escape")
+    expect(root).to_be_hidden()
+    assert _active(p) == "d-opener"
+
+
+def test_the_root_is_not_reached_by_tab(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate("() => window.__d.open(window.__opener)")
+    p.get_by_test_id("d-opener").focus()
+    seen = []
+    for _ in range(4):
+        p.keyboard.press("Tab")
+        seen.append(p.evaluate("() => document.activeElement === window.__d.el"))
+    assert not any(seen)
+
+
 def test_escape_with_focus_outside_does_nothing(engine_page: Page) -> None:
     p = engine_page
     _mount(p)

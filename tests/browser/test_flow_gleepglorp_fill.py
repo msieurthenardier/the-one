@@ -10,7 +10,7 @@ seeded straight into the database (only GleepGlorp's fill tool writes one), so t
 * a proposal and a fill of one turn in tool-call order, live in either arrival order and after a
   reload (A2);
 * the "Check this" flag with its sources (A3);
-* Chats receipts have no buttons; the drawer's have Fill now (the retry cases) and Show the form,
+* Chats receipts have no buttons; the drawer's have Fill now (the retry cases) and nothing else,
   and a click reaches the instance's ``fillHooks`` (A4).
 
 Falls in the ``shared`` browser lane (it is not claimed by a named lane glob).
@@ -46,7 +46,9 @@ pytestmark = pytest.mark.browser
 RECEIPT = '[data-testid="fill-receipt"]'
 ANNOUNCE = '[data-testid="fill-receipt-announce"]'
 FILL_NOW = '[data-testid="fill-receipt-fill-now"]'
-SHOW_FORM = '[data-testid="fill-receipt-show-form"]'
+# The retired Show the form button is asserted absent by its label (its testid is retired and the
+# retired-selector guard forbids naming it in a test).
+SHOW_FORM_LABEL = "Show the form"
 DRAWER_RECEIPT = f"{_drawer.DRAWER} {RECEIPT}"
 
 _CARDS_JS = """() => Array.from(
@@ -410,10 +412,9 @@ def test_the_drawer_offers_fill_now_for_the_retry_cases_and_chats_never(
         expect(card(fid).locator(FILL_NOW)).to_have_text("Fill now")
     for fid in (gone, fresh_applying, filled, replaced):
         expect(card(fid).locator(FILL_NOW)).to_have_count(0)
-    # Show the form: on a filled fill (and a partly filled one), not on the others.
-    expect(card(filled).locator(SHOW_FORM)).to_have_count(1)
-    for fid in (not_filled, sent, gone, replaced):
-        expect(card(fid).locator(SHOW_FORM)).to_have_count(0)
+    # Show the form is gone: no receipt, in any status, carries it.
+    for fid in (not_filled, sent, old_applying, fresh_applying, stale, gone, filled, replaced):
+        expect(card(fid).get_by_role("button", name=SHOW_FORM_LABEL)).to_have_count(0)
     # The stale field is named on the receipt that offers Fill now.
     expect(card(stale).locator('[data-testid="fill-receipt-stale"]')).to_have_text(
         "Changed since GleepGlorp filled it: Description."
@@ -445,9 +446,8 @@ def test_the_drawer_offers_fill_now_for_the_retry_cases_and_chats_never(
     expect(card(old_applying).locator(FILL_NOW)).to_have_count(0)
     expect(card(not_filled).locator(FILL_NOW)).to_have_count(1)
 
-    # Show the form goes through the guard to the agent editor.
-    card(filled).locator(SHOW_FORM).click()
-    _nav.expect_route(page, "agents/plain/general", timeout=8000)
+    # There is no Show the form button on any receipt (operator decision, HAT step 7).
+    expect(page.get_by_role("button", name=SHOW_FORM_LABEL)).to_have_count(0)
 
 
 def test_chats_shows_the_same_receipts_without_buttons(
@@ -472,7 +472,7 @@ def test_chats_shows_the_same_receipts_without_buttons(
     expect(page.locator(RECEIPT)).to_have_count(2)
     expect(page.locator(f"{RECEIPT} button")).to_have_count(0)
     expect(page.locator(FILL_NOW)).to_have_count(0)
-    expect(page.locator(SHOW_FORM)).to_have_count(0)
+    expect(page.get_by_role("button", name=SHOW_FORM_LABEL)).to_have_count(0)
 
 
 # ══ Part B: applying (M36 F3 L6 Part B) ═══════════════════════════════════════════════════
@@ -1573,3 +1573,35 @@ def test_keys_outside_the_allowlist_are_ignored_with_one_console_warning(
     assert after["description"] == "Allowed"
     for key in ("secret_ids", "tool_overrides", "notes_enabled"):
         assert after.get(key) == before.get(key)
+
+
+# ── HAT step 7: a second create fill on the open create form ────────────────
+
+
+def _hat7_create_fill(
+    page: Page, w: SimpleNamespace, tool_call_id: str = "tc-1", **changes: Any
+) -> int:
+    fid = _seed_b(
+        w,
+        action="create",
+        agent_name="brand-new",
+        changes={"name": "brand-new", "description": "A new agent", **changes},
+        tool_call_id=tool_call_id,
+    )
+    _deliver(page, w, fid)
+    return fid
+
+
+def test_a_second_create_fill_on_the_open_create_form_applies_without_clearing(
+    app_with_data_dir: tuple[str, Any], page: Page
+) -> None:
+    w = _bworld(app_with_data_dir, page, route="agents/~new")
+    first = _hat7_create_fill(page, w)
+    expect(page.locator(DESC)).to_have_value("A new agent", timeout=10000)
+    _wait_status(page, w, first, "filled")
+    before = page.evaluate("() => history.length")
+    second = _hat7_create_fill(page, w, tool_call_id="tc-2", description="Second text")
+    expect(page.locator(DESC)).to_have_value("Second text", timeout=10000)
+    _wait_status(page, w, second, "filled")
+    expect(page.locator(NAME)).to_have_value("brand-new")
+    assert page.evaluate("() => history.length") == before

@@ -245,6 +245,22 @@ def test_esc_with_focus_outside_the_drawer_does_not_close_it(
     expect(page.locator(DRAWER)).to_be_visible()
 
 
+def test_esc_after_a_click_on_empty_drawer_space_closes_it(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    _open(page, app_with_agent.base_url, "library")
+    page.locator(BTN).click()
+    expect(page.locator(DRAWER)).to_be_visible()
+    # Click empty space in the body (a non-focusable area), then Escape.
+    page.locator(DRAWER + " .ui-drawer-body").click(position={"x": 5, "y": 5})
+    assert page.evaluate(
+        "() => document.getElementById('gleepglorp-drawer').contains(document.activeElement)"
+    )
+    page.keyboard.press("Escape")
+    expect(page.locator(DRAWER)).to_be_hidden()
+    assert _active(page) == "gg-corner-button"
+
+
 def test_the_open_state_is_kept_across_destinations_and_chats(
     app_with_agent: SeededApp, page: Page
 ) -> None:

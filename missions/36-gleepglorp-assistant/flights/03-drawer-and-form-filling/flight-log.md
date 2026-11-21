@@ -1351,6 +1351,196 @@ cite, so none had drifted.
     - **Leg 9 `completed`.** AC1-AC7 are met; all three engines show the
       drawer, Esc and a fill as unsaved edits. Limits are stated per engine
       above. Next: Leg 10, the HAT and the closing gate.
+    - **Leg 10 (`10-hat`) designed:** 12 state-transition steps, the carry
+      items and the closing gate. The operator chose to start now.
+    - **HAT apparatus.**
+      - **Instance:** `the-one serve` on 8486, data dir `~/m36f3-hat/data`,
+        scratch cwd, dev mode, PID 774878. The credential was minted with
+        `rotate-api-credential` on that data dir.
+      - **Seeded through the API, with no secrets:**
+        - the agents Recipe Buddy and Ledger Keeper;
+        - the MCP server "Pantry Scan", streamable-http to an unreachable
+          loopback URL.
+      - **Handoff:** a one-time handoff URL was given to the operator. The
+        operator adds their own Claude provider in the app; the FD never
+        handles the key.
+    - **HAT step 1, [off] → [setup]: PASS** (operator). The button shows on
+      Agents, Library and Settings and not on Chats. The drawer opens to
+      the setup block, and its link goes to Settings › GleepGlorp. No
+      errors.
+    - **HAT step 2, [setup] → [ready]: PASS** (operator). The operator added
+      their Claude provider and chose it for GleepGlorp. With the drawer
+      open, it went ready without a reload, and the composer was enabled.
+    - **HAT step 3, Esc and Close: one failure** (operator). Esc closes the
+      drawer only while the composer has focus. After a click on a
+      non-focusable area inside the drawer, Esc does nothing. Close, the
+      focus return and push/overlay pass.
+      - **FD diagnosis:** `App.ui.drawer`'s Escape listener sits on the
+        `<aside>`, and a click on non-focusable content moves focus to
+        `<body>`. Library factories may not add document listeners.
+      - **Fix-vs-feature call: a fix.** It restores intended behaviour; no
+        new behaviour. It spans two surfaces (the shared control serves the
+        GleepGlorp drawer and the Chats agent drawer), but the change is
+        one attribute in one control plus a CSS rule, and both surfaces
+        want it. The FD did the multi-surface review inline (read
+        `ui/drawer.js` and its two callers).
+      - **The fix:** the drawer root becomes `tabIndex = -1`, so a click
+        inside keeps focus in the drawer, with no tab stop added and no
+        pointer focus ring. Contract and flow tests are added and
+        falsified. A Developer (Sonnet) implements it.
+    - **HAT step 4, continuity: PASS** (operator).
+      - The conversation persists from Agents to Library and over a reload.
+      - The "Looking at" line follows the page, and the page chip shows on
+        the sent message.
+      - New chat starts empty.
+    - **HAT step 5, Open in Chats: PASS** (operator).
+      - The drawer conversation opens in Chats with its chips, and the
+        button and drawer are hidden there.
+      - Back on Agents, the drawer keeps the conversation.
+    - **HAT step 6, "What does this page do?": PASS with a known weakness**
+      (operator).
+      - **The answers:** both were about the right page.
+      - **The Built-in tools link:** landed correctly.
+      - **The MCP link:** went to `#library/mcp`, which redirects to the
+        Library start page, not `#library/mcp/~new`. This is the measured
+        `page-what-is-link` weakness (7/20 on Haiku): the page line names
+        the page but carries no route.
+      - **Operator decision (2026-11-21): accept for this flight.**
+        "Give GleepGlorp the page's address" (for example the route in the
+        page line) is carried to the next flight or a sortie, and goes in
+        the debrief.
+    - **HAT step 7, a fill for a new agent: FAIL** (operator).
+      - **What happened:** after the fill on `#agents/~new`, the operator
+        clicked the receipt's "Show the form". The leave guard asked
+        "Unsaved changes", and Continue cleared the form, so the fill was
+        lost.
+      - **FD diagnosis:** Show the form (`fill-receipts.js` ~:371) is a
+        guarded `router.go` to the fill's route even when that editor is
+        already open. The same-route go trips the dirty guard, and Continue
+        re-enters create mode.
+      - **Fix-vs-feature call: a fix** (a data-loss defect in this flight's
+        own feature, on one surface: the receipt and the applier).
+      - **The fix:** when the editor is already open, Show the form brings
+        it into view and focuses it, with no navigation. The applier's
+        same-route go in `fill.js` is checked too. A Developer (Sonnet)
+        implements it.
+      - **The rest of step 7, re-walked on a fresh fill without Show the
+        form: PASS** (operator).
+        - The notes are per field, and "Unsaved changes" shows.
+        - The agent is not in the list before Create.
+        - The receipt says "Not saved", and so does the reply.
+        - Create adds Trip Planner.
+        - The Show the form re-check is owed once the fix lands.
+    - **HAT step 8, a fill over an unsaved edit: PASS** (operator).
+      - The operator's unsaved description was kept, and the system prompt
+        was filled with its note.
+      - The receipt said "partly filled" and why.
+      - Cancel restored both fields.
+    - **HAT step 3 fix landed** (uncommitted).
+      - **Lanes,** start load 1.10: `contracts-overlay` 558 passed and 1
+        skipped; `shared` 451; `chats` 178. Static guards 428.
+      - **Falsified:** in both engines for the contract test, and in the
+        flow test.
+      - **Still owed:** the operator re-checks Esc in the HAT. The batched
+        HAT-fix review (Reviewer and Accessibility Reviewer) runs before
+        the commit.
+    - **HAT step 9, attempt 1: the model proposed instead of filling.**
+      - **What happened:** on Ledger Keeper with an unsaved description,
+        "Change Recipe Buddy's system prompt to 'You plan pantry dinners.'"
+        made Haiku call `propose_change`, so a proposal card appeared and
+        there was no navigation. The leave guard was therefore never
+        reached.
+      - **FD reading: not a defect.** p4c's fill rule fills "the open or
+        matching editor", and Recipe Buddy was neither, so a proposal is
+        the documented choice. The reply opened with "Done!" but correctly
+        said the change was proposed and waiting.
+      - **Noted for the debrief:** whether a page request about another
+        agent should fill (navigating) or propose is a product question.
+      - **Re-walk:** dismiss the proposal and ask with an explicit "fill".
+    - **HAT step 9, re-walk: PASS** (operator).
+      - With an explicit "use the form", GleepGlorp filled. The leave guard
+        asked, and Stay kept Ledger Keeper and its text.
+      - The receipt offered Fill now, which applied the prompt to Recipe
+        Buddy after the editor was clean.
+    - **HAT step 10, a fill after a fetched page: PASS** (operator).
+      - The fill after reading a public web page carried "Check this", and
+        no link or address from the page reached the fields.
+      - Cancelled.
+    - **HAT step 11, a key on the provider page: PASS** (operator).
+      - GleepGlorp refused the pasted key and linked the provider page.
+      - There was no fill, and the key was not repeated.
+    - **HAT step 12, [ready] → [off] → [ready]: PASS** (operator).
+      - Off removed the button and the drawer live.
+      - On brought them back with the conversation.
+    - **HAT carry items, operator decisions (2026-11-21):**
+      - **Overlay:** keep the page usable behind an open overlay drawer. It
+        is a side panel, not a dialog, so `<main>` stays interactive.
+      - **Robot icon:** keep the shared robot for now. The operator will
+        give GleepGlorp "personality" in a future sortie.
+      - **Windows scratch root** `%LOCALAPPDATA%\Temp\the-one-f5`: logged as
+        squawk 0393 (servicing, routine, open).
+      - **Page line after a fill** ("Looking at Agents › New" against "New
+        Agent"): not raised by the operator. It goes to the debrief with
+        the page-address idea.
+    - **HAT step 7 fix landed** (uncommitted).
+      - **Show the form:** when the fill's editor is already open (the
+        applier's own `isOpen`), it does not navigate. It focuses the
+        editor title and closes an overlay drawer.
+      - **`fill.js`:** already safe; it skips navigation when `isOpen`.
+        Test 3 pins that.
+      - **Tests:** 3 new, test 1 falsified; 44/44 in the file;
+        `chats-transcript` 181.
+      - **The developer's full `shared` run:** 2 failures, both the test
+        helper's own name clash, since fixed. The FD is re-running the
+        whole `shared` lane on the combined fixes.
+    - **HAT re-checks** (operator).
+      - **Esc after a click inside the drawer:** PASS.
+      - **Show the form on the open editor:** no longer clears the form,
+        so PASS.
+    - **Operator decision (2026-11-21): remove "Show the form".**
+      - **Why:** when GleepGlorp fills from another page, the applier
+        already navigates to the editor it fills, so the button has no use
+        case.
+      - **Scope:** the receipt keeps Fill now. The testid
+        `fill-receipt-show-form` is retired.
+      - **History:** this supersedes Leg 6's receipt spec (the operator's
+        Receipts artboard). The leg and spec files stay as history.
+      - **Classification: a HAT behaviour change by the operator,** one
+        surface (the receipt), no new behaviour, so no design review. A
+        Developer (Sonnet) implements it.
+    - **HAT walk complete.** The operator said "im good, go ahead and
+      finish up". HAT instance PID 774878 stopped by PID.
+    - **FD `shared` lane re-run on the step 3 and 7 fixes:** 452 passed and
+      2 failed. Both failures were the two "Show the form" tests, which the
+      removal Developer was deleting during the run, so they are moot.
+    - **Show the form removal landed.** The fill file passed 42/42,
+      `chats-transcript` 181, and the static guards 582; ruff clean.
+      Falsified.
+    - **HAT-fix review.** The Reviewer is Haiku: UI only, no security
+      surface. The Accessibility Reviewer (Sonnet) runs in parallel.
+      - **Accessibility: `[HANDOFF:confirmed]`.** `tabindex="-1"` adds no
+        tab stop, the pointer-only ring suppression meets 2.4.7, and the
+        receipt with Fill now alone stays coherent.
+      - **Code: `[HANDOFF:confirmed]`.**
+        - **Static guards:** 511 passed.
+        - **Browser files:** drawer contract 54, drawer shell flow 19, fill
+          flow 42.
+        - **Non-blocking notes, accepted:** the no-tab-stop test presses Tab
+          four times; the step 7 log entry is superseded; a comment names
+          the retired testid.
+      - **HAT fixes committed.**
+    - **HAT step 3 fix (Developer):** `ui/drawer.js` sets `root.tabIndex = -1`
+      (comment and header doc updated); `components.css` adds
+      `.ui-drawer:focus:not(:focus-visible) { outline: none; }`; the `drawer`
+      row in `docs/ui-control-inventory.md` notes it. Tests:
+      `test_escape_after_a_click_on_a_non_focusable_area_still_closes` and
+      `test_the_root_is_not_reached_by_tab` (contract, both engines), and
+      `test_esc_after_a_click_on_empty_drawer_space_closes_it` (GleepGlorp
+      shell flow). Falsified: with `tabIndex` removed the contract test
+      failed in both engines and the flow test failed; restored. No test
+      pinned the root's attributes or focus order (greps of the drawer
+      contract, `test_flow_chat_drawer*` and the shell flows). Start load
+      1.10. Static guards (428) and ruff pass.
         - **Leg 8 gate 5 follow-up (Developer, offline, no model call).**
           - **Fix 1, `key-needed-no-ask`:** the carve-out's negated phrase
             (two copies) accepts a coordinated verb list ("never paste or
@@ -1707,6 +1897,20 @@ Start `uptime` load 0.94 (1-minute) at 19:34; Parts B-D not run.
 4. Seed from WSL (the desktop app/serve created the credential; the data dir as WSL sees it is `/mnt/c/Users/<user>/AppData/Local/Temp/the-one-f5/gg-data`): `python3 scripts/gleepglorp_drawer_seed.py --base-url http://127.0.0.1:8490 --data-dir <that path>`. The seed's default-dir refusal cannot see the Windows default dir from WSL (it computes the Linux path), so the protection here is the helper's own data-dir gates plus the explicit scratch path: say so in the log, and pass `--refuse-data-dir /mnt/c/Users/<user>/AppData/Local/the-one` as a belt.
 5. Drive (ping the operator before the first foreground gesture): `$W hands-off`; `$W resize --width 1440 --height 900`; `$W keys '^k'` then `$W keys 'Appearance{ENTER}'` (settle ~1 s); `$W capture --window --out 01-appearance.png`; `$W keys '^k'`, `$W keys 'Ask GleepGlorp{ENTER}'`; `$W capture --window --out 02-drawer-open.png`; `$W keys 'Fill in a new agent for me{ENTER}'` (no `^`, `+`, `%`, `{` or `}` in the text; named keys are case-insensitive, `{ENTER}` and `{ESC}` are in the grammar, Ctrl K is `^k`); poll `python3 scripts/gleepglorp_drawer_seed.py ... --check-fill` until it exits 0 (bound ~90 s); `$W capture --window --out 03-filled-editor.png`; `$W keys '{ESC}'`; `$W capture --window --out 04-after-esc.png`.
 6. Close: `$W stop` (recorded process identity only), `$W snapshot --compare before.json` (must be clean). CSS width is inferred from the 1440x900 outer size (only WebKitGTK reports `innerWidth`); focus after Esc is screenshot-only.
+
+### HAT step 7 fix: Show the form discarded the fill
+
+- **Cause.** `areas/chat/fill-receipts.js` `onShow` always did a guarded `App.router.go` to the fill's editor route. With the editor already current that is a same-route go: it tripped the leave guard over the fill's unsaved edits, and Continue re-entered create mode, clearing the form.
+- **Fix.** `onShow` now asks `App.studio.agentEditorFill.isOpen(key)` (the applier's own check: slot key plus router on that editor). If open: no navigation; the drawer is closed when `#gleepglorp-drawer` is in overlay mode, and focus goes to the editor's title (`#main-content h1/h2[tabindex="-1"]`; the `editor-title` class is library-owned, so `test_ui_ownership.py` forbids naming it here). Otherwise the guarded go is unchanged.
+- **`fill.js`.** Already safe, no change: `open(view)` returns early when `mod.isOpen(key)` (create key `create`, so a second create fill on `#agents/~new` too) and only navigates otherwise. Test pins a second create fill applying with no history change.
+- **Tests** (`test_flow_gleepglorp_fill.py`, `shared`): Show the form on the open create editor (no dialog, values and route kept, focus on title; falsified with `if (false && ...)`, failed on the dialog assertion, restored); from Settings it navigates to the editor; second create fill applies without clearing.
+
+### HAT step 7 follow-up: Show the form removed
+
+- **Operator decision (HAT, 2026-11-21).** The receipt's "Show the form" button has no use case: a fill from another page already navigates to the editor, and the receipt shows only in the drawer, which shows only on those pages. Fill now and everything else on the receipt are unchanged. This supersedes the step 7 fix above for the button (the `fill.js` same-route behaviour stays).
+- **Code.** `areas/chat/fill-receipts.js`: the button, `onShow`, `offersShow`, `route` and the same-route logic are removed; the module header says Fill now is the only button.
+- **Tests** (`test_flow_gleepglorp_fill.py`): the two Show the form tests are removed; the per-status test now asserts the button absent on all eight receipts by label (`get_by_role("button", name="Show the form")`, since the retired-selector guard forbids the testid in a test) and the Chats test likewise; the second-create-fill test stays. Falsified: a temporary `Show the form` button added back to the receipt made the absence assertions fail, then it was removed.
+- **Retired.** `fill-receipt-show-form` moved to the registry's "Retired testids" table and added to `RETIRED_SELECTORS`. `the_one/agents.md` fills text updated; no mention in `CLAUDE.md` or the guide.
 
 ## Decisions
 

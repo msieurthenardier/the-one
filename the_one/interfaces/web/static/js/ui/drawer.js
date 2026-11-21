@@ -41,6 +41,8 @@
   //     one stays. close() returns focus to that opener ONLY when focus is
   //     inside the drawer at that moment (so hiding it never drops focus to
   //     <body>, and a close from elsewhere never steals focus).
+  //   - The <aside> has tabindex="-1" (never a tab stop): a click on a non-focusable area
+  //     inside keeps focus in the drawer instead of dropping it to <body>.
   //   - Escape while focus is inside closes it (preventDefault and
   //     stopPropagation; ignored while an IME composes), so focus returns to
   //     the opener (the Flight 1 DD8 rule).
@@ -72,6 +74,9 @@
     root.textContent = '';
     root.classList.add('ui-drawer');
     root.setAttribute('aria-label', opts.label);
+    // HAT fix: a programmatic focus target (not a tab stop), so a click on a non-focusable
+    // area inside the drawer keeps focus within it and Escape and the focus return still work.
+    root.tabIndex = -1;
     if (opts.testid) root.setAttribute('data-testid', opts.testid);
 
     var header = util.el('div', { className: 'ui-drawer-header' });
