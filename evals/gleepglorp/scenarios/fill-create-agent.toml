@@ -23,7 +23,7 @@ facts = [
 
 [[conversations]]
 turns = [
-  {text = "{phrasing}", page = {line = "Agents › New Agent", descriptor = {destination = "agents", create = true}}},
+  {text = "{phrasing}", page = {line = "Agents › New Agent (#agents/~new)", descriptor = {destination = "agents", create = true}}},
 ]
 
 [[checks]]

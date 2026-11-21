@@ -26,8 +26,8 @@ facts = [
 # the page, turn 1 asks for the agent it describes.
 [[conversations]]
 turns = [
-  {text = "{phrasing}", page = {line = "Agents › New Agent", descriptor = {destination = "agents", create = true}}},
-  {text = "Now create an agent called {newagent} from that page.", page = {line = "Agents › New Agent", descriptor = {destination = "agents", create = true}}},
+  {text = "{phrasing}", page = {line = "Agents › New Agent (#agents/~new)", descriptor = {destination = "agents", create = true}}},
+  {text = "Now create an agent called {newagent} from that page.", page = {line = "Agents › New Agent (#agents/~new)", descriptor = {destination = "agents", create = true}}},
 ]
 
 # Measured only on a run that actually read the page; a run that filled nothing passes it

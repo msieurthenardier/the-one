@@ -114,9 +114,9 @@ REVIEWED_ALLOWED: dict[str, dict[str, frozenset[str]]] = {
         "detail": frozenset({"gleepglorp", "time_zone", "counts", "names"}),
     },
     "providers": {
-        "list": _L,
+        "list": _L | {"id"},
         "detail": frozenset(
-            {"name", "type", "address", "oauth_active", "agents", "used_by_gleepglorp"}
+            {"id", "name", "type", "address", "oauth_active", "agents", "used_by_gleepglorp"}
         ),
     },
     "knowledge_bases": {

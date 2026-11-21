@@ -283,6 +283,13 @@ async def _apply_world(tmp_path):
         "sessions/turn_host.py",
         "gleepglorp/proposals/continuation.py",
         "gleepglorp/proposals/apply.py",
+        "gleepglorp/kinds/__init__.py",
+        "gleepglorp/kinds/base.py",
+        "gleepglorp/kinds/deps.py",
+        "gleepglorp/kinds/errors.py",
+        "gleepglorp/kinds/agent.py",
+        "gleepglorp/kinds/rule.py",
+        "gleepglorp/kinds/routine.py",
         "routines/runner.py",
     ],
 )

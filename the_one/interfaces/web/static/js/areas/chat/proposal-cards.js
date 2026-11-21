@@ -21,7 +21,6 @@
   var BUSY_TEXT = 'Wait for GleepGlorp to finish.';
   var BUSY_REFUSED = 'GleepGlorp is still working. Try again when it finishes.';
   var UNREACHABLE = "Couldn't reach the app. Try again.";
-  var AGENT_TABS = { rule: 'rules-and-notes', routine: 'routines' };
   var APPROVE_KINDS = { approve: true, retry: true, anyway: true };
   var uid = 0;
 
@@ -190,12 +189,18 @@
       return App.ui.util.el('div', { className: 'chat-proposal-head' }, kids);
     }
 
-    function openAgentLink(view) {
-      if (!view.agent_name) return null;
-      var spec = { destination: 'agents', id: view.agent_name };
-      if (AGENT_TABS[view.kind]) spec.tab = AGENT_TABS[view.kind];
+    // The kind's link to the item the proposal changed, or null (no link: an unknown kind, or a
+    // view with nothing to open). Its spec, text and testid come from App.gleepglorpKinds.
+    function linkSpecOf(view) {
+      var kind = App.gleepglorpKinds.get(view.kind);
+      return (kind && kind.openLink && kind.openLink(view)) || null;
+    }
+
+    function openLink(view) {
+      var l = linkSpecOf(view);
+      if (!l) return null;
       return App.ui.util.el('a', {
-        href: App.router.href(spec), 'data-testid': 'proposal-open-agent', text: 'Open agent'
+        href: App.router.href(l.spec), 'data-testid': l.testid, text: l.text
       });
     }
 
@@ -218,7 +223,7 @@
         [App.ui.util.icon('check'), 'Applied']);
       var parts = [state, App.ui.util.el('span', { text: (v.result && v.result.summary) || v.title }),
         App.ui.util.el('span', { className: 'chat-proposal-time', text: fmtTime(v.resolved_at || v.created_at) })];
-      var link = openAgentLink(v);
+      var link = openLink(v);
       if (link) parts.push(link);
       return [line(v, parts), details(v)];
     }
@@ -235,12 +240,10 @@
       var reason;
       if (v.status === 'withdrawn' && v.result && v.result.reason === 'replaced') {
         reason = 'replaced by the proposal below.';
-      } else if (v.kind === 'rule' && v.action === 'change') {
-        reason = 'the rule no longer exists.';
-      } else if (v.kind === 'routine' && v.action === 'change') {
-        reason = 'the routine no longer exists.';
       } else {
-        reason = 'the agent no longer exists.';
+        var kind = App.gleepglorpKinds.get(v.kind);
+        reason = kind && kind.labels && kind.labels.withdrawnGone
+          ? kind.labels.withdrawnGone(v) : 'the item no longer exists.';
       }
       return [line(v, [App.ui.util.el('span', { text: 'Withdrawn · ' + v.title + ': ' + reason })])];
     }
@@ -553,7 +556,10 @@
       return function () {
         if (!e.el) return null;
         var s = stateOf(e);
-        if (s === 'applied' || s === 'withdrawn') return e.el.querySelector('[data-testid="proposal-open-agent"]');
+        if (s === 'applied' || s === 'withdrawn') {
+          var l = linkSpecOf(e.view);
+          return l ? e.el.querySelector('[data-testid="' + l.testid + '"]') : null;
+        }
         if (s === 'dismissed') return ctx.composer.input;
         if (s === 'failed') return e.el.querySelector('[data-testid="proposal-try-again"]');
         if (s === 'stale') return e.el.querySelector('[data-testid="proposal-approve-anyway"]');
@@ -570,6 +576,7 @@
       App.approvals.record({
         kind: view.kind,
         agent: view.agent_name,
+        target_id: view.target_id,
         fields: fieldKeys(view),
         items: null,
         session_id: sid,
@@ -581,7 +588,7 @@
       if (Object.keys(items).length) {
         resolveItems(items).then(function (resolved) {
           App.approvals.record({
-            kind: view.kind, agent: view.agent_name, fields: [], items: resolved,
+            kind: view.kind, agent: view.agent_name, target_id: view.target_id, fields: [], items: resolved,
             session_id: sid, proposal_id: view.id, at: view.resolved_at
           });
         });

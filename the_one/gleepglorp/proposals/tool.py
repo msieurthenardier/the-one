@@ -18,6 +18,7 @@ from typing import Any
 
 from the_one.agent._context import current_chat_session_id, current_tool_call_id, current_turn
 from the_one.agent.taint import compute_taint
+from the_one.gleepglorp import kinds, outside
 from the_one.gleepglorp.proposals import guard, shape
 from the_one.gleepglorp.proposals.events import push_proposal_changed
 from the_one.gleepglorp.proposals.store import (
@@ -52,7 +53,7 @@ class ProposeChangeTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "kind": {"type": "string", "enum": list(shape.KINDS)},
+            "kind": {"type": "string", "enum": list(kinds.KINDS)},
             "action": {"type": "string", "enum": list(shape.ACTIONS)},
             "agent": {"type": ["string", "null"]},
             "rule": {"type": ["integer", "null"]},
@@ -113,7 +114,7 @@ class ProposeChangeTool(Tool):
 
         conn = await get_connection()
         eff = await time_zones.load_effective_zone(conn)
-        norm = await shape.normalize(
+        norm = await kinds.normalize(
             kind,
             action,
             {"agent": agent, "rule": rule, "routine": routine},
@@ -128,6 +129,16 @@ class ProposeChangeTool(Tool):
         if refusal is not None:
             return refusal
         untrusted, sources = compute_taint(self._agent, current_tool_call_id.get(), turn)
+        if untrusted:
+            # The outside-value guard (M36 F4 L3, DD7): after outside content, a link, address,
+            # command or loader key the operator did not supply is refused (fails closed).
+            refusal = outside.check(
+                kinds.get(norm.kind),
+                norm.changes,
+                outside.collect(self._agent, current_tool_call_id.get(), turn),
+            )
+            if refusal is not None:
+                return refusal
         repo = GleepGlorpProposalRepository(conn)
         try:
             proposal_id = await repo.insert(

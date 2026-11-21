@@ -25,6 +25,7 @@ LANES = (
     "chats",
     "chats-transcript",
     "chats-widgets",
+    "gleepglorp",
     "agents",
     "agent-tabs",
     "agent-routines",
@@ -188,7 +189,30 @@ def test_chats_lanes_are_the_transcript_files_and_the_rest(lanes: dict[str, set[
         "tests/browser/test_flow_chat_widgets_isolated.py",
     }
     assert not (widgets & lanes["chats"]) and not (widgets & transcript)
-    assert _lane_files("chat") == lanes["chats"] | transcript | widgets
+    # M36 F4 L1b: the two GleepGlorp chat files left `chats-transcript` for `gleepglorp`, but
+    # the `chat` alias keeps the `chats_pat` pattern, so it still expands them.
+    gg_chat = {
+        "tests/browser/test_flow_chat_gleepglorp.py",
+        "tests/browser/test_flow_chat_proposals.py",
+    }
+    assert gg_chat <= lanes["gleepglorp"] and not (gg_chat & (transcript | lanes["chats"]))
+    assert _lane_files("chat") == lanes["chats"] | transcript | widgets | gg_chat
+
+
+def test_gleepglorp_lane_is_the_drawer_fill_kinds_and_proposal_files(
+    lanes: dict[str, set[str]],
+) -> None:
+    """M36 F4 L1b (DD14): the GleepGlorp browser tests are their own lane."""
+    assert lanes["gleepglorp"] == {
+        "tests/browser/test_flow_gleepglorp_drawer_chat.py",
+        "tests/browser/test_flow_gleepglorp_drawer_shell.py",
+        "tests/browser/test_flow_gleepglorp_fill.py",
+        "tests/browser/test_flow_chat_gleepglorp.py",
+        "tests/browser/test_flow_chat_proposals.py",
+        "tests/browser/test_flow_gleepglorp_kinds.py",
+    }
+    for other in ("chats", "chats-transcript", "shared"):
+        assert not (lanes[other] & lanes["gleepglorp"]), other
 
 
 def test_mcp_lanes_are_the_split_editor_files(lanes: dict[str, set[str]]) -> None:
@@ -221,7 +245,7 @@ def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     proc = _list("--lane", "no-such-lane", "--list")
     assert proc.returncode == 2
     lanes = (
-        "chats|chats-transcript|chats-widgets|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|"
+        "chats|chats-transcript|chats-widgets|gleepglorp|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|"
         "settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|shared"
     )
     assert lanes in proc.stderr

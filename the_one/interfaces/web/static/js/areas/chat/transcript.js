@@ -172,8 +172,13 @@
     // The quiet page line (App.ui.message.context). With a `bubble` already in the log it goes
     // right before it (the sender's own bubble, whose line the server sends back as
     // `page_line`); with none it is appended (addMsg then appends the bubble after it).
+    // M36 F4 L1b: the stored line ends with the page's route for the model, " (#library/mcp/~new)";
+    // the operator sees only the label, so the one trailing route suffix is dropped here (every
+    // chip, live or replayed, is built by this function). A route holds no whitespace.
     function addPageChip(bubble, line) {
-      if (typeof line !== 'string' || !line) return;
+      if (typeof line !== 'string') return;
+      line = line.replace(/ \(#\S*\)$/, '');
+      if (!line) return;
       var chip = App.ui.message.context({ text: line, testid: 'message-context' });
       if (bubble && bubble.parentNode === messagesEl) messagesEl.insertBefore(chip.el, bubble);
       else if (!bubble) messagesEl.appendChild(chip.el);

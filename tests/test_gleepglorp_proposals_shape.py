@@ -8,6 +8,7 @@ import pytest
 
 from tests._gleepglorp_seed import seed
 from the_one.agent.config import AgentConfig
+from the_one.gleepglorp import kinds
 from the_one.gleepglorp.proposals import shape
 from the_one.gleepglorp.proposals.shape import ShapeError
 from the_one.routines.repository import AgentRoutineRepository
@@ -471,7 +472,7 @@ async def test_base_uses_the_same_normaliser_as_the_precheck(monkeypatch, world)
         seen.append(field)
         return real(field, value, ids)
 
-    monkeypatch.setattr(shape, "comparable_value", spy)
+    monkeypatch.setattr(kinds.agent, "comparable_value", spy)
     await norm(world, "agent", "change", {"description": "d"}, agent="wide")
     assert seen == ["description"]
 

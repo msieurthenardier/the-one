@@ -47,7 +47,9 @@ async def providers_view(ctx: Ctx, name: str | None = None) -> Any:
             "used_by_gleepglorp": gg.provider_config_id == p.id,
         }
 
-    return await _list_or_detail("providers", entries, summarize, detail, name)
+    return await _list_or_detail(
+        "providers", entries, summarize, detail, name, id_of=lambda key: key
+    )
 
 
 async def knowledge_bases_view(ctx: Ctx, name: str | None = None) -> Any:

@@ -5,6 +5,11 @@ harness. It runs the stored change through the Leg 1 write services (so the oper
 validation applies) with the proposal's status update riding in the write's own transaction
 (``on_commit`` / the routine ``ProposalRunner``): the change lands once or not at all.
 
+The kind-specific part (does the target exist, the service call, the summary's wording) lives
+in the kind's module (``the_one.gleepglorp.kinds``); a kind's ``apply`` reports a failure the
+apply records as an :class:`~the_one.gleepglorp.kinds.errors.ApplyError` and lets anything
+else propagate.
+
 Order inside :func:`apply_proposal`:
 
 (a) before any write: an ``applied`` row answers "already applied"; a dismissed or withdrawn
@@ -13,8 +18,8 @@ Order inside :func:`apply_proposal`:
 (b) the service call, with the status mark inside its transaction.
 (c) on any exception, the row is re-read first: if another call applied it meanwhile the answer
     is "already applied", with no ``failed`` mark, no stale answer and no frames.
-(d) only otherwise is the error mapped: stale (nothing written, status unchanged), gone
-    (withdrawn), or failed (marked ``failed`` with ``result = {"errors": [{loc, msg}]}``).
+(d) only otherwise is an ``ApplyError`` folded: stale (nothing written, status unchanged),
+    gone (withdrawn), or failed (marked ``failed`` with ``result = {"errors": [{loc, msg}]}``).
     An exception that is none of these is not caught.
 
 Frames go out after the commit: ``proposal_changed`` to the chat, then, on an apply only,
@@ -23,37 +28,28 @@ Frames go out after the commit: ``proposal_changed`` to the chat, then, on an ap
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, cast
 
 import aiosqlite
 
-from the_one.agent import rules_service
-from the_one.agent import service as agent_service
-from the_one.agent.service import AgentStaleError, AgentWriteDeps, AgentWriteError
-from the_one.gleepglorp.proposals import continuation, shape
+# Tests patch the agent write service through this name (``proposal_apply.agent_service``):
+# it is the same module object ``kinds.agent`` calls, so one patch reaches the kind.
+from the_one.agent import service as agent_service  # noqa: F401
+from the_one.agent.service import AgentWriteDeps
+from the_one.gleepglorp import kinds
+from the_one.gleepglorp.kinds.base import HIDDEN_FIELDS
+from the_one.gleepglorp.kinds.deps import KindDeps
+from the_one.gleepglorp.kinds.errors import ApplyError
+from the_one.gleepglorp.proposals import continuation
 from the_one.gleepglorp.proposals.events import push_proposal_changed
 from the_one.gleepglorp.proposals.store import (
     OPEN_STATUSES,
     GleepGlorpProposalRepository,
-    Proposal,
-    display_values,
     mark_op,
     proposal_view,
 )
-from the_one.naming import NameRuleError
-from the_one.routines import service as routine_service
-from the_one.routines.describe import schedule_sentence
-from the_one.routines.limits import (
-    RoutineFieldError,
-    RoutineLimitError,
-    RoutineNameTaken,
-    RoutineScheduleError,
-)
-from the_one.routines.proposals import ProposalStaleError
-from the_one.routines.repository import AgentRoutineRepository, Flag
 
 Outcome = Literal[
     "applied", "already_applied", "failed", "stale", "gone", "busy", "closed", "dismissed"
@@ -61,7 +57,7 @@ Outcome = Literal[
 
 CONFIG_CHANGED = "config_changed"
 # The proposal fields that are internal stored keys, not something the operator reads.
-_HIDDEN_FIELDS = ("anchor_at",)
+_HIDDEN_FIELDS = HIDDEN_FIELDS
 
 
 class ProposalNotFound(KeyError):  # noqa: N818 - the route answers 404
@@ -118,155 +114,7 @@ class _MarkRunner:
             raise _AlreadyResolved
 
 
-# --- error mapping --------------------------------------------------------------------
-
-
-def _items(detail: Any) -> list[dict[str, Any]]:
-    if isinstance(detail, list):
-        out = []
-        for d in detail:
-            if isinstance(d, dict):
-                loc = [x if isinstance(x, (str, int)) else str(x) for x in d.get("loc", [])]
-                out.append({"loc": loc, "msg": str(d.get("msg", ""))})
-            else:
-                out.append({"loc": [], "msg": str(d)})
-        return out
-    return [{"loc": [], "msg": str(detail)}]
-
-
-def failure_errors(exc: BaseException) -> list[dict[str, Any]] | None:
-    """The ``[{loc, msg}]`` list for a validation failure, else ``None`` (not a failure the
-    apply records: it propagates)."""
-    if isinstance(exc, AgentWriteError):
-        return _items(exc.detail)
-    if isinstance(exc, RoutineFieldError):
-        return [{"loc": [exc.field], "msg": exc.message}]
-    if isinstance(exc, RoutineScheduleError):
-        return [{"loc": ["schedule"], "msg": exc.detail}]
-    if isinstance(exc, RoutineLimitError):
-        return [{"loc": [], "msg": exc.detail}]
-    if isinstance(exc, RoutineNameTaken):
-        return [{"loc": ["name"], "msg": exc.detail}]
-    if isinstance(exc, NameRuleError):
-        return [{"loc": ["name"], "msg": exc.message}]
-    return None
-
-
-def _is_gone(exc: BaseException, p: Proposal) -> bool:
-    if isinstance(exc, AgentWriteError):
-        return exc.status == 404
-    if isinstance(exc, KeyError):
-        return True
-    # agent_rules and agent_routines have a foreign key to agents.
-    return isinstance(exc, sqlite3.IntegrityError) and (
-        p.action == "create" and p.kind in ("rule", "routine")
-    )
-
-
-# --- summaries ------------------------------------------------------------------------
-
-
-def _labels(kind: str, keys: list[str]) -> list[str]:
-    by_stored = {f.stored: f.label for f in shape.SPECS[kind]}
-    return [by_stored.get(k, k) for k in keys]
-
-
-def _changed_keys(p: Proposal) -> list[str]:
-    return [k for k in p.changes if k not in _HIDDEN_FIELDS]
-
-
-def _summary(p: Proposal, routine_name: str | None, sentence: str | None) -> dict[str, Any]:
-    keys = _changed_keys(p)
-    labels = _labels(p.kind, keys)
-    agent = p.agent_name or ""
-    if p.kind == "agent":
-        text = (
-            f"Created agent {agent}"
-            if p.action == "create"
-            else f"Changed {', '.join(labels)} on {agent}"
-        )
-    elif p.kind == "rule":
-        text = (
-            f"Added a rule to {agent}"
-            if p.action == "create"
-            else f"Changed a rule of {agent}: {', '.join(labels)}"
-        )
-    else:
-        name = routine_name or ""
-        text = (
-            f"Added routine {name} to {agent}"
-            if p.action == "create"
-            else f"Changed routine {name} of {agent}: {', '.join(labels)}"
-        )
-    out: dict[str, Any] = {"summary": text, "agent": agent, "fields": labels}
-    if p.kind == "routine":
-        out["routine"] = routine_name
-        if sentence is not None:
-            out["schedule"] = sentence
-    return out
-
-
-# --- the stale payload ----------------------------------------------------------------
-
-
-async def _agent_or_rule_stale(
-    conn: aiosqlite.Connection, p: Proposal, e: AgentStaleError
-) -> list[dict[str, Any]]:
-    labels = {f.stored: f.label for f in shape.SPECS[p.kind]}
-    cur = await display_values(conn, {f["field"]: f["current"] for f in e.fields})
-    prop = await display_values(conn, {f["field"]: f["proposed"] for f in e.fields})
-    return [
-        {
-            "field": f["field"],
-            "label": labels.get(f["field"], f["field"]),
-            "current": cur[f["field"]],
-            "proposed": prop[f["field"]],
-        }
-        for f in e.fields
-    ]
-
-
-def _routine_stale(p: Proposal, e: ProposalStaleError, zone: Any) -> list[dict[str, Any]]:
-    labels = {f.stored: f.label for f in shape.SPECS["routine"]}
-    out: list[dict[str, Any]] = []
-    for pk in ("name", "prompt", "schedule", "enabled"):
-        if pk not in p.changes:
-            continue
-        keys = [k for k in routine_service._PAYLOAD_TO_BASE[pk] if k in e.current]
-        if not any(e.current.get(k) != e.base.get(k) for k in keys):
-            continue
-        if pk == "schedule":
-            current: Any = schedule_sentence(
-                e.current.get("schedule"), e.current.get("anchor_at"), zone
-            )
-            proposed: Any = schedule_sentence(
-                p.changes.get("schedule"), p.changes.get("anchor_at"), zone
-            )
-        else:
-            current, proposed = e.current.get(pk), p.changes[pk]
-        out.append({"field": pk, "label": labels[pk], "current": current, "proposed": proposed})
-    return out
-
-
 # --- apply ----------------------------------------------------------------------------
-
-
-async def _target_exists(conn: aiosqlite.Connection, deps: AgentWriteDeps, p: Proposal) -> bool:
-    from the_one.db.repositories import AgentRuleRepository
-
-    if p.kind == "agent" and p.action == "create":
-        return True
-    if not p.agent_name or not await deps.store.exists(p.agent_name):
-        return False
-    if p.kind == "agent" or p.action == "create":
-        return True
-    if p.kind == "rule":
-        rules = await AgentRuleRepository(conn).list_for_agent(p.agent_name)
-        return any(r.id == p.target_id for r in rules)
-    return (
-        p.target_id is not None
-        and await AgentRoutineRepository(conn).get(p.agent_name, p.target_id) is not None
-    )
 
 
 async def _resolved(
@@ -295,7 +143,7 @@ async def _frame(
 
 async def apply_proposal(
     conn: aiosqlite.Connection,
-    deps: AgentWriteDeps,
+    deps: AgentWriteDeps | KindDeps,
     proposal_id: int,
     *,
     override: bool,
@@ -305,6 +153,9 @@ async def apply_proposal(
 ) -> ProposalApplyResult:
     """Apply a pending (or failed) proposal; see the module docstring for the order.
 
+    ``deps`` is the agent write services' ``AgentWriteDeps`` or a ``KindDeps`` (an
+    ``AgentWriteDeps`` is wrapped).
+
     ``continue_chat`` (M36 F2 L5): after an apply, continue the chat (start the approval turn
     or record the approval). The eval harness passes ``False`` and drives it itself.
 
@@ -313,6 +164,7 @@ async def apply_proposal(
     """
     from the_one.sessions._locks import is_session_busy
 
+    deps = KindDeps.of(deps)
     repo = GleepGlorpProposalRepository(conn)
     p = await repo.get(proposal_id)
     if p is None:
@@ -324,55 +176,30 @@ async def apply_proposal(
         return cast(ProposalApplyResult, await _resolved(conn, repo, proposal_id))
     if is_session_busy(p.session_id):
         return ProposalApplyResult("busy")
-    if not await _target_exists(conn, deps, p):
+    kind = kinds.get(p.kind)
+    if not await kind.exists(conn, deps, p):
         return await _withdraw_gone(conn, repo, proposal_id)
 
     changes = dict(p.changes)
     base = dict(p.base or {})
-    routine_name: str | None = changes.get("name") if p.kind == "routine" else None
-    sentence: str | None = None
-    if p.kind == "routine":
-        tz = await zone()
-        if "schedule" in changes:
-            sentence = schedule_sentence(changes["schedule"], changes.get("anchor_at"), tz)
-    result = _summary(p, routine_name, sentence)
+    result = await kind.summary_text(p, zone)
     mark = _mark_applied(proposal_id, result)
     # (b)
     try:
-        if p.kind == "agent" and p.action == "create":
-            await agent_service.create_agent(deps, changes, on_commit=mark)
-        elif p.kind == "agent":
-            assert p.agent_name is not None
-            await agent_service.change_agent(
-                deps, p.agent_name, changes, base=base, override=override, on_commit=mark
-            )
-        elif p.kind == "rule" and p.action == "create":
-            assert p.agent_name is not None
-            pos = changes.get("position")
-            await rules_service.create_rule(
-                _rule_repo(conn),
-                p.agent_name,
-                changes["text"],
-                changes.get("enabled", True),
-                position=None if pos is None else pos - 1,
-                on_commit=mark,
-            )
-        elif p.kind == "rule":
-            assert p.agent_name is not None and p.target_id is not None
-            await rules_service.change_rule(
-                _rule_repo(conn),
-                p.agent_name,
-                p.target_id,
-                changes,
-                base=base,
-                override=override,
-                on_commit=mark,
-            )
-        else:
-            routine_name = await _apply_routine(
-                conn, p, changes, base, override, now, zone, result, routine_name
-            )
-    except Exception as exc:  # noqa: BLE001 - mapped below or re-raised
+        await kind.apply(
+            conn,
+            deps,
+            p,
+            changes=changes,
+            base=base,
+            override=override,
+            now=now,
+            zone=zone,
+            mark=mark,
+            runner=_MarkRunner(p.id, result),
+            result=result,
+        )
+    except Exception as exc:  # noqa: BLE001 - folded below or re-raised
         # (c)
         row = await repo.get(proposal_id)
         if row is not None and row.status == "applied":
@@ -381,17 +208,14 @@ async def apply_proposal(
             closed = await _resolved(conn, repo, proposal_id)
             return closed or ProposalApplyResult("closed", status=row.status if row else None)
         # (d)
-        if isinstance(exc, AgentStaleError):
-            return ProposalApplyResult("stale", stale=await _agent_or_rule_stale(conn, p, exc))
-        if isinstance(exc, ProposalStaleError):
-            return ProposalApplyResult("stale", stale=_routine_stale(p, exc, await zone()))
-        if _is_gone(exc, p):
-            return await _withdraw_gone(conn, repo, proposal_id)
-        errors = failure_errors(exc)
-        if errors is None:
+        if not isinstance(exc, ApplyError):
             raise
+        if exc.stale is not None:
+            return ProposalApplyResult("stale", stale=exc.stale)
+        if exc.gone:
+            return await _withdraw_gone(conn, repo, proposal_id)
         marked = await repo.mark(
-            proposal_id, "failed", result={"errors": errors}, from_statuses=OPEN_STATUSES
+            proposal_id, "failed", result={"errors": exc.items}, from_statuses=OPEN_STATUSES
         )
         if not marked:
             return await _resolved(conn, repo, proposal_id) or ProposalApplyResult("closed")
@@ -407,6 +231,7 @@ async def apply_proposal(
             "type": CONFIG_CHANGED,
             "kind": p.kind,
             "agent": p.agent_name,
+            "target_id": p.target_id,
             "fields": changed,
             "session_id": p.session_id,
             "proposal_id": p.id,
@@ -416,81 +241,6 @@ async def apply_proposal(
     if continue_chat:
         await continuation.on_approved(conn, p, result["summary"])
     return ProposalApplyResult("applied", view, changed=changed)
-
-
-def _rule_repo(conn: aiosqlite.Connection) -> Any:
-    from the_one.db.repositories import AgentRuleRepository
-
-    return AgentRuleRepository(conn)
-
-
-async def _apply_routine(
-    conn: aiosqlite.Connection,
-    p: Proposal,
-    changes: dict[str, Any],
-    base: dict[str, Any],
-    override: bool,
-    now: datetime,
-    zone: Any,
-    result: dict[str, Any],
-    routine_name: str | None,
-) -> str | None:
-    """Run a routine create or change through the routine service as the operator would
-    (``created_by="operator"``, no agent caps); the stored schedule pair is passed so the
-    schedule is not re-derived. An untrusted proposal's flag is carried onto the routine."""
-    assert p.agent_name is not None
-    repo = AgentRoutineRepository(conn)
-    flag: Flag = ("merge", list(p.untrusted_sources)) if p.untrusted else None
-    runner = _MarkRunner(p.id, result)
-    data: dict[str, Any] = {k: changes[k] for k in ("name", "prompt", "enabled") if k in changes}
-    pair = (
-        await routine_service.approval_pair(
-            {"schedule": changes["schedule"], "anchor_at": changes.get("anchor_at")}, zone
-        )
-        if "schedule" in changes
-        else None
-    )
-    if p.action == "create":
-        data.setdefault("enabled", True)
-        await routine_service.create_routine(
-            repo,
-            p.agent_name,
-            data,
-            now=now,
-            zone=zone,
-            created_by="operator",
-            agent_caps=False,
-            flag=flag,
-            proposal=runner,
-            schedule_pair=pair,
-        )
-        return routine_name
-    assert p.target_id is not None
-    current = await repo.get(p.agent_name, p.target_id)
-    if current is None:
-        raise KeyError(p.target_id)
-    result["routine"] = data.get("name", current.name)
-    touched = [
-        k for k in routine_service._touched_base_keys("update", data | _sched(changes)) if k in base
-    ]
-    precheck = routine_service.stale_precheck_for(base, touched, override, changes)
-    await routine_service.update_routine(
-        repo,
-        p.agent_name,
-        current,
-        data,
-        now=now,
-        zone=zone,
-        flag=flag,
-        proposal=runner,
-        precheck=precheck,
-        schedule_pair=pair,
-    )
-    return routine_name
-
-
-def _sched(changes: dict[str, Any]) -> dict[str, Any]:
-    return {"schedule": changes["schedule"]} if "schedule" in changes else {}
 
 
 async def _withdraw_gone(

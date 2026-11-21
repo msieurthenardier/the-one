@@ -14,6 +14,7 @@ from typing import Any
 
 from the_one.agent._context import current_chat_session_id, current_tool_call_id, current_turn
 from the_one.agent.taint import compute_taint
+from the_one.gleepglorp import kinds, outside
 from the_one.gleepglorp.fill.events import push_fill_changed, push_fill_requested
 from the_one.gleepglorp.fill.store import GleepGlorpFillRepository, NewFill, fill_view
 from the_one.gleepglorp.proposals import guard, shape
@@ -46,7 +47,7 @@ class FillFormTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "kind": {"type": "string", "enum": ["agent"]},
+            "kind": {"type": "string", "enum": list(kinds.FILLABLE)},
             "action": {"type": "string", "enum": list(shape.ACTIONS)},
             "agent": {"type": ["string", "null"]},
             "changes": {"type": "object"},
@@ -100,7 +101,7 @@ class FillFormTool(Tool):
         conn = await get_connection()
         eff = await time_zones.load_effective_zone(conn)
         enc = get_encryptor(settings.data_dir)
-        norm = await shape.normalize(
+        norm = await kinds.normalize(
             kind,
             action,
             {"agent": agent},
@@ -114,6 +115,15 @@ class FillFormTool(Tool):
         if refusal is not None:
             return refusal
         untrusted, sources = compute_taint(self._agent, current_tool_call_id.get(), turn)
+        if untrusted:
+            # The outside-value guard (M36 F4 L3, DD7); see ``the_one/gleepglorp/outside.py``.
+            refusal = outside.check(
+                kinds.get(norm.kind),
+                norm.changes,
+                outside.collect(self._agent, current_tool_call_id.get(), turn),
+            )
+            if refusal is not None:
+                return refusal
         repo = GleepGlorpFillRepository(conn)
         fill_id, replaced = await repo.insert(
             NewFill(
@@ -121,6 +131,7 @@ class FillFormTool(Tool):
                 kind=norm.kind,
                 action=norm.action,
                 agent_name=norm.agent_name,
+                target_id=norm.target_id,
                 target_key=norm.target_key,
                 changes=norm.changes,
                 base=norm.base,

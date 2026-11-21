@@ -17,7 +17,9 @@ from typing import Any
 
 import aiosqlite
 
+from the_one.gleepglorp import kinds
 from the_one.gleepglorp import settings as gg_settings
+from the_one.gleepglorp.kinds.base import default_title
 from the_one.gleepglorp.proposals.store import Proposal
 from the_one.sessions.turn_host import get_turn_host
 
@@ -37,10 +39,10 @@ def dismissal_text(proposal_id: int, title: str) -> str:
 
 def proposal_title(p: Proposal) -> str:
     """The card title's wording, e.g. ``change agent Issue digest``."""
-    name = p.agent_name or ""
-    if p.kind == "routine" and p.changes.get("name"):
-        name = f"{p.changes['name']} of {name}"
-    return f"{p.action} {p.kind} {name}".strip()
+    try:
+        return kinds.get(p.kind).title(p)
+    except KeyError:  # a kind this build does not know: the generic wording
+        return default_title(p)
 
 
 async def is_ready(conn: aiosqlite.Connection) -> bool:

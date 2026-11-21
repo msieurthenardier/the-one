@@ -20,6 +20,7 @@ import aiosqlite
 
 from the_one.db._write_lock import write_transaction
 from the_one.db.models import now_iso
+from the_one.gleepglorp.status_rows import get_row, list_for_session_rows, loads
 
 OPEN_STATUSES = ("pending", "failed")
 STATUSES = ("pending", "applied", "dismissed", "withdrawn", "failed")
@@ -73,13 +74,8 @@ class Proposal:
     resolved_at: str | None
 
 
-def _loads(raw: Any, default: Any = None) -> Any:
-    if raw is None:
-        return default
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        return default
+_TABLE = "gleepglorp_proposals"
+_loads = loads
 
 
 def _row(row: Any) -> Proposal:
@@ -144,8 +140,14 @@ class GleepGlorpProposalRepository:
 
         An open proposal that is ``failed``, or has the same ``target_key``, is marked
         ``withdrawn`` (``result = {"reason": "replaced", "by": new_id}``) and the new row is
-        inserted; any other open proposal refuses the insert with :class:`ProposalOpen`.
+        inserted; any other open proposal refuses the insert with :class:`ProposalOpen`. A kind
+        the registry does not know is refused with ``ValueError`` (the table has no kind CHECK
+        since schema v56; the registry is the gate).
         """
+        from the_one.gleepglorp import kinds
+
+        if new.kind not in kinds.KINDS:
+            raise ValueError(f"unsupported proposal kind: {new.kind!r}")
         async with write_transaction(self.conn):
             async with self.conn.execute(
                 f"SELECT {_COLS} FROM gleepglorp_proposals "  # noqa: S608
@@ -194,19 +196,10 @@ class GleepGlorpProposalRepository:
         return new_id
 
     async def get(self, proposal_id: int) -> Proposal | None:
-        async with self.conn.execute(
-            f"SELECT {_COLS} FROM gleepglorp_proposals WHERE id = ?",  # noqa: S608
-            (proposal_id,),
-        ) as cur:
-            row = await cur.fetchone()
-        return _row(row) if row else None
+        return await get_row(self.conn, _TABLE, _COLS, _row, proposal_id)
 
     async def list_for_session(self, session_id: str) -> list[Proposal]:
-        async with self.conn.execute(
-            f"SELECT {_COLS} FROM gleepglorp_proposals WHERE session_id = ? ORDER BY id",  # noqa: S608
-            (session_id,),
-        ) as cur:
-            return [_row(r) for r in await cur.fetchall()]
+        return await list_for_session_rows(self.conn, _TABLE, _COLS, _row, session_id)
 
     async def open_for_session(self, session_id: str) -> Proposal | None:
         async with self.conn.execute(
@@ -362,7 +355,7 @@ async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, An
     now, or ``"(removed)"`` when it no longer exists) and ``labels`` (the card text for each
     field, keyed by stored field name). ``base`` is ``None`` for a create.
     """
-    from the_one.gleepglorp.proposals import shape
+    from the_one.gleepglorp import kinds
 
     names = await _name_map(conn)
     extra = await _card_extras(conn, p)
@@ -382,5 +375,5 @@ async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, An
         "tool_call_id": p.tool_call_id,
         "changes": _display(p.changes, names),
         "base": _display(p.base, names),
-        "labels": {f.stored: f.label for f in shape.SPECS.get(p.kind, ())},
+        "labels": {f.stored: f.label for f in kinds.SPECS.get(p.kind, ())},
     }

@@ -38,7 +38,8 @@ from the_one.interfaces.web import app as app_module
 from the_one.llm.base import Message, Role, content_to_text
 
 PAGE = {"destination": "library", "section": "mcp", "create": True}
-LINE = "Library › MCP servers › New MCP server"
+# What the server builds for PAGE (a create page): the label plus its route.
+LINE = "Library › MCP servers › New MCP server (#library/mcp/~new)"
 
 
 class _PageAgent(_FakeAgent):

@@ -20,14 +20,9 @@ async def push_proposal_changed(session_id: str, view: dict[str, Any]) -> None:
 
     Never raises: a push failure is logged and the proposal stays recorded.
     """
-    from the_one.sessions._broadcast import broadcast_to_session
+    from the_one.gleepglorp.status_rows import push_session_frame
 
-    try:
-        await broadcast_to_session(
-            session_id, {"type": PROPOSAL_CHANGED, "session_id": session_id, "proposal": view}
-        )
-    except Exception:  # noqa: BLE001
-        logger.warning("proposal_changed push failed", exc_info=True)
+    await push_session_frame(session_id, PROPOSAL_CHANGED, "proposal", view, PROPOSAL_CHANGED)
 
 
 PROPOSALS_SNAPSHOT = "proposals_snapshot"

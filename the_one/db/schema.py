@@ -15,7 +15,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 55
+CURRENT_VERSION = 56
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -442,6 +442,117 @@ async def _get_version(conn: aiosqlite.Connection) -> int:
         return 0
 
 
+async def _proposals_has_kind_check(conn: aiosqlite.Connection) -> bool:
+    """True while ``gleepglorp_proposals`` has the v54 ``CHECK (kind IN`` (v56 drops it)."""
+    async with conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gleepglorp_proposals'"
+    ) as cursor:
+        row = await cursor.fetchone()
+    return bool(row and row[0] and "CHECK (kind IN" in row[0])
+
+
+async def _fills_has_target_id(conn: aiosqlite.Connection) -> bool:
+    """True once ``gleepglorp_fills`` has the v56 ``target_id`` column."""
+    async with conn.execute("PRAGMA table_info(gleepglorp_fills)") as cursor:
+        return any(row[1] == "target_id" for row in await cursor.fetchall())
+
+
+async def _sequence_carry(conn: aiosqlite.Connection, table: str) -> str:
+    """SQL that restores *table*'s AUTOINCREMENT high-water mark after a rebuild ('' if none)."""
+    async with conn.execute("SELECT seq FROM sqlite_sequence WHERE name = ?", (table,)) as cursor:
+        row = await cursor.fetchone()
+    if row is None or row[0] is None:
+        return ""
+    seq = int(row[0])
+    return (
+        f"UPDATE sqlite_sequence SET seq = max(seq, {seq}) WHERE name = '{table}';\n"
+        f"INSERT INTO sqlite_sequence (name, seq) SELECT '{table}', {seq} "
+        f"WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = '{table}');\n"
+    )
+
+
+async def _proposals_rebuild_script(conn: aiosqlite.Connection) -> str:
+    cols = (
+        "id, session_id, tool_call_id, kind, action, agent_name, target_id, target_key, "
+        "changes, base, status, result, untrusted, untrusted_sources, created_at, resolved_at"
+    )
+    carry = await _sequence_carry(conn, "gleepglorp_proposals")
+    return f"""\
+PRAGMA foreign_keys=OFF;
+DROP TABLE IF EXISTS gleepglorp_proposals_new;
+CREATE TABLE gleepglorp_proposals_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    tool_call_id TEXT,
+    kind TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('create', 'change')),
+    agent_name TEXT,
+    target_id TEXT,
+    target_key TEXT NOT NULL,
+    changes TEXT NOT NULL,
+    base TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN
+('pending', 'applied', 'dismissed', 'withdrawn', 'failed')),
+    result TEXT,
+    untrusted INTEGER NOT NULL DEFAULT 0,
+    untrusted_sources TEXT,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+INSERT INTO gleepglorp_proposals_new ({cols}) SELECT {cols} FROM gleepglorp_proposals;
+DROP TABLE gleepglorp_proposals;
+ALTER TABLE gleepglorp_proposals_new RENAME TO gleepglorp_proposals;
+{carry}CREATE INDEX IF NOT EXISTS idx_gleepglorp_proposals_session
+    ON gleepglorp_proposals (session_id, status);
+CREATE INDEX IF NOT EXISTS idx_gleepglorp_proposals_agent
+    ON gleepglorp_proposals (agent_name);
+PRAGMA foreign_keys=ON;
+"""
+
+
+async def _fills_rebuild_script(conn: aiosqlite.Connection) -> str:
+    old_cols = (
+        "id, session_id, tool_call_id, kind, action, agent_name, target_key, changes, base, "
+        "status, outcome, claim_token, untrusted, untrusted_sources, created_at, claimed_at, "
+        "resolved_at"
+    )
+    new_cols = old_cols.replace("agent_name, ", "agent_name, target_id, ")
+    select = old_cols.replace("agent_name, ", "agent_name, NULL, ")
+    carry = await _sequence_carry(conn, "gleepglorp_fills")
+    return f"""\
+PRAGMA foreign_keys=OFF;
+DROP TABLE IF EXISTS gleepglorp_fills_new;
+CREATE TABLE gleepglorp_fills_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    tool_call_id TEXT,
+    kind TEXT NOT NULL,
+    action TEXT NOT NULL CHECK (action IN ('create', 'change')),
+    agent_name TEXT,
+    target_id TEXT,
+    target_key TEXT NOT NULL,
+    changes TEXT NOT NULL,
+    base TEXT,
+    status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN
+('sent', 'applying', 'filled', 'partly_filled', 'not_filled', 'replaced')),
+    outcome TEXT,
+    claim_token TEXT,
+    untrusted INTEGER NOT NULL DEFAULT 0,
+    untrusted_sources TEXT,
+    created_at TEXT NOT NULL,
+    claimed_at TEXT,
+    resolved_at TEXT
+);
+INSERT INTO gleepglorp_fills_new ({new_cols}) SELECT {select} FROM gleepglorp_fills;
+DROP TABLE gleepglorp_fills;
+ALTER TABLE gleepglorp_fills_new RENAME TO gleepglorp_fills;
+{carry}CREATE INDEX IF NOT EXISTS idx_gleepglorp_fills_session
+    ON gleepglorp_fills (session_id, status);
+CREATE INDEX IF NOT EXISTS idx_gleepglorp_fills_agent ON gleepglorp_fills (agent_name);
+PRAGMA foreign_keys=ON;
+"""
+
+
 async def ensure_schema(conn: aiosqlite.Connection) -> None:
     """Apply schema migrations up to CURRENT_VERSION."""
     version = await _get_version(conn)
@@ -795,9 +906,9 @@ INSERT INTO mcp_sources_new (id, name, type, config, secrets, created_at, update
         # cleanly.
         #
         # ``executescript`` (vs the v9/v10 individual-execute pattern documented
-        # in CLAUDE.md) is REQUIRED here: ``PRAGMA foreign_keys=OFF`` only
-        # takes effect within the same script as the DROP/RENAME — separate
-        # ``conn.execute`` calls re-evaluate FK state between statements.
+        # in the_one/agents.md, "Provider type extension checklist") is REQUIRED here:
+        # ``PRAGMA foreign_keys=OFF`` only takes effect within the same script as the
+        # DROP/RENAME — separate ``conn.execute`` calls re-evaluate FK state between statements.
         # ``DROP TABLE IF EXISTS llm_providers_new`` is the defensive prelude
         # that makes a re-run after a crash AFTER ``CREATE TABLE
         # llm_providers_new`` (but BEFORE the rename) recover cleanly.
@@ -3497,3 +3608,20 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (55,))
         await conn.commit()
         version = 55
+
+    if version < 56:
+        # Mission 36 F4 L1b (DD4) — the proposals table drops its kind CHECK (the kinds
+        # registry is the gate now) and the fills table gains a nullable ``target_id`` and a
+        # nullable ``agent_name`` (kinds that are not agent-scoped). Same rebuild ceremony as
+        # v12/v33/v44: one ``executescript`` per table (``PRAGMA foreign_keys=OFF`` only holds
+        # inside the script), a ``DROP TABLE IF EXISTS <t>_new`` prelude, every column copied by
+        # name, the indexes recreated, the AUTOINCREMENT high-water mark carried (proposal ids
+        # show in chat text), and the version stamp last. Each table is checked and rebuilt
+        # independently so a half-done table never blocks the other.
+        if await _proposals_has_kind_check(conn):
+            await conn.executescript(await _proposals_rebuild_script(conn))
+        if not await _fills_has_target_id(conn):
+            await conn.executescript(await _fills_rebuild_script(conn))
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (56,))
+        await conn.commit()
+        version = 56

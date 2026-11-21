@@ -671,6 +671,9 @@ def test_a_later_message_carries_the_agent_tab_it_was_sent_from(
     assert pages == [{"destination": "agents", "item": agent, "item_name": agent, "tab": "tools"}]
     assert [f["page"] for f in _frames(page, "start_session")] == [{"destination": "agents"}]
     expect(page.locator(CHIP)).to_have_text(["Agents", f"Agents › {agent} › Tools"])
+    # The server's line carries the page's route for the model (M36 F4 L1b); the operator's chip
+    # never shows it, for a resolved item (this one) or any other.
+    assert all("(#" not in t for t in page.locator(CHIP).all_inner_texts())
 
 
 def test_a_queued_message_carries_the_page_it_was_queued_on(

@@ -1,0 +1,87 @@
+"""The :class:`Kind` record: one proposable kind of change (Mission 36 F4 L1a, DD2).
+
+A kind is declared once, in its own module (``agent``, ``rule``, ``routine``), as a frozen
+``Kind`` holding its field table and the functions that act on it: normalize a model's
+proposal, say whether the target still exists, apply the stored change, word the result's
+summary and title the card. The registry (``the_one.gleepglorp.kinds.REGISTRY``) is an
+explicit tuple of them; nothing registers itself on import.
+
+The callables take the same arguments for every kind, so the apply path and the tools
+dispatch by name and never branch on a kind.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from the_one.gleepglorp.proposals.shape import FieldSpec, Normalized
+
+if TYPE_CHECKING:
+    from the_one.gleepglorp.proposals.store import Proposal
+
+# The proposal fields that are internal stored keys, not something the operator reads.
+HIDDEN_FIELDS = ("anchor_at",)
+
+#: ``normalize(action, target, changes, *, conn, now, zone, enc) -> Normalized``
+NormalizeFn = Callable[..., Awaitable[Normalized]]
+#: ``exists(conn, deps, p) -> bool``: the target of the stored proposal is still there.
+ExistsFn = Callable[..., Awaitable[bool]]
+#: ``apply(conn, deps, p, *, changes, base, override, now, zone, mark, runner, result)``;
+#: raises ``ApplyError`` for a failure the apply records, and anything else propagates.
+ApplyFn = Callable[..., Awaitable[str | None]]
+#: ``summary_text(p, zone) -> {"summary", "agent", "fields", ...}``
+SummaryFn = Callable[..., Awaitable[dict[str, Any]]]
+#: ``resolve_target(conn, ref) -> (target_id, name)``: the existing target a model named by
+#: id or name; raises ``ShapeError`` with a plain sentence for an unknown or ambiguous ref.
+ResolveTargetFn = Callable[..., Awaitable[tuple[str, str]]]
+
+
+def changed_labels(fields: tuple[FieldSpec, ...], p: Proposal) -> list[str]:
+    """The card labels of the stored fields a proposal changes, in stored order."""
+    by_stored = {f.stored: f.label for f in fields}
+    return [by_stored.get(k, k) for k in p.changes if k not in HIDDEN_FIELDS]
+
+
+def default_title(p: Proposal) -> str:
+    """The card title's wording, e.g. ``change agent Issue digest``."""
+    return f"{p.action} {p.kind} {p.agent_name or ''}".strip()
+
+
+def default_card_title(kind: str, action: str, agent_name: str | None) -> str:
+    quoted = f"“{agent_name}”"
+    return f"{'Create' if action == 'create' else 'Change'} {kind} {quoted}"
+
+
+@dataclass(frozen=True)
+class Kind:
+    """One kind of change GleepGlorp may propose.
+
+    ``operator_only`` names the stored fields the operator alone controls: they appear in no
+    kind's ``fields`` (a test pins it). ``fillable`` lists the actions the ``fill_form`` tool
+    may carry; empty means the kind is not fillable. ``title`` words the chat's marker for a
+    proposal, ``card_title`` the fill card's title. ``resolve_target`` is optional (``None``):
+    a kind that is targeted by id (not by an agent plus a position or name) sets it to resolve
+    the model's ref to ``(id, name)`` (Leg 4's MCP server and provider kinds).
+    """
+
+    name: str
+    label: str
+    summary: str
+    fields: tuple[FieldSpec, ...]
+    normalize: NormalizeFn
+    exists: ExistsFn
+    apply: ApplyFn
+    summary_text: SummaryFn
+    operator_only: tuple[str, ...] = ()
+    fillable: tuple[str, ...] = ()
+    actions: tuple[str, ...] = ("create", "change")
+    title: Callable[[Any], str] = default_title
+    card_title: Callable[[str, str | None], str] | None = None
+    resolve_target: ResolveTargetFn | None = None
+
+    def card(self, action: str, agent_name: str | None) -> str:
+        if self.card_title is not None:
+            return self.card_title(action, agent_name)
+        return default_card_title(self.name, action, agent_name)

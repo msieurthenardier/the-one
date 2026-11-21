@@ -11,6 +11,7 @@ from _routine_tools_env import asst, call, done, make_agent, run_turn
 from tests._gleepglorp_seed import seed
 from the_one.agent._context import TurnContext, current_turn
 from the_one.agent.taint import TRUSTED_TOOL_NAMES
+from the_one.gleepglorp import kinds
 from the_one.gleepglorp.proposals import shape
 from the_one.gleepglorp.proposals.store import GleepGlorpProposalRepository
 from the_one.gleepglorp.proposals.tool import PROPOSE_CHANGE_TOOL_NAME, ProposeChangeTool
@@ -159,7 +160,7 @@ async def test_it_never_raises_into_the_loop(world, tool, monkeypatch) -> None:
     async def boom(*_a, **_k):
         raise RuntimeError("explodes")
 
-    monkeypatch.setattr(shape, "normalize", boom)
+    monkeypatch.setattr(kinds, "normalize", boom)
     assert await propose(tool, **rule_new()) == "Could not record that proposal right now."
 
 

@@ -88,7 +88,14 @@ def test_every_page_line_is_what_the_page_module_builds_for_its_expanded_descrip
                         continue
                     descriptor = turn.page.get("descriptor")
                     assert descriptor, (sc.id, turn.page)
-                    assert build_line(descriptor) == turn.page["line"], (sc.id, variant.id)
+                    # What production builds: the scenarios' only item pages are agent pages,
+                    # where the id is the name and the item resolved to its own name.
+                    built = build_line(
+                        descriptor,
+                        resolved_name=descriptor.get("item_name") or descriptor.get("item"),
+                        resolved_id=descriptor.get("item"),
+                    )
+                    assert built == turn.page["line"], (sc.id, variant.id)
                     seen += 1
     assert seen > 100
 

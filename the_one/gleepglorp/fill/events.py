@@ -18,14 +18,9 @@ SNAPSHOT_CAP = 200
 
 
 async def _push(session_id: str, frame_type: str, view: dict[str, Any]) -> None:
-    from the_one.sessions._broadcast import broadcast_to_session
+    from the_one.gleepglorp.status_rows import push_session_frame
 
-    try:
-        await broadcast_to_session(
-            session_id, {"type": frame_type, "session_id": session_id, "fill": view}
-        )
-    except Exception:  # noqa: BLE001
-        logger.warning("%s push failed", frame_type, exc_info=True)
+    await push_session_frame(session_id, frame_type, "fill", view, frame_type)
 
 
 async def push_fill_requested(session_id: str, view: dict[str, Any]) -> None:

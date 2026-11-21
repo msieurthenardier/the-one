@@ -132,4 +132,8 @@ async def mcp_servers_view(ctx: Ctx, name: str | None = None) -> Any:
         out["agents"] = await store.list_by_mcp_source(src.id)
         return out
 
-    return await _list_or_detail("mcp_servers", entries, summarize, detail, name)
+    # The id is what a proposal names to target one server (two may share a name). The
+    # synthetic self-configuration entry has no id (its key is None).
+    return await _list_or_detail(
+        "mcp_servers", entries, summarize, detail, name, id_of=lambda key: key
+    )

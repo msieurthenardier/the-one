@@ -14,6 +14,7 @@ from tests._gleepglorp_seed import seed
 from tests._routine_app import routine_app, wait_for  # noqa: F401
 from the_one.agent._context import TurnContext, current_turn
 from the_one.agent.taint import TRUSTED_TOOL_NAMES
+from the_one.gleepglorp import kinds
 from the_one.gleepglorp.fill.store import GleepGlorpFillRepository
 from the_one.gleepglorp.fill.tool import (
     FILL_FORM_TOOL_NAME,
@@ -21,7 +22,6 @@ from the_one.gleepglorp.fill.tool import (
     NO_NOTES,
     FillFormTool,
 )
-from the_one.gleepglorp.proposals import shape
 from the_one.tools.base import Tool
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -194,7 +194,7 @@ async def test_it_never_raises_into_the_loop(world, tool, monkeypatch) -> None:
     async def boom(*_a, **_k):
         raise RuntimeError("explodes")
 
-    monkeypatch.setattr(shape, "normalize", boom)
+    monkeypatch.setattr(kinds, "normalize", boom)
     assert await fill(tool, **create()) == "Could not fill the form right now."
 
 

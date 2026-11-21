@@ -26,12 +26,12 @@ facts = [
 
 [[conversations]]
 turns = [
-  {text = "{phrasing}", page = {line = "Library › MCP servers › New MCP server", descriptor = {destination = "library", section = "mcp", create = true}}},
+  {text = "{phrasing}", page = {line = "Library › MCP servers › New MCP server (#library/mcp/~new)", descriptor = {destination = "library", section = "mcp", create = true}}},
 ]
 
 [[conversations]]
 turns = [
-  {text = "{phrasing}", page = {line = "Settings › Built-in tools", descriptor = {destination = "settings", section = "tools"}}},
+  {text = "{phrasing}", page = {line = "Settings › Built-in tools (#settings/tools)", descriptor = {destination = "settings", section = "tools"}}},
 ]
 
 [[checks]]
