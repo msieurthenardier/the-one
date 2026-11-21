@@ -1297,6 +1297,60 @@ cite, so none had drifted.
         the 1440x900 outer size (push mode is visible in 02 and 03).
       - **Small observation for the HAT:** after the fill the drawer reads
         "Looking at Agents › New" while the editor title is "New Agent".
+    - **Parts B and D committed: `b5af8732`.**
+    - **Leg 9 Part C, macOS.**
+      - **Operator-approved (2026-11-20): "Push and dispatch".**
+      - **Push:** `git push -u origin flight/03-drawer-and-form-filling`,
+        the branch's first push. `git rev-parse HEAD
+        origin/flight/03-drawer-and-form-filling` gives `b5af8732…` on both
+        sides.
+      - **Dispatch, as its own command:** `gh workflow run
+        macos-packages.yml --ref flight/03-drawer-and-form-filling -f
+        mode=lifecycle`. Run id **44917105365**, head
+        `b5af87322b6eae6c49c288f4dd90f5fe61fac03e`, created
+        2026-11-21T15:03:16Z.
+      - **Result: success.** The build job took 3m58s. The lifecycle
+        `SUMMARY.txt` reads "done in 94 s: 14 PASS, 0 FAIL" (L0-L10,
+        LCRASH, L9b, LEND).
+      - **The existing steps are unchanged and pass:**
+        - L0 install;
+        - L1 launch;
+        - L2 and L3 close and reopen;
+        - L4 second launch;
+        - L5 geometry (screen 1024x768);
+        - L6-L8 the three quits;
+        - L9 upgrade to 0.16.7.dev1;
+        - L10 trash;
+        - LEND, with no process or listener left.
+      - **L9b PASS** (artifact `macos-packages-logs/lifecycle/L9b/`):
+        - **Its own instance:** N+1 quit on 8484 and no listener left
+          there, then `open -a` with port 8486, a scratch data dir and dev
+          mode. Live, pid 10580. Seed: provider `169f6095ece4`, dev mode
+          true, `ready`.
+        - **Window:** 896x640 at 64,64, so overlay mode. The CSS width is
+          inferred.
+        - **Drive:** Cmd K to Settings › Appearance, then Cmd K "Ask
+          GleepGlorp" → the drawer open over the page, with "Looking at
+          Settings › Appearance", the empty state and the composer focused
+          (`drawer-open.png`).
+        - **Fill:** the message was sent, and `--check-fill` exited 0
+          within 90 s with `{"fill_status": "filled", "agent_exists":
+          false}`.
+          - **`fill-applied.png`:** New Agent with Name and Description
+            filled, each with "Filled by GleepGlorp · 3:06 PM"; "No agents
+            yet."; the drawer's receipt "Form filled … 3 fields · Not
+            saved"; the reply "The form is filled, not saved. Click Save."
+        - **Esc:** sent (`after-esc.png`). The drawer is closed, the corner
+          button shows a focus ring, "Unsaved changes" with Create and
+          Cancel, and the filled values remain.
+        - **Cleanup:** the instance was quit.
+      - **AC5 met.**
+      - **Direct proof:** the fill row and the agent list over HTTP, and the
+        real app window in WKWebView.
+      - **Screenshot-only:** the drawer, the notes and focus after Esc.
+    - **Leg 9 `completed`.** AC1-AC7 are met; all three engines show the
+      drawer, Esc and a fill as unsaved edits. Limits are stated per engine
+      above. Next: Leg 10, the HAT and the closing gate.
         - **Leg 8 gate 5 follow-up (Developer, offline, no model call).**
           - **Fix 1, `key-needed-no-ask`:** the carve-out's negated phrase
             (two copies) accepts a coordinated verb list ("never paste or
