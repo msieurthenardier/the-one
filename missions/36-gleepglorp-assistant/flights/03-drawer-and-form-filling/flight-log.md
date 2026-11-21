@@ -1215,6 +1215,88 @@ cite, so none had drifted.
         - **Reviewer: Sonnet.** The diff includes a script that drives
           instances with a credential, a packaging script and a CI
           workflow.
+        - **Review: `[HANDOFF:confirmed]`.** One non-blocking fix was made:
+          the seed script now also refuses a directory inside the default
+          data dir. Falsified; 28 tests passed. Committed `78066a3f`.
+    - **Leg 9 Part B, WebKitGTK** (FD).
+      - **Instance:** `the-one serve` on 8492, data dir
+        `~/m36f3-l9-webkit/data`, started from its own scratch cwd, PID
+        recorded. Seed `--rotate-if-missing`: provider `6cb54d65cdf0`, dev
+        mode true, GleepGlorp `ready`.
+      - **Esc run:** passes.
+        - The drawer opened and the setup script focused Close
+          (`gg-drawer-close`).
+        - `Escape` was sent as a GTK event (keyval 65307).
+        - The `[data-testid="gg-corner-button"]:focus` assert was found.
+        - Verdict "partially verified (GTK-level key)"; a11y `ok`.
+      - **Fill run:** passes.
+        - The message was sent from the drawer composer.
+        - The route moved to `#agents/~new`.
+        - The name field shows "Filled by mock", the `agent-filled-note` is
+          present, and the caption reads "Unsaved changes".
+        - `window.innerWidth` 1280, so push mode.
+        - `--check-fill` printed `{"fill_status": "filled",
+          "agent_exists": false}`, exit 0.
+      - **Open run: a probe-script timing gap.** The assert matched right
+        after the click, so the report (written 400 ms later) read
+        `opened: false` and `drawer_width: null` while the assert was found.
+        The Esc and fill runs both report `opened: true`. A Developer fix
+        to `open.js` adds a done marker, then a re-run.
+      - **Open re-run** (`--assert-selector 'html[data-gg-probe="open-done"]'`):
+        passes. `opened: true`, `drawer_width` 360, `window.innerWidth`
+        1280, so push mode.
+      - **Instance stopped** by its recorded PID.
+      - **AC4 met.**
+      - **Direct proof:** the drawer opens; the fill shows its note and the
+        unsaved name, with `--check-fill` exit 0.
+      - **Partly verified:** Esc → focus on the button, verdict "partially
+        verified (GTK-level key)", since the key is a GTK event, not an
+        OS-level one.
+      - **Simulated:** the clicks are JS `.click()`.
+    - **Leg 9 Part D, Windows (WebView2)**, with the operator present and
+      hands-off. Run id `m36f3-l9`.
+      - **Gates:** `doctor-host` reports mirrored networking. `snapshot
+        --out` was taken.
+      - **The default scratch root was refused.** The root
+        `%LOCALAPPDATA%\Temp\the-one-f5` holds earlier missions' data dirs
+        and no sentinel, so `setup` refused to adopt it. The FD did not
+        clean it. A fresh root `the-one-f5-m36f3` was used instead (the
+        tool requires a `the-one-f5*` leaf). Setup took 371 s.
+      - **Launch:** a source run with `launch --dev-mode`, port 8490, data
+        dir `gg-data`. Live 200, version 0.16.6. WSL reached
+        `127.0.0.1:8490`.
+      - **Seed:** passed `--refuse-data-dir` for the operator's
+        `%LOCALAPPDATA%\the-one` through `/mnt/c`. Provider
+        `0c137011bb52`, GleepGlorp `ready`.
+      - **Drive and captures** (under `evidence` in the scratch root, not
+        the repo):
+        1. `^k`, "Appearance{ENTER}" → Settings › Appearance, with the
+           corner button showing (01).
+        2. `^k`, "Ask GleepGlorp{ENTER}" → the drawer open, pushing
+           `<main>`, with "Looking at Settings › Appearance", the empty
+           state and the composer focused (02).
+        3. "Fill in a new agent for me{ENTER}" → `--check-fill` exited 0
+           with `{"fill_status": "filled", "agent_exists": false}` (03):
+           - the editor shows New Agent with Name, Description and System
+             prompt filled, each with "Filled by GleepGlorp · 8:03 AM";
+           - "Unsaved changes", with Create and Cancel;
+           - "No agents yet." in the list;
+           - in the drawer: the page chip, the reply "The form is filled,
+             not saved. Click Save." and the receipt "Form filled / Create
+             agent 'Filled by mock' / 3 fields · Not saved / Show the
+             form".
+        4. `{ESC}` → the drawer closed, the corner button showing a focus
+           ring, and the filled edits still in place (04).
+      - **Close:** `stop` reported the test copy not running.
+        `snapshot --compare` is `ok` with no failures. The operator's
+        installed app is still running with the same PID and creation time.
+      - **AC6 met.**
+      - **Direct proof:** a real OS-level key and window, the fill row and
+        the agent list over HTTP.
+      - **Screenshot-only:** focus after Esc. The CSS width is inferred from
+        the 1440x900 outer size (push mode is visible in 02 and 03).
+      - **Small observation for the HAT:** after the fill the drawer reads
+        "Looking at Agents › New" while the editor title is "New Agent".
         - **Leg 8 gate 5 follow-up (Developer, offline, no model call).**
           - **Fix 1, `key-needed-no-ask`:** the carve-out's negated phrase
             (two copies) accepts a coordinated verb list ("never paste or

@@ -6,11 +6,12 @@
 //
 //   /usr/bin/python3 scripts/webkitgtk_probe.py --url 'http://127.0.0.1:PORT/#settings/appearance' \
 //     --data-dir SCRATCH --setup-script scripts/probe/gg-drawer/open.js \
-//     --assert-selector '#gleepglorp-drawer:not([hidden])' --assert-timeout 15 \
+//     --assert-selector 'html[data-gg-probe="open-done"]' --assert-timeout 15 \
 //     --root-selector '#gleepglorp-drawer'
 //
-// Report: {button_found, opened, drawer_width, window_inner_width, route}. The width is recorded, not
-// asserted (the drawer pushes <main> at 1280px and wider and overlays below).
+// The assert waits on the done marker (set after the final measurement), not on the drawer being visible:
+// the drawer-visible condition is report.opened. Report: {button_found, opened, drawer_width,
+// window_inner_width, route}. The width is recorded, not asserted (the drawer pushes <main> at 1280px and wider and overlays below).
 var report = { button_found: false, opened: false, drawer_width: null, window_inner_width: null, route: null };
 window.__probeReport = report;
 var tries = 0;
@@ -23,10 +24,16 @@ var timer = setInterval(function () {
     clearInterval(timer);
     report.button_found = true;
     button.click();
+    // The report is filled synchronously, so it is complete before any assert can match; the
+    // timer re-measures once the drawer has laid out, then sets the done marker the assert waits on.
+    report.opened = !drawer.hidden;
+    report.drawer_width = Math.round(drawer.getBoundingClientRect().width);
+    report.window_inner_width = window.innerWidth;
     setTimeout(function () {
       report.opened = !drawer.hidden;
       report.drawer_width = Math.round(drawer.getBoundingClientRect().width);
       report.window_inner_width = window.innerWidth;
+      document.documentElement.setAttribute('data-gg-probe', 'open-done');
     }, 400);
   } else if (tries > 150) {
     clearInterval(timer);
