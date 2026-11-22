@@ -967,3 +967,95 @@ def test_a_card_drawn_from_the_snapshot_is_silent(
     pid = _seed(w, changes={"description": "Words"}, base={"description": ""})
     _open(page, w)
     expect(_in(_card(page, pid), "proposal-announce")).to_have_text("")
+
+
+# ── An MCP server card (M36 F4 L4b, DD9, DD11) ────────────────────────────
+
+
+def _mcp_source(w: SimpleNamespace, **cfg: Any) -> str:
+    from browser._mcp_editor import _seed_mcp_source
+
+    return _seed_mcp_source(
+        w.base,
+        {
+            "name": "Docs",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp", **cfg},
+            "secrets": {"Authorization": "bearer-held-on-server"},
+        },
+    )
+
+
+def test_an_mcp_card_shows_one_row_per_key_the_warning_and_counts_rows(
+    app_with_data_dir: tuple[str, Any], page: Page
+) -> None:
+    w = _world(app_with_data_dir)
+    sid = _mcp_source(w, headers={"Accept": "a/b"})
+    pid = _seed(
+        w,
+        kind="mcp_server",
+        agent_name=None,
+        target_id=sid,
+        changes={"url": "https://new.test/mcp", "headers": {"accept": "c/d", "X-New": "n"}},
+        base={"url": "https://example.com/mcp", "headers": {"accept": "a/b"}},
+    )
+    _open(page, w)
+    card = _card(page, pid)
+    table = _in(card, "proposal-table")
+    # One row per key, the Now column ("None" for a row that is absent) and Proposed.
+    expect(table).to_contain_text("URL")
+    expect(table).to_contain_text("Header accept")
+    expect(table).to_contain_text("Header X-New")
+    expect(table).to_contain_text("a/b")
+    expect(table).to_contain_text("c/d")
+    expect(table).to_contain_text("None")
+    expect(table).to_contain_text("https://new.test/mcp")
+    # The footer counts values (the url and two rows) and carries the server's warning.
+    expect(card).to_contain_text("Only these 3 values change.")
+    expect(_in(card, "proposal-warning")).to_have_count(1)
+    expect(_in(card, "proposal-warning")).to_contain_text("saved sign-in details or Sensitive")
+    # Approve for real: the applied record names the stored keys, and the link opens the server.
+    _in(card, "proposal-approve").click()
+    expect(card).to_have_attribute("data-state", "applied", timeout=8000)
+    link = _in(card, "proposal-open-item")
+    expect(link).to_have_text("Open MCP server")
+    expect(link).to_have_attribute("href", _nav.href(f"library/mcp/{sid}"))
+    fields = page.evaluate(f"() => Object.keys(App.approvals.forTarget('mcp_server', '{sid}'))")
+    assert sorted(fields) == ["headers", "url"]
+    # The change landed: the matching header was updated in place, the new one added.
+    stored = httpx.get(
+        f"{w.base}/api/mcp-sources/{sid}", headers=auth_headers_for(w.base), timeout=5.0
+    ).json()
+    assert {k.lower(): v for k, v in stored["config"]["headers"].items()} == {
+        "accept": "c/d",
+        "x-new": "n",
+    }
+
+
+def test_an_applied_mcp_create_links_to_the_new_server_by_its_applied_id(
+    app_with_data_dir: tuple[str, Any], page: Page
+) -> None:
+    w = _world(app_with_data_dir)
+    pid = _seed(
+        w,
+        kind="mcp_server",
+        action="create",
+        agent_name=None,
+        changes={"name": "Fresh", "type": "stdio", "command": "echo", "args": ["hi"]},
+    )
+    _open(page, w)
+    card = _card(page, pid)
+    expect(_in(card, "proposal-open-item")).to_have_count(0)
+    expect(card).to_contain_text("Other settings keep their defaults.")
+    _in(card, "proposal-approve").click()
+    expect(card).to_have_attribute("data-state", "applied", timeout=8000)
+    made = [
+        s
+        for s in httpx.get(
+            f"{w.base}/api/mcp-sources", headers=auth_headers_for(w.base), timeout=5.0
+        ).json()
+        if s["name"] == "Fresh"
+    ]
+    assert len(made) == 1
+    link = _in(card, "proposal-open-item")
+    expect(link).to_have_attribute("href", _nav.href(f"library/mcp/{made[0]['id']}"))

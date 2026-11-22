@@ -81,6 +81,10 @@
     var shell = null;
     var danger = null;
     var dirtyFn = function () { checkDirty(); };
+    // The key a GleepGlorp fill and an approval's follow address this editor by.
+    var openKey = isCreate ? 'create' : 'edit:' + source.id;
+    var idleWaiters = [];
+    var fillApi = null;
 
     // ── The modules ─────────────────────────────────────────────────────
     var sandbox = sandboxFields.create({ source: source, onChange: dirtyFn });
@@ -90,6 +94,8 @@
       onTypeChange: function (t) {
         sandbox.setType(t);
         envHeaders.setType(t);
+        // The table was rebuilt: its note is drawn again (it follows the rows, which stay).
+        if (fillApi) fillApi.redraw();
       }
     });
     handles.container = container;
@@ -228,6 +234,7 @@
         return;
       }
       var cancelTok = App.focusAfter.begin(shell.cancelButton);
+      clearNotes();
       applySaved(current);
       envHeaders.setType(current.type || '');
       envHeaders.revert();
@@ -265,6 +272,21 @@
       saving = !!b;
       shell.setBusy(!!b);
       if (danger) danger.button.disabled = !!b;
+      if (!b && idleWaiters.length) {
+        var list = idleWaiters;
+        idleWaiters = [];
+        list.forEach(function (fn) { fn(); });
+      }
+    }
+
+    // The quiet notes a fill or an approval's follow left: gone after Cancel and Save.
+    function removeFollowNote() {
+      var old = container.querySelectorAll('[data-testid="mcp-approved-change-note"]');
+      for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
+    }
+    function clearNotes() {
+      if (fillApi) fillApi.clear();
+      removeFollowNote();
     }
 
     function performSave() {
@@ -320,6 +342,7 @@
             // The saved row, BEFORE the re-mask, so every getSource() reader sees it
             // (defect 3).
             current = updated;
+            clearNotes();
             // Re-mask the secrets the server now holds; the rows keep their own baseline.
             envHeaders.remaskAfterSave(submitted, updated);
             // No field edited during the request: write the saved row back (it
@@ -500,8 +523,81 @@
         setSaving(b);
       },
       setError: function (msg) { if (mount.alive()) shell.setError(msg); },
-      runTest: runTest
+      runTest: runTest,
+
+      // ── The handles of a GleepGlorp fill and of an approval's follow (M36 F4 L4b) ──
+      // Every setter is silent (no Save, no Test, no popup, no request); the caller runs
+      // checkDirty() once it has written.
+      key: openKey,
+      isCreate: isCreate,
+      id: isCreate ? null : source.id,
+      el: container,
+      alive: function () { return mount.alive(); },
+      // The type list loaded: an empty list is a failed fetch, and the editor cannot be filled.
+      ready: function () { return mount.alive() && (mcpTypes || []).length > 0; },
+      saving: function () { return saving; },
+      onIdle: function (fn) { if (!saving) fn(); else idleWaiters.push(fn); },
+      checkDirty: checkDirty,
+      values: function () { return { connection: connection.values(), rows: envHeaders.values() }; },
+      baseline: function () { return JSON.parse(snapshot); },
+      storedCommand: connection.storedCommand,
+      rowKind: envHeaders.rowKind,
+      rowState: envHeaders.rowState,
+      // Create forms only: the type, the sections it shows and the table it labels. The rows
+      // the operator typed stay.
+      setType: function (t) {
+        if (!mount.alive() || !isCreate) return;
+        connection.selectType(t);
+        sandbox.setType(t);
+        envHeaders.setType(t);
+      },
+      // 'name', 'url' and 'cwd' take a string; 'command' takes {command, args} (stored form).
+      setField: function (field, value) {
+        if (!mount.alive()) return;
+        if (field === 'command') connection.setCommand(value.command, value.args);
+        else connection.setField(field, value);
+      },
+      // entries: [{key, value}], merged by key; an empty value is the Sensitive handoff.
+      setRows: function (entries) { if (mount.alive()) envHeaders.setRows(entries); },
+      placeNote: function (field, note) { return connection.placeNote(field, note); },
+      placeTableNote: function (note) { return envHeaders.placeTableNote(note); },
+      // An approved change for this server: a clean field takes it, a dirty field keeps the
+      // operator's value and its baseline moves; rows go per key.
+      rebase: function (src) {
+        if (!mount.alive() || isCreate || !src) return;
+        var cfg = src.config || {};
+        var oldBase = JSON.parse(snapshot).connection;
+        var live = connection.values();
+        function clean(keys) {
+          return keys.every(function (k) {
+            return JSON.stringify(live[k]) === JSON.stringify(oldBase[k]);
+          });
+        }
+        if (clean(['name'])) connection.setField('name', src.name);
+        if (clean(['cwd'])) connection.setField('cwd', cfg.cwd || '');
+        if (clean(['url'])) connection.setField('url', cfg.url || '');
+        if (src.type === 'stdio' && clean(['runtime', 'command', 'args'])) {
+          connection.setCommand(cfg.command || '', cfg.args || []);
+        }
+        current = src;
+        snapshot = baselineSnapshot();
+        envHeaders.rebaseTo(mcpEditor.shared.rowsFromSource(src, src.type));
+        shell.setTitle(titleFor(src));
+        shell.setSubtitle(subtitleFor(src));
+        if (danger) danger.button.dataset.name = src.name || '';
+        if (serverInfo) serverInfo.update(cacheOf(src));
+        if (connStatus) connStatus.render();
+        checkDirty();
+      },
+      // The follow note: one line under the editor's header, replacing the last one.
+      placeFollowNote: function (note) {
+        removeFollowNote();
+        shell.el.parentNode.insertBefore(note, shell.el.nextSibling);
+      }
     };
+    fillApi = App.studio.mcpEditorFill.create(controller);
+    mount.onDestroy(fillApi.destroy);
+    controller.fill = fillApi;
     if (callbacks.onMounted) callbacks.onMounted(controller);
     return controller;
   }

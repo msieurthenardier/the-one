@@ -1351,7 +1351,15 @@ class MCPSourceRepository:
             raise KeyError(f"MCP source not found: {source_id}")
         return self._row_to_model(row)
 
-    async def create(self, source: MCPSource) -> None:
+    async def create(
+        self,
+        source: MCPSource,
+        *,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> None:
+        """Insert the row. ``on_commit(conn)`` is awaited after the insert inside the same
+        transaction (a proposal's status mark rides there); a raise rolls the insert back.
+        It must not open ``write_transaction`` (see :meth:`update_in_txn`)."""
         async with write_transaction(self.conn):
             await self.conn.execute(
                 "INSERT INTO mcp_sources (id, name, type, config, secrets, created_at, updated_at)"
@@ -1366,6 +1374,53 @@ class MCPSourceRepository:
                     source.updated_at,
                 ),
             )
+            if on_commit is not None:
+                await on_commit(self.conn)
+
+    async def update_in_txn(
+        self,
+        source_id: str,
+        mutate: Callable[[MCPSource], MCPSource],
+        *,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> tuple[MCPSource, MCPSource]:
+        """Re-read the row, mutate it and write it, all inside one write transaction.
+
+        ``mutate(current)`` (sync) receives the row as stored at this instant (so the
+        ``_cache`` and any OAuth secrets written since an earlier read are present) and
+        returns the updated model. ``updated_at`` is set to now, the row is written,
+        ``on_commit(conn)`` is awaited, and ``(before, after)`` is returned. A raise from
+        ``mutate`` or ``on_commit`` rolls everything back. ``KeyError`` for an unknown id.
+
+        RE-ENTRANCY: ``mutate`` and ``on_commit`` run under the write lock and must not
+        call any method that opens ``write_transaction`` (``merge_cache``, ``update``,
+        ``create``, ``delete``): the re-entrancy guard raises ``RuntimeError``. Use raw
+        ``conn.execute``, as ``mark_op`` does.
+        """
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT * FROM mcp_sources WHERE id = ?", (source_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None:
+                raise KeyError(f"MCP source not found: {source_id}")
+            before = self._row_to_model(row)
+            after = mutate(before).model_copy(update={"updated_at": now_iso()})
+            await self.conn.execute(
+                "UPDATE mcp_sources SET name=?, type=?, config=?, secrets=?, updated_at=? "
+                "WHERE id=?",
+                (
+                    after.name,
+                    after.type,
+                    json.dumps(after.config),
+                    self._secrets_to_ciphertext(after.secrets),
+                    after.updated_at,
+                    source_id,
+                ),
+            )
+            if on_commit is not None:
+                await on_commit(self.conn)
+        return before, after
 
     async def update(self, source: MCPSource) -> None:
         async with self.conn.execute("SELECT 1 FROM mcp_sources WHERE id = ?", (source.id,)) as cur:
@@ -3644,13 +3699,71 @@ class LLMProviderRepository:
             raise KeyError(f"Provider not found: {provider_id}")
         return self._row_to_model(row)
 
-    async def create(self, provider: LLMProviderConfig) -> None:
+    async def create(
+        self,
+        provider: LLMProviderConfig,
+        *,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> None:
+        """Insert the row. ``on_commit(conn)`` is awaited after the insert inside the same
+        transaction (a proposal's status mark rides there); a raise rolls the insert back.
+        It must not open ``write_transaction`` (see :meth:`update_in_txn`)."""
         async with write_transaction(self.conn):
             await self.conn.execute(
                 "INSERT INTO llm_providers (id, name, type, base_url, api_key, config,"
                 " secrets, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 self._to_row(provider),
             )
+            if on_commit is not None:
+                await on_commit(self.conn)
+
+    async def update_in_txn(
+        self,
+        provider_id: str,
+        mutate: Callable[[LLMProviderConfig], LLMProviderConfig],
+        *,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> tuple[LLMProviderConfig, LLMProviderConfig]:
+        """Re-read the row, mutate it and write it, all inside one write transaction.
+
+        ``mutate(current)`` (sync) receives the row as stored at this instant (so an OAuth
+        token an ``update_secrets`` wrote since an earlier read is present) and returns the
+        updated model. ``updated_at`` is set to now, the api key and secrets are encrypted
+        as :meth:`update` does, ``on_commit(conn)`` is awaited, and ``(before, after)`` is
+        returned. A raise from ``mutate`` or ``on_commit`` rolls everything back.
+        ``KeyError`` for an unknown id.
+
+        RE-ENTRANCY: ``mutate`` and ``on_commit`` run under the write lock and must not call
+        any method that opens ``write_transaction`` (``update``, ``update_secrets``,
+        ``create``, ``delete``): the re-entrancy guard raises ``RuntimeError``. Use raw
+        ``conn.execute``, as ``mark_op`` does.
+        """
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT * FROM llm_providers WHERE id = ?", (provider_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None:
+                raise KeyError(f"Provider not found: {provider_id}")
+            before = self._row_to_model(row)
+            after = mutate(before).model_copy(update={"updated_at": now_iso()})
+            await self.conn.execute(
+                "UPDATE llm_providers SET name=?, type=?, base_url=?, api_key=?,"
+                " config=?, secrets=?, updated_at=? WHERE id=?",
+                (
+                    after.name,
+                    after.type,
+                    after.base_url,
+                    self.encryptor.encrypt_optional(after.api_key),
+                    json.dumps(after.config),
+                    _encrypt_secrets_blob(self.encryptor, after.secrets),
+                    after.updated_at,
+                    provider_id,
+                ),
+            )
+            if on_commit is not None:
+                await on_commit(self.conn)
+        return before, after
 
     async def update(self, provider: LLMProviderConfig) -> None:
         if not await self._exists(provider.id):

@@ -34,6 +34,10 @@
 //   setType(type)  shows the stdio-only or the HTTP-only fields through the `hidden`
 //             attribute. The mcp-stdio-only and mcp-streamable-http-only classes are
 //             plain markers with no CSS.
+//   storedCommand() {command, args}: the stdio command as the server stores it.
+//   setCommand(command, args), selectType(type), setField('name'|'url'|'cwd', value) and
+//             placeNote(field, noteEl) -> [controls]: the silent handles a GleepGlorp fill and
+//             an approval's follow use (M36 F4 L4b); none fires onChange.
 // onChange fires for every user edit (text on input, selects on change, every argument row
 // change: edit, add, remove, move). A setValues (a Cancel's re-set rows included) never
 // fires it; the controller recomputes dirty itself. A type change also calls onTypeChange(type).
@@ -233,10 +237,64 @@
       );
     }
 
+    // ── The silent handles a GleepGlorp fill uses (M36 F4 L4b): none fires onChange ──
+
+    // The command and arguments as the server would store them: the runtime dropdown's
+    // collapse expanded again (`npx -y` is command npx with a leading -y).
+    function storedCommand() {
+      var v = values();
+      var command = '';
+      var prepend = [];
+      if (v.runtime === STDIO_CUSTOM_SENTINEL) command = v.command.trim();
+      else if (v.runtime === 'npx -y') { command = 'npx'; prepend = ['-y']; }
+      else if (v.runtime === 'pipx run') { command = 'pipx'; prepend = ['run']; }
+      else if (v.runtime) command = v.runtime;
+      return { command: command, args: prepend.concat(v.args) };
+    }
+
+    // Write a stored command and args through the same collapse setValues uses.
+    function setCommand(command, args) {
+      var sel = deriveStdioRuntimeSelection(command || '', args || []);
+      runtimeSelect.value = sel.dropdownValue || 'uvx';
+      customInput.value = sel.customCommand || '';
+      argsTable.setValues((sel.displayArgs || []).map(function (a) { return { value: String(a) }; }));
+      syncRuntime();
+    }
+
+    // The Type select on a create form: the value and the sections it shows.
+    function selectType(type) {
+      typeSelect.value = type || '';
+      setType(type || '');
+    }
+
+    function setField(field, value) {
+      if (field === 'name') nameInput.value = value == null ? '' : String(value);
+      else if (field === 'url') urlInput.value = value == null ? '' : String(value);
+      else if (field === 'cwd') cwdInput.value = value == null ? '' : String(value);
+    }
+
+    // Place a fill's note inside the field's own host (under its control and hint) and give
+    // back the controls the note describes.
+    function placeNote(field, note) {
+      var host = field === 'command' ? runtimeField : byName[field];
+      if (!host) return [];
+      host.el.appendChild(note);
+      if (field === 'name') return [nameInput];
+      if (field === 'type') return [typeSelect];
+      if (field === 'url') return [urlInput];
+      if (field === 'command') return [runtimeSelect, customInput];
+      return [];
+    }
+
     setValues(source);
 
     return {
       el: el,
+      storedCommand: storedCommand,
+      setCommand: setCommand,
+      selectType: selectType,
+      setField: setField,
+      placeNote: placeNote,
       values: values,
       baselineFrom: baselineFrom,
       setValues: setValues,

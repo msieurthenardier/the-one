@@ -116,9 +116,19 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
     "providers": {
         "list": _LIST_KEYS_WITH_ID,
         "detail": frozenset(
-            {"id", "name", "type", "address", "oauth_active", "agents", "used_by_gleepglorp"}
+            {
+                "id",
+                "name",
+                "type",
+                "address",
+                "oauth_active",
+                "agents",
+                "used_by_gleepglorp",
+                "options",
+                "key_stored",
+            }
         ),
-        "nested": frozenset(),
+        "nested": frozenset({"num_ctx", "thinking_enabled", "reasoning_effort"}),
     },
     "knowledge_bases": {
         "list": _LIST_KEYS,
@@ -184,6 +194,8 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
                 "max",
                 "hint",
                 "reference",
+                "shape",
+                "provenance",
             }
         ),
     },
@@ -275,6 +287,10 @@ OPERATOR_PATHS: dict[str, frozenset[str]] = {
             "providers.detail.oauth_active",
             "providers.detail.agents",
             "providers.detail.used_by_gleepglorp",
+            "providers.detail.options.num_ctx",
+            "providers.detail.options.thinking_enabled",
+            "providers.detail.options.reasoning_effort",
+            "providers.detail.key_stored",
         }
     ),
     "knowledge_bases": frozenset(
@@ -364,6 +380,8 @@ OPERATOR_PATHS: dict[str, frozenset[str]] = {
             "fields.detail.fields[].max",
             "fields.detail.fields[].hint",
             "fields.detail.fields[].reference",
+            "fields.detail.fields[].shape",
+            "fields.detail.fields[].provenance",
         }
     ),
 }

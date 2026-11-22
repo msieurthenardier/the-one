@@ -210,6 +210,10 @@ def test_gleepglorp_lane_is_the_drawer_fill_kinds_and_proposal_files(
         "tests/browser/test_flow_chat_gleepglorp.py",
         "tests/browser/test_flow_chat_proposals.py",
         "tests/browser/test_flow_gleepglorp_kinds.py",
+        "tests/browser/test_flow_gleepglorp_fill_mcp.py",
+        "tests/browser/test_flow_gleepglorp_follow_mcp.py",
+        "tests/browser/test_flow_gleepglorp_fill_provider.py",
+        "tests/browser/test_flow_gleepglorp_follow_provider.py",
     }
     for other in ("chats", "chats-transcript", "shared"):
         assert not (lanes[other] & lanes["gleepglorp"]), other

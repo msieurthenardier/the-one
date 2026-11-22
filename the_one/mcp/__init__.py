@@ -5,7 +5,7 @@ exposing connect / list-tools / call-tool / disconnect lifecycle for both
 transports (stdio + streamable-http). No agent integration (F6), no warm-pool
 (F4), no sandbox (F3), no OAuth flow (F5).
 
-See CLAUDE.md "F2 (MCP Client Foundation) Contracts" for invariants.
+See the_one/agents.md "MCP F2 Client Foundation" for invariants.
 See _HANDSHAKE_OFFER_VERSION docstring for SDK upgrade procedure.
 """
 

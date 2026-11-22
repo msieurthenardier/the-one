@@ -231,7 +231,9 @@ async def apply_proposal(
             "type": CONFIG_CHANGED,
             "kind": p.kind,
             "agent": p.agent_name,
-            "target_id": p.target_id,
+            # An id-targeted create has no target_id until applied: the kind records the
+            # id it generated in ``result``.
+            "target_id": p.target_id or result.get("target_id"),
             "fields": changed,
             "session_id": p.session_id,
             "proposal_id": p.id,

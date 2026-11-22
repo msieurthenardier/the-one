@@ -243,6 +243,15 @@
     self._resetMcp = destroyCurrent;
     // Test seam: the live controller (like the area's other `_` seams).
     self._currentMcpEditor = function () { return current; };
+    // GleepGlorp's fill and an approval's follow reach the live editor through the same seam.
+    App.studio.mcpEditorFill.attach(function () { return current; });
+    App.studio.mcpEditorFollow.attach({
+      getController: function () { return current; },
+      state: state,
+      self: self,
+      reload: reloadLibrary,
+      syncSelection: syncLibrarySelection
+    });
 
     return {
       render: renderMcpSourcesSection,

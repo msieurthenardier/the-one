@@ -204,7 +204,9 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
 # them. The `chat` alias still expands `chats_pat`, so it still runs them.
 gleepglorp_pat=('test_flow_gleepglorp_drawer_chat.py' 'test_flow_gleepglorp_drawer_shell.py' \
                 'test_flow_gleepglorp_fill.py' 'test_flow_chat_gleepglorp.py' \
-                'test_flow_chat_proposals.py' 'test_flow_gleepglorp_kinds.py')
+                'test_flow_chat_proposals.py' 'test_flow_gleepglorp_kinds.py' \
+                'test_flow_gleepglorp_fill_mcp.py' 'test_flow_gleepglorp_follow_mcp.py' \
+                'test_flow_gleepglorp_fill_provider.py' 'test_flow_gleepglorp_follow_provider.py')
 # Chats-widgets (M35 F2 L6): the widgets-in-chat flow tests, an explicit list kept out of `chats`
 # and `chats-transcript` (which sat at 430 s of 540 s at Flight 1). `chats` is `chats_pat` MINUS
 # this list and the transcript list.

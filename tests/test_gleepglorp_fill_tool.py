@@ -76,11 +76,29 @@ def test_shape_of_the_tool() -> None:
     schema = t.to_schema()
     assert schema["name"] == "fill_form" == FILL_FORM_TOOL_NAME
     props = schema["parameters"]["properties"]
-    assert props["kind"]["enum"] == ["agent"]
+    assert props["kind"]["enum"] == ["agent", "mcp_server", "provider"]
     assert props["action"]["enum"] == ["create", "change"]
-    assert set(props) == {"kind", "action", "agent", "changes"}
+    assert set(props) == {"kind", "action", "agent", "target", "changes"}
     assert isinstance(t, Tool)
     assert "route" not in t.description.lower() and "/api" not in t.description
+
+
+def test_the_description_character_budget() -> None:
+    assert len(FillFormTool.description) <= 440
+    for needed in ("MCP server", "provider", "target", "type", '""'):
+        assert needed in FillFormTool.description
+
+
+def test_the_description_token_budget() -> None:
+    tiktoken = pytest.importorskip("tiktoken")
+    import os
+
+    os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(ROOT / "evals" / ".cache" / "tiktoken"))
+    try:
+        enc = tiktoken.get_encoding("o200k_base")
+    except Exception:  # noqa: BLE001 - no cached encoding on this host: not a failure
+        pytest.skip("o200k_base is not cached")
+    assert len(enc.encode(FillFormTool.description)) <= 90
 
 
 def test_it_is_trusted_in_the_taint_rule() -> None:

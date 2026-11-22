@@ -20,7 +20,9 @@ from typing import Any, NoReturn
 import aiosqlite
 
 from the_one.agent.service import AgentStaleError, AgentWriteError
-from the_one.gleepglorp.proposals.store import Proposal, display_values
+from the_one.gleepglorp.proposals.store import ROWS_LABELS, Proposal, display_values
+from the_one.llm.provider_service import ProviderNotFound, ProviderStaleError, ProviderWriteError
+from the_one.mcp.service import McpSourceNotFound, McpStaleError, McpWriteError
 from the_one.naming import NameRuleError
 from the_one.routines import service as routine_service
 from the_one.routines.describe import schedule_sentence
@@ -66,6 +68,10 @@ def _items(detail: Any) -> list[dict[str, Any]]:
 def _failure_items(exc: BaseException) -> list[dict[str, Any]] | None:
     if isinstance(exc, AgentWriteError):
         return _items(exc.detail)
+    if isinstance(exc, McpWriteError):
+        return exc.items
+    if isinstance(exc, ProviderWriteError):
+        return exc.items
     if isinstance(exc, RoutineFieldError):
         return [{"loc": [exc.field], "msg": exc.message}]
     if isinstance(exc, RoutineScheduleError):
@@ -82,6 +88,10 @@ def _failure_items(exc: BaseException) -> list[dict[str, Any]] | None:
 def _is_gone(exc: BaseException, p: Proposal) -> bool:
     if isinstance(exc, AgentWriteError):
         return exc.status == 404
+    if isinstance(exc, (McpWriteError, ProviderWriteError)):
+        return exc.status == 404
+    if isinstance(exc, (McpSourceNotFound, ProviderNotFound)):
+        return True
     if isinstance(exc, KeyError):
         return True
     # agent_rules and agent_routines have a foreign key to agents.
@@ -97,7 +107,7 @@ def _labels(kind: str) -> dict[str, str]:
 
 
 async def _agent_or_rule_stale(
-    conn: aiosqlite.Connection, p: Proposal, e: AgentStaleError
+    conn: aiosqlite.Connection, p: Proposal, e: AgentStaleError | ProviderStaleError
 ) -> list[dict[str, Any]]:
     labels = _labels(p.kind)
     cur = await display_values(conn, {f["field"]: f["current"] for f in e.fields})
@@ -111,6 +121,40 @@ async def _agent_or_rule_stale(
         }
         for f in e.fields
     ]
+
+
+async def _mcp_stale(
+    conn: aiosqlite.Connection, p: Proposal, e: McpStaleError
+) -> list[dict[str, Any]]:
+    """Stale rows for an MCP server: a scalar field is one row; ``headers`` and ``env`` give
+    one row per differing key (``headers.Accept`` labelled "Header Accept")."""
+    labels = _labels(p.kind)
+    out: list[dict[str, Any]] = []
+    for f in e.fields:
+        field = f["field"]
+        cur = await display_values(conn, {field: f["current"]})
+        prop = await display_values(conn, {field: f["proposed"]})
+        if field in ROWS_LABELS:
+            for shown in prop:
+                row = shown.split(" ", 1)[1]
+                out.append(
+                    {
+                        "field": f"{field}.{row}",
+                        "label": shown,
+                        "current": cur.get(shown),
+                        "proposed": prop[shown],
+                    }
+                )
+        else:
+            out.append(
+                {
+                    "field": field,
+                    "label": labels.get(field, field),
+                    "current": cur[field],
+                    "proposed": prop[field],
+                }
+            )
+    return out
 
 
 def _routine_stale(p: Proposal, e: ProposalStaleError, zone: Any) -> list[dict[str, Any]]:
@@ -143,8 +187,10 @@ async def translate(
 
     The order is the apply path's: stale, then gone, then validation items.
     """
-    if isinstance(exc, AgentStaleError):
+    if isinstance(exc, (AgentStaleError, ProviderStaleError)):
         return ApplyError(stale=await _agent_or_rule_stale(conn, p, exc))
+    if isinstance(exc, McpStaleError):
+        return ApplyError(stale=await _mcp_stale(conn, p, exc))
     if isinstance(exc, ProposalStaleError):
         return ApplyError(stale=_routine_stale(p, exc, await zone()))
     if _is_gone(exc, p):

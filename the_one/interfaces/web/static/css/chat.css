@@ -400,6 +400,7 @@
     margin-top: 12px;
   }
   .chat-instance .chat-proposal-foot-note { margin-left: auto; color: var(--fg-tertiary); }
+  .chat-instance .chat-proposal-warning { flex-basis: 100%; margin: 0; color: var(--fg-secondary); }
   .chat-instance .chat-proposal-wait { flex-basis: 100%; margin: 0; color: var(--fg-tertiary); }
   .chat-instance .chat-proposal-block { margin: 8px 0; }
   .chat-instance .chat-proposal-line {

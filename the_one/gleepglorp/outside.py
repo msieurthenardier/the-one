@@ -31,6 +31,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from the_one.agent.taint import find_anchor
+from the_one.db._provider_types import PROVIDER_TYPE_DEFAULTS
 from the_one.gleepglorp.kinds.base import HIDDEN_FIELDS
 from the_one.gleepglorp.proposals.shape import FieldSpec, _q
 from the_one.llm.base import Role, TextContent
@@ -61,6 +62,8 @@ LOADER_KEY_GLOBS: tuple[str, ...] = (
     "JDK_JAVA_OPTIONS", "CLASSPATH", "DOTNET_STARTUP_HOOKS",
     "GIT_SSH_COMMAND", "GIT_PROXY_COMMAND", "GIT_EXEC_PATH", "GIT_CONFIG*", "GIT_SSL_*",
     "*_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+    "NODE_TLS_REJECT_UNAUTHORIZED", "HOME", "XDG_*", "PYTHONINSPECT", "BUN_*", "DENO_*",
+    "GEM_*", "BUNDLE_*", "JAVA_HOME", "MAVEN_OPTS", "GRADLE_OPTS",
 )  # fmt: skip
 
 FETCH_TOOL_NAME = "fetch_url"
@@ -145,6 +148,15 @@ def normalize_url(url: str) -> str:
     path = p.path[:-1] if p.path.endswith("/") else p.path
     out = f"{p.scheme.lower()}://{userinfo + '@' if userinfo else ''}{hostport}{path}"
     return f"{out}?{p.query}" if p.query else out
+
+
+#: The addresses the app itself offers as a provider type's default (any type's): a
+#: ``base_url`` equal to one of them is the app's own value, not outside content, and needs
+#: no source (DD7). Compared by :func:`normalize_url`, so a path, query or user info added to
+#: a default makes it a different (guarded) address.
+APP_DEFAULT_URLS: frozenset[str] = frozenset(
+    normalize_url(str(d["base_url"])) for d in PROVIDER_TYPE_DEFAULTS.values() if d["base_url"]
+)
 
 
 @dataclass(frozen=True)
@@ -509,6 +521,8 @@ def check(kind: Any, changes: dict[str, Any], sources: Sources | None) -> str | 
                 return _no_source(label, str(value))
             declared = bool(spec and spec.address_or_command)
             for k, v in value.items():
+                if v is None:
+                    continue  # no value: nothing to check (never the string "None")
                 v = v if isinstance(v, str) else str(v)
                 key_loader = declared and is_loader_key(str(k))
                 if key_loader:
@@ -546,6 +560,8 @@ def check(kind: Any, changes: dict[str, Any], sources: Sources | None) -> str | 
             elif isinstance(value, str):
                 if not value.strip():
                     continue
+                if stored == "base_url" and normalize_url(value) in APP_DEFAULT_URLS:
+                    continue  # a provider type's own address: the app's value (DD7)
                 if sources is None:
                     return _no_source(label, value)
                 if not _declared_scalar(value, sources):

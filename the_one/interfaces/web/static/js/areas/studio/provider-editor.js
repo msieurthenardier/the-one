@@ -1,7 +1,7 @@
 // App.studio.renderProviderEditor — the provider editor, built once per mount
 // from App.ui library controls (M31 F1 L7, flight DD1).
 //
-//   renderProviderEditor(container, provider, providerTypes, callbacks)
+//   renderProviderEditor(container, provider, providerTypes, callbacks) -> controller
 //
 // callbacks: { onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange, getTypeDefaults }
 //
@@ -64,7 +64,8 @@
     var type = isCreate ? '' : provider.type;
     var h = { modelsCtl: null, fieldEls: [] };
     var deleter = null;
-    slot.mount(function () {}, h);
+    var ctl = null;
+    var slotToken = slot.mount(function () {}, h);
 
     function typeDefaults(t) {
       return (callbacks.getTypeDefaults && callbacks.getTypeDefaults(t)) ||
@@ -272,8 +273,10 @@
     // Show or hide the rows, reset base_url to the type's default and relabel the
     // key row. api_key is NOT clobbered, so values survive a type switch. The
     // models panel is not re-dispatched.
-    typeSelect.addEventListener('change', function () {
-      var d = typeDefaults(typeSelect.value);
+    // applyType is the whole of it, shared by the change handler, Cancel and the controller's
+    // setType (a GleepGlorp fill), so the three can never drift (M36 F4 L5b).
+    function applyType(t) {
+      var d = typeDefaults(t);
       h.baseUrl.el.hidden = !d.showBaseUrl;
       h.apiKey.el.hidden = !d.showApiKey;
       h.numCtx.el.hidden = !d.showNumCtx;
@@ -283,6 +286,9 @@
       baseUrlInput.value = d.base_url || '';
       applyApiKeyCopy(d);
       renderExpiry();
+    }
+    typeSelect.addEventListener('change', function () {
+      applyType(typeSelect.value);
       checkDirty();
     });
 
@@ -319,6 +325,11 @@
       if (isEdit) {
         var cancelTok = App.focusAfter.begin(h.shell.cancelButton);
         var snap = JSON.parse(snapshot);
+        // Rows, key label and expiry follow the stored type first; the loop below then
+        // restores the stored address over the type default applyType sets.
+        typeSelect.value = snap.type;
+        applyType(snap.type);
+        ctl.clearNotes();
         for (var j = 0; j < h.fieldEls.length; j++) {
           var el = h.fieldEls[j];
           // Checkbox-aware revert: .checked for checkboxes, .value otherwise.
@@ -342,7 +353,7 @@
     // onCreateSuccess (optional) fires only on a successful CREATE and BEFORE
     // onSaveSuccess, so the pendingAutoSignInId handoff is in place at the re-mount.
     var saving = false; // the plan sign-in button is outside the shell's busy state
-    function busy(v) { saving = v; h.shell.setBusy(v); }
+    function busy(v) { saving = v; h.shell.setBusy(v); if (!v) ctl.idle(); }
     function performSave(onCreateSuccess) {
       if (saving) return;
       h.shell.setError('');
@@ -381,6 +392,7 @@
             expiryRow = updated;
             renderTokenExpiry(h.expiryHost, expiryRow, updated.type);
             snapshot = getFormSnapshot(h);
+            ctl.clearNotes();
             checkDirty();
             busy(false);
             App.focusAfter.restore(saveTok, h.shell.titleEl);
@@ -451,6 +463,26 @@
     // ── Delete (edit only) ──────────────────────────────────────────
     // The flow (agent-usage gate, the "Delete anyway" checkbox, ?force=true) is
     // areas/studio/provider-delete.js; the danger zone above calls its two functions.
+
+    // The controller (provider-editor-controller.js): the handles of GleepGlorp's fill and of an
+    // approval's follow. adopt() points the closure at a newer stored row.
+    function adopt(row) {
+      provider = row;
+      originalMaskedApiKey = row.api_key || '';
+      expiryRow = row;
+      h.shell.setTitle(row.name || '');
+      h.shell.setSubtitle(subtitleText(row));
+      if (h.danger) h.danger.button.dataset.name = row.name || '';
+      renderExpiry();
+    }
+    ctl = App.studio.providerEditorController.create({
+      h: h, el: container, isCreate: isCreate, id: isCreate ? null : provider.id,
+      types: providerTypes, typeDefaults: typeDefaults, applyType: applyType, adopt: adopt,
+      checkDirty: checkDirty, isCurrent: function () { return slot.isCurrent(slotToken); },
+      saving: function () { return saving; },
+      snapshot: function (v) { if (v !== undefined) snapshot = v; return snapshot; }
+    });
+    return ctl;
   }
 
   // ── Claude Plan (Token) expiry line (sortie 03 DD6) ───────────────────

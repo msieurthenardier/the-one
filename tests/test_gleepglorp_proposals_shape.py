@@ -50,18 +50,24 @@ async def id_of(world, table: str, name: str) -> str:
 # --- the declared shape ---------------------------------------------------------------
 
 
-def test_the_six_operator_only_fields_are_in_no_spec() -> None:
+def test_the_operator_only_fields_are_in_no_spec() -> None:
     names = {f.name for specs in shape.SPECS.values() for f in specs}
     stored = {f.stored for specs in shape.SPECS.values() for f in specs}
     for forbidden in shape.OPERATOR_ONLY_FIELDS:
         assert forbidden not in names and forbidden not in stored
+    # The agent's six, the MCP server's three (Leg 4a), then the provider's api_key (Leg 5a;
+    # its ``secrets`` is the MCP server's too).
     assert set(shape.OPERATOR_ONLY_FIELDS) == {
+        "api_key",
         "secret_ids",
         "tool_overrides",
         "mcp_overrides",
         "self_revision_requires_approval",
         "routines_self_config_enabled",
         "routines_require_approval",
+        "cwd",
+        "sandbox",
+        "secrets",
     }
 
 
@@ -104,7 +110,7 @@ def test_every_agent_field_maps_to_an_agent_config_field_of_a_compatible_type() 
 
 def test_describe_is_generated_from_the_specs() -> None:
     listing = shape.describe()
-    assert [e["name"] for e in listing] == ["agent", "rule", "routine"]
+    assert [e["name"] for e in listing] == ["agent", "rule", "routine", "mcp_server", "provider"]
     detail = shape.describe("rule")
     by = {f["name"]: f for f in detail["fields"]}
     assert by["text"]["required_on_create"] is True
@@ -118,13 +124,13 @@ async def test_the_fields_kind_of_read_app_config_comes_from_the_shape(world) ->
     from the_one.gleepglorp import views
 
     listing = await views.read(world.conn, world.enc, "fields")
-    assert [e["name"] for e in listing] == ["agent", "rule", "routine"]
+    assert [e["name"] for e in listing] == ["agent", "rule", "routine", "mcp_server", "provider"]
     detail = await views.read(world.conn, world.enc, "fields", "agent")
     assert detail == shape.describe("agent")
     assert {f["name"] for f in detail["fields"]} == {f.name for f in shape.AGENT_FIELDS}
     with pytest.raises(views.PlainMessage) as e:
         await views.read(world.conn, world.enc, "fields", "does-not-exist")
-    assert "Valid names: agent, rule, routine" in str(e.value)
+    assert "Valid names: agent, rule, routine, mcp_server, provider" in str(e.value)
     with pytest.raises(views.PlainMessage):
         await views.read(world.conn, world.enc, "fields", "x" * 500)
 

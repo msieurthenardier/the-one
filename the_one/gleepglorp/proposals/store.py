@@ -233,6 +233,8 @@ _ID_FIELDS = {
     "kb_ids": "knowledge_bases",
 }
 REMOVED = "(removed)"
+# The stored ``rows`` fields (``FieldSpec.rows``) and the word each row is shown under.
+ROWS_LABELS = {"headers": "Header", "env": "Env"}
 
 
 def _display(values: dict[str, Any] | None, names: dict[str, dict[str, str]]) -> Any:
@@ -259,8 +261,21 @@ async def _name_map(conn: aiosqlite.Connection) -> dict[str, dict[str, str]]:
 
 
 async def display_values(conn: aiosqlite.Connection, values: dict[str, Any]) -> dict[str, Any]:
-    """``values`` (stored field names) with each id shown as the name it has now."""
-    return _display(values, await _name_map(conn)) or {}
+    """``values`` (stored field names) with each id shown as the name it has now.
+
+    A ``{name: value}`` rows field (``headers``, ``env``) is shown as one entry per key,
+    ``"Header Accept"`` and ``"Env LOG_LEVEL"``.
+    """
+    shown = _display(values, await _name_map(conn)) or {}
+    out: dict[str, Any] = {}
+    for key, value in shown.items():
+        label = ROWS_LABELS.get(key)
+        if label is not None and isinstance(value, dict):
+            for row, row_value in value.items():
+                out[f"{label} {row}"] = row_value
+        else:
+            out[key] = value
+    return out
 
 
 _NEXT_RUNS_SHOWN = 3
@@ -297,8 +312,13 @@ async def _card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any
     """``title``, ``target_gone`` and, for a routine, the schedule text and next runs."""
     from the_one import time_zones
     from the_one.db.repositories import AgentRuleRepository
+    from the_one.gleepglorp import kinds
     from the_one.gleepglorp.view_core import _agent_names
     from the_one.routines.repository import AgentRoutineRepository
+
+    kind = kinds.find(p.kind)
+    if kind is not None and kind.card_extras is not None:
+        return await kind.card_extras(conn, p)
 
     agent = p.agent_name or ""
     q = _quoted(agent)
@@ -359,13 +379,24 @@ async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, An
 
     names = await _name_map(conn)
     extra = await _card_extras(conn, p)
+    warnings: list[str] = []
+    kind = kinds.find(p.kind)
+    # Only an open card is warned about: a closed one never describes the current state as if
+    # it were the proposal's.
+    if kind is not None and kind.warnings is not None and p.status in OPEN_STATUSES:
+        from the_one.config import settings
+        from the_one.encryption import get_encryptor
+
+        warnings = await kind.warnings(conn, get_encryptor(settings.data_dir), p)
     return {
         **extra,
         "id": p.id,
         "kind": p.kind,
         "action": p.action,
         "agent_name": p.agent_name,
-        "target_id": p.target_id,
+        # A create's id exists only once applied: the apply records it in ``result``.
+        "target_id": p.target_id or (p.result or {}).get("target_id"),
+        "warnings": warnings,
         "status": p.status,
         "result": p.result,
         "untrusted": p.untrusted,

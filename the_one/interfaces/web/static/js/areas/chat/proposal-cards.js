@@ -64,12 +64,53 @@
     return fmtValue(view.changes[key]);
   }
 
+  // An MCP server's `env` and `headers` arrive as nested {row name: value} objects and show one
+  // table row per key ("Header Accept", "Env LOG_LEVEL"). The stored keys stay `headers` and
+  // `env` (fieldKeys, appliedByApproval); only the table flattens them.
+  var ROWS_LABELS = { headers: 'Header', env: 'Env' };
+
+  function isRows(view, key) {
+    var v = (view.changes || {})[key];
+    return !!ROWS_LABELS[key] && !!v && typeof v === 'object' && !Array.isArray(v);
+  }
+
+  // The value a row has now: header names match case-insensitively, env names exactly; an
+  // absent row reads undefined (shown as "None").
+  function nowRowValue(view, key, row) {
+    var rows = view.base ? view.base[key] : null;
+    if (!rows || typeof rows !== 'object') return undefined;
+    if (Object.prototype.hasOwnProperty.call(rows, row)) return rows[row];
+    if (key !== 'headers') return undefined;
+    var folded = row.toLowerCase();
+    for (var k in rows) {
+      if (Object.prototype.hasOwnProperty.call(rows, k) && k.toLowerCase() === folded) return rows[k];
+    }
+    return undefined;
+  }
+
   function tableRows(view, two) {
-    return fieldKeys(view).map(function (k) {
+    var out = [];
+    fieldKeys(view).forEach(function (k) {
+      if (isRows(view, k)) {
+        Object.keys(view.changes[k]).forEach(function (r) {
+          var rr = { label: ROWS_LABELS[k] + ' ' + r, proposed: fmtValue(view.changes[k][r]) };
+          if (two) rr.now = fmtValue(nowRowValue(view, k, r));
+          out.push(rr);
+        });
+        return;
+      }
       var row = { label: view.labels[k], proposed: valueFor(view, k, 'proposed'), mono: k === 'llm_model' };
       if (two) row.now = valueFor(view, k, 'now');
-      return row;
+      out.push(row);
     });
+    return out;
+  }
+
+  // How many values the proposal sets: one per field, one per row of a rows field.
+  function valueCount(view) {
+    return fieldKeys(view).reduce(function (n, k) {
+      return n + (isRows(view, k) ? Object.keys(view.changes[k]).length : 1);
+    }, 0);
   }
 
   function symDiff(a, b) {
@@ -266,7 +307,7 @@
       return b;
     }
 
-    function foot(e, buttons, note) {
+    function foot(e, buttons, note, warnings) {
       var waitId = 'proposal-wait-' + (++uid);
       var wait = App.ui.util.el('p', { className: 'chat-proposal-wait', id: waitId, text: BUSY_TEXT });
       wait.hidden = true;
@@ -274,14 +315,23 @@
       buttons.forEach(function (b) { b.setAttribute('aria-describedby', waitId); });
       var kids = buttons.slice();
       if (note) kids.push(App.ui.util.el('span', { className: 'chat-proposal-foot-note', text: note }));
+      // What the operator should know before approving (an MCP server's saved sign-in, a first
+      // download): each warning is a plain line of the footer.
+      (warnings || []).forEach(function (w) {
+        kids.push(App.ui.util.el('p', {
+          className: 'chat-proposal-warning', 'data-testid': 'proposal-warning', text: w
+        }));
+      });
       kids.push(wait);
       return App.ui.util.el('div', { className: 'chat-proposal-foot' }, kids);
     }
 
     function footNote(v) {
       if (v.action === 'create') return 'Other settings keep their defaults.';
-      var n = fieldKeys(v).length;
-      return n === 1 ? 'Only this field changes.' : 'Only these ' + n + ' fields change.';
+      var n = valueCount(v);
+      var rows = fieldKeys(v).some(function (k) { return isRows(v, k); });
+      var noun = rows ? 'value' : 'field';
+      return n === 1 ? 'Only this ' + noun + ' changes.' : 'Only these ' + n + ' ' + noun + 's change.';
     }
 
     // A spacing wrapper (the status and banner controls carry no margin of their own).
@@ -353,7 +403,7 @@
       var note = noticeNode(e);
       if (note) kids.push(note);
       var dismiss = button(e, 'dismiss', { variant: 'secondary', label: 'Dismiss', testid: 'proposal-dismiss' });
-      kids.push(foot(e, [primary, dismiss], state === 'stale' ? null : footNote(v)));
+      kids.push(foot(e, [primary, dismiss], state === 'stale' ? null : footNote(v), v.warnings));
       return kids;
     }
 

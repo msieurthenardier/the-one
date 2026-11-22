@@ -83,7 +83,7 @@
 
   // One read-only prompt text: a trimmed, scrollable App.ui.codeBlock (A1). The
   // `label` names it as a region when it scrolls. Text is set with textContent
-  // only: note text is attacker-influenced (CLAUDE.md).
+  // only: note text is attacker-influenced (SECURITY-MODEL.md "Agent notes (M27 F2)").
   function promptBlock(label) {
     var block = window.App.ui.codeBlock({
       text: 'Loading…',

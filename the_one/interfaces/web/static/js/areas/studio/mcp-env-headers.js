@@ -248,8 +248,121 @@
       baseline = next;
     }
 
+    // ── The silent handles for a GleepGlorp fill and an approval's follow (M36 F4 L4b) ──
+    // None fires onChange; the controller recomputes dirty itself.
+
+    // Header names compare case-insensitively, environment names exactly.
+    function fold(key) {
+      key = String(key).trim();
+      return currentType === 'streamable-http' ? key.toLowerCase() : key;
+    }
+
+    function liveIndexOf(rows, key) {
+      var f = fold(key);
+      for (var i = 0; i < rows.length; i++) if (fold(rows[i].key) === f) return i;
+      return -1;
+    }
+
+    // What the table holds for `key` now: {exists, value, sensitive, masked, dirty}. A row is
+    // dirty when it differs from the baseline row of the same _rid, or has none (a row added
+    // here is not in the baseline).
+    function rowState(key) {
+      var live = liveRows();
+      var i = liveIndexOf(live, key);
+      if (i === -1) return { exists: false };
+      var row = live[i];
+      var b = null;
+      for (var j = 0; j < baseline.length; j++) if (baseline[j]._rid === row._rid) b = baseline[j];
+      var dirty = !b || b.key !== row.key || b.value !== row.value ||
+        !!b.sensitive !== !!row.sensitive;
+      return {
+        exists: true, value: String(row.value), sensitive: !!row.sensitive,
+        masked: !!row._originalMasked, dirty: dirty
+      };
+    }
+
+    // Merge {key, value} entries by key: an existing row takes the value; a new row is
+    // appended with a fresh _rid. An empty value is the handoff: the row is added Sensitive
+    // and unstored, for the operator to fill in. Every other row stays as it is.
+    function setRows(entries) {
+      var live = liveRows();
+      var added = [];
+      entries.forEach(function (e) {
+        var i = liveIndexOf(live, e.key);
+        if (i !== -1) {
+          table.setRow(i, { value: e.value });
+          live[i].value = e.value;
+        } else {
+          added.push({
+            _rid: nextRid(), key: e.key, value: e.value,
+            sensitive: e.value === '', _originalMasked: ''
+          });
+        }
+      });
+      if (added.length) table.setValues(liveRows().concat(added));
+    }
+
+    // The note under the table: placed after it, and described by the table itself.
+    function placeTableNote(note) {
+      section.el.appendChild(note);
+      var t = table.el.querySelector('table');
+      return t ? [t] : [];
+    }
+
+    // Take an approved change from the stored `rows` (rowsFromSource form). Per row, by key:
+    // a new row is added to the table and the baseline; a clean row takes the new value; a
+    // dirty row keeps the operator's value while its baseline moves to the stored one. A row
+    // the stored side no longer has is left alone (an approval never removes one).
+    function rebaseTo(rows) {
+      var live = liveRows();
+      var next = baseline.map(snapshotOf);
+      var added = [];
+      rows.forEach(function (n) {
+        var li = liveIndexOf(live, n.key);
+        var bi = -1;
+        var f = fold(n.key);
+        for (var j = 0; j < next.length; j++) if (fold(next[j].key) === f) bi = j;
+        var stored = {
+          key: String(n.key), value: String(n.value), sensitive: !!n.sensitive,
+          _originalMasked: String(n._originalMasked || '')
+        };
+        if (li === -1) {
+          if (bi !== -1) {
+            // The operator removed the row: it stays removed (dirty); only the baseline moves.
+            next[bi] = Object.assign({ _rid: next[bi]._rid }, stored);
+          } else {
+            var rid = nextRid();
+            next.push(Object.assign({ _rid: rid }, stored));
+            added.push(Object.assign({ _rid: rid }, stored));
+          }
+          return;
+        }
+        var row = live[li];
+        var old = null;
+        for (var k = 0; k < next.length; k++) if (next[k]._rid === row._rid) old = next[k];
+        var clean = !!old && old.key === row.key && old.value === row.value &&
+          !!old.sensitive === !!row.sensitive;
+        if (clean) {
+          table.setRow(li, {
+            key: stored.key, value: stored.value, sensitive: stored.sensitive,
+            _originalMasked: stored._originalMasked
+          });
+        }
+        var entry = Object.assign({ _rid: row._rid }, stored);
+        if (old) next[next.indexOf(old)] = entry;
+        else next.push(entry);
+      });
+      baseline = next;
+      if (added.length) table.setValues(liveRows().concat(added));
+    }
+
     return {
       el: section.el,
+      rowState: rowState,
+      setRows: setRows,
+      placeTableNote: placeTableNote,
+      rebaseTo: rebaseTo,
+      rowKind: function () { return currentType === 'streamable-http' ? 'headers' : 'env'; },
       values: liveRows,
       isDirty: isDirty,
       revert: revert,

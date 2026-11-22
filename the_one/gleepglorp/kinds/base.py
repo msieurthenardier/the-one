@@ -24,7 +24,8 @@ if TYPE_CHECKING:
 # The proposal fields that are internal stored keys, not something the operator reads.
 HIDDEN_FIELDS = ("anchor_at",)
 
-#: ``normalize(action, target, changes, *, conn, now, zone, enc) -> Normalized``
+#: ``normalize(action, target, changes, *, conn, now, zone, enc, mode="propose") -> Normalized``;
+#: ``mode`` is ``"propose"`` or ``"fill"`` (only a kind with a fill-only allowance reads it).
 NormalizeFn = Callable[..., Awaitable[Normalized]]
 #: ``exists(conn, deps, p) -> bool``: the target of the stored proposal is still there.
 ExistsFn = Callable[..., Awaitable[bool]]
@@ -36,6 +37,10 @@ SummaryFn = Callable[..., Awaitable[dict[str, Any]]]
 #: ``resolve_target(conn, ref) -> (target_id, name)``: the existing target a model named by
 #: id or name; raises ``ShapeError`` with a plain sentence for an unknown or ambiguous ref.
 ResolveTargetFn = Callable[..., Awaitable[tuple[str, str]]]
+#: ``warnings(conn, enc, p) -> list[str]``
+WarningsFn = Callable[..., Awaitable[list[str]]]
+#: ``card_extras(conn, p) -> {"title": ..., "target_gone": ..., ...}``
+CardExtrasFn = Callable[..., Awaitable[dict[str, Any]]]
 
 
 def changed_labels(fields: tuple[FieldSpec, ...], p: Proposal) -> list[str]:
@@ -80,6 +85,18 @@ class Kind:
     title: Callable[[Any], str] = default_title
     card_title: Callable[[str, str | None], str] | None = None
     resolve_target: ResolveTargetFn | None = None
+    #: ``warnings(conn, enc, p) -> [sentence]``: what the operator should know before
+    #: approving, read from the stored row (computed for pending and failed proposals only).
+    warnings: WarningsFn | None = None
+    #: ``card_extras(conn, p) -> {title, target_gone, ...}``: replaces the store's built-in
+    #: card extras (agent, rule, routine) for a kind that sets it.
+    card_extras: CardExtrasFn | None = None
+    #: The stored keys whose values skip the guard's key-shape heuristics (the stored-secret
+    #: containment and the token-prefix rule still apply to every value).
+    relaxed_guard_keys: frozenset[str] = frozenset()
+    #: ``create_only_message(names) -> sentence``: the refusal for a change that names a
+    #: ``create_only`` field, in place of the generic one.
+    create_only_message: Callable[[list[str]], str] | None = None
 
     def card(self, action: str, agent_name: str | None) -> str:
         if self.card_title is not None:

@@ -33,10 +33,16 @@ MOVED = [
 STAYING = ["ShapeError", "ACTIONS", "_ECHO_MAX", "routine_service", "FieldSpec", "Normalized"]
 
 
-def test_the_registry_is_exactly_the_three_kinds_in_order() -> None:
+def test_the_registry_is_exactly_the_five_kinds_in_order() -> None:
     assert isinstance(kinds.REGISTRY, tuple)
-    assert [k.name for k in kinds.REGISTRY] == ["agent", "rule", "routine"]
-    assert kinds.KINDS == ("agent", "rule", "routine")
+    assert [k.name for k in kinds.REGISTRY] == [
+        "agent",
+        "rule",
+        "routine",
+        "mcp_server",
+        "provider",
+    ]
+    assert kinds.KINDS == ("agent", "rule", "routine", "mcp_server", "provider")
     assert set(kinds.SPECS) == set(kinds.KIND_SUMMARIES) == set(kinds.KINDS)
 
 
@@ -63,11 +69,17 @@ def test_operator_only_fields_appear_in_no_kinds_fields() -> None:
         "self_revision_requires_approval",
         "routines_self_config_enabled",
         "routines_require_approval",
+        "cwd",
+        "sandbox",
+        "secrets",
+        # the provider's two (Leg 5a): a key or token is never GleepGlorp's to set
+        "api_key",
+        "secrets",
     )
 
 
-def test_only_the_agent_kind_is_fillable() -> None:
-    assert kinds.FILLABLE == ("agent",)
+def test_only_the_agent_mcp_server_and_provider_kinds_are_fillable() -> None:
+    assert kinds.FILLABLE == ("agent", "mcp_server", "provider")
 
 
 @pytest.mark.parametrize("name", MOVED)

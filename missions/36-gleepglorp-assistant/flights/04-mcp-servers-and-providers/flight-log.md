@@ -343,6 +343,245 @@ Each item was walked against `9597b0f4`.
     5. **Accepted:** the tier-2 args single-source rule.
 - **Batch A checkpoint commit.** Legs 1a, 1b, 2 and 3 are marked
   `completed`. The planning artifacts are included.
+- **Batch A committed** as `f4ee1a12` (69 files). Not pushed.
+- **Leg 4b design** (`legs/04b-mcp-editor-fill.md`), from a read-only survey
+  of the MCP editor. **Risk tier: high** (a browser write seam plus a new
+  follow-through on an editor that had no refresh path).
+  - **FD call:** a filled Sensitive row saved while still empty stores an
+    empty secret. That is existing editor behaviour for any empty Sensitive
+    row, so no new validation is added; the note and Test show it.
+- **Leg 4a design review, cycle 1** (Developer, Sonnet). Verdict: approve
+  with changes. The leg was rewritten. High findings:
+  - `_card_extras` would have rendered MCP cards as routines;
+  - `Kind` lacked the members the leg used;
+  - eight-plus pins were unlisted;
+  - the guide topic is at 563 of 600 words.
+
+  **New FD decisions:**
+  - **4a is never shipped without 4b.** Batch B commits 4a, 4b and 5
+    together.
+  - **Secret-looking row keys** (`authorization`, `*token*`, `*secret*`,
+    `*password*`, `*key*`, …) with a non-empty value are refused, with a
+    handoff.
+  - **Header keys compare case-insensitively** against `secrets`, existing
+    headers and the OAuth keys. This closes a Sensitive-rule bypass.
+  - **`agent_name` is `None` for MCP proposals.** The card name and
+    `target_gone` come from a lookup by `target_id`.
+  - **A create's id is generated before the write,** so the mark and
+    `config_changed` carry it.
+  - **The `guard.check` key-shape heuristics are narrowed** for declared
+    fields. Stored-secret containment is kept.
+  - **Deviation from DD9:** the in-transaction mutator (`update_in_txn`)
+    replaces the retry wording.
+
+  Cycle 2 was spawned.
+- **Leg 4a design review, cycle 2** (Developer, Sonnet). Verdict: approve
+  with changes; every cycle-1 finding resolved. Folded in:
+  - **The secret-looking-key rule is one pinned algorithm:** segments split on
+    punctuation and camelCase; accepted false positives `X-Request-Key-Id` and
+    `MAX_TOKENS`; it also covers `args` flags.
+  - **The `guard.check` relaxation covers only `url`, `command` and `args`.**
+    Rows keep their heuristics, which closes a typed-secret-in-a-header hole.
+  - **The validators move into the service.**
+  - **Warnings show on pending and failed cards only.**
+  - **A create's `target_id` reaches the view** through `result`.
+
+  The two-cycle cap is reached and the leg is `ready`.
+- **Provider survey for Leg 5** (read-only, while Leg 4a builds). Findings
+  that shape the design:
+  - **A real race today.** `update_provider` pins the OAuth keys from a read
+    outside the transaction, then rewrites the whole secrets blob. An OAuth
+    refresh (`plan_credentials` `update_secrets`) in between is clobbered.
+    The in-transaction mutator fixes it for the route as well.
+  - **No server-side per-type defaults.** A `PROVIDER_TYPE_DEFAULTS` table
+    goes in `db/_provider_types.py`, pinned to `providers-section.js`
+    `TYPE_DEFAULTS` the way `test_admin_reasoning_effort_field.py` reads it.
+  - **The editor has no programmatic setters.** The type select's change
+    handler resets `base_url` and relabels the key row. The sign-in section
+    is outside the dirty machinery.
+  - **An open provider editor never refreshes,** as with MCP.
+  - **Changing out of `anthropic-plan`** silently drops the OAuth secrets
+    today.
+  - **Create accepts a client-supplied `id`;** a duplicate gives a 500.
+  - **The read view shows no config and no key-present flag.**
+
+  Leg 5 will be split 5a (server) and 5b (client), like Leg 4.
+- **Leg 4a landed** (`[LAND:leg]`).
+  - **Results:** unit tier 11698 passed, 15 skipped. The AC1 route suites
+    passed unedited before the change path was written. Lanes: `mcp` 105,
+    `mcp-connection` 102 and `gleepglorp` 125 passed. Every required safety
+    test was falsified.
+  - **Accepted calls:**
+    - the secret-key rule lives in `mcp/service.py`;
+    - there are no `api.py` wrappers for validators with no remaining
+      callers;
+    - a proposal refuses an empty row;
+    - `agent` is refused for `mcp_server`.
+- **Leg 5a design** (`legs/05a-provider-kind.md`). **Risk tier: high.** Its
+  review runs in parallel with Leg 4b's (both read-only).
+- **Leg 4b design review, cycle 1** (Developer, Sonnet). **Verdict: needs
+  rework.** The leg was written before 4a landed, and two of its server
+  assumptions were false:
+  - **4a refuses empty rows,** so the Sensitive handoff was impossible;
+  - **`fill/tool.py` refuses non-agent kinds,** and `fill_view` is
+    agent-shaped.
+
+  The card rows would also have rendered `[object Object]`. **Rewritten, with
+  FD decisions:**
+  - **No `type` change on an existing MCP server, by fill or by proposal.**
+    The operator switches the type in the editor. This narrows DD9 to
+    create-only, because the editor owns what a switch drops.
+  - **The handoff row is a bare `""`,** in fills only, for secret-looking keys
+    only. The client marks it Sensitive.
+  - **`normalize` gains `mode="fill"`.**
+  - **`fill_form` keeps `agent` for agents;** `target` carries MCP ids.
+
+  Cycle 2 was spawned.
+- **Leg 5a design review, cycle 1** (Developer, Sonnet). Verdict: approve
+  with changes. **FD resolutions:**
+  - **AC2 race test.** It is now deterministic: hold the write lock, then
+    write the refresh token raw. The first wording passed on today's buggy
+    code.
+  - **Propose versus fill** uses `normalize(mode=)`, shared with Leg 4b.
+  - **Key-taking types** come from `shows_api_key`. Key-taking to a
+    different key-taking type is refused for proposals and in
+    `change_provider`, and allowed for fills (the key is cleared).
+    Keyless to key-taking is allowed with a warning.
+  - **Type changes mirror the editor:** default `base_url` for hidden-URL
+    types; `openai-compatible` needs a URL; `num_ctx` and `thinking_enabled`
+    are seeded.
+  - **`mock` is refused.**
+  - **The guard exemption is "equals any type's default URL".**
+  - **The agents count** goes in the type-change warning.
+  - **The PUT response's `updated_at`** becomes the written value, a latent
+    bug fixed.
+
+  There was no second cycle. The leg is `ready`.
+- **Leg 4b design review, cycle 2** (Developer, Sonnet). Verdict: approve
+  with changes; the cycle-1 findings are resolved. Twelve binding
+  resolutions were added to the leg. The main ones:
+  - **`kept` carries stored keys only,** because the outcome API 422s
+    anything else;
+  - **`setType` on a create form** uses its own sequence, not `applySaved`;
+  - **`fill_view` stale** goes through a public `stale_fields` alias with
+    labels and flattened rows;
+  - **an empty handoff row never replaces an existing plain row;**
+  - **the AC3 pins are corrected;**
+  - **the `fill_form` description is drafted and measured** before coding.
+
+  The leg is `ready`. Build order: Leg 4b, then Leg 5a, which depends on 4b's
+  `mode`.
+- **Leg 4a's Developer** kept waking on leftover background waiters after
+  landing. It was asked to stop them and did not answer, so the FD stopped
+  the agent with `TaskStop`. Its leg was already accepted. No test runs
+  overlapped: only Leg 4b's lane was running.
+- **Leg 4b landed** (`[LAND:leg]`).
+  - **Results:**
+    - `fill_form` description: 78 tokens, 341 characters;
+    - lanes: `gleepglorp` 141, `mcp` 105, `library` 122 and `mcp-connection`
+      101 passed (one key-list pin updated);
+    - unit tier 11706 passed, 15 skipped;
+    - the five required safety tests were falsified.
+  - **Accepted deviation:** a kept command group reports `args` for an
+    args-only fill, because the outcome API needs the fill's own keys.
+  - **For the Batch B review:**
+    - **Header casing:** a proposed `accept` may be stored beside an existing
+      `Accept`, instead of updating it. Check it against Leg 4a's decision 5.
+    - **The follow tests use `App.approvals.record`,** not a real Approve.
+    - **The `mcp-servers.md` guide** was trimmed to fit 600 words.
+- **Leg 5a landed** (`[LAND:leg]`).
+  - **Results:**
+    - the AC1 provider route suites (13 files, 497 tests) passed unedited;
+    - the three race tests (service replace, service change, the PUT route)
+      were falsified;
+    - unit tier 11811 passed, 15 skipped;
+    - lanes: `providers` 144 and `gleepglorp` 141 passed.
+  - **The PUT response `updated_at`** is now the written value (pinned; no
+    old pin existed).
+  - **Accepted deviations:**
+    - `Kind.needs_secret` was removed in favour of `mode`;
+    - the provider kind refuses duplicate names case-insensitively, for
+      proposals only, so name targeting stays unambiguous;
+    - an `anthropic-plan` create warns "Sign in on the page after
+      approving";
+    - a type-change proposal stores no `base_url` (the service fills the
+      default on approve).
+- **Leg 5b design** (`legs/05b-provider-editor-fill.md`). **Risk tier:
+  high** (a browser write seam, and key clearing). Its review runs now,
+  against 5a's landed code.
+- **Leg 5b design review, cycle 1** (Developer, Sonnet). Verdict: approve
+  with changes. Four high findings:
+  - a fill to `ollama` would have kept the old key;
+  - Cancel did not restore type-driven rows (a pre-existing manual bug too);
+  - the rebase had to refresh the editor closure's `provider`, or a later
+    Save would revert approved options;
+  - the kept rule ignored a typed key.
+
+  Thirteen FD resolutions were written into the leg. The main ones:
+  - **`clears_key`** is computed from the fill's base: true for a change to a
+    keyless type, or between two different key-taking types.
+  - **A typed key is kept.**
+  - **`applyType` is shared** by the handler, `setType` and Cancel.
+  - **A controller module** lives beside the editor, which is at its size
+    ceiling.
+  - **Fill-time warnings** for MCP and providers. This closes DD9's
+    "fill warnings in the tool result", which Leg 4b had not wired.
+  - **The `fill_form` character cap** rises 360 → 440, with tokens at 90.
+
+  There was no second cycle; the shape is unchanged. The Batch B review
+  covers the result.
+- **Leg 5b landed** (`[LAND:leg]`).
+  - **Results:**
+    - `fill_form`: 89 tokens, 397 characters;
+    - lanes: `gleepglorp` 167, `providers` 144 and `library` 122 passed;
+    - unit tier 11836 passed, 15 skipped;
+    - the six required safety tests were falsified, including two real
+      Approves.
+  - **Accepted:** `provider-editor.js` is at 894 of its 895-line ceiling.
+  - **For the Batch B review:**
+    - **Fill warnings read "… after approving".** They reuse the proposal
+      sentences, which is the wrong verb for a fill.
+    - **A dirty editor's Save after a type change by approval** still sends
+      the old type, reverting the approved change. This was scoped out
+      (the note says Cancel); decide whether it is acceptable.
+- **Batch B review** (Legs 4a, 4b, 5a and 5b). **Reviewer: Sonnet, security
+  tier** (MCP secrets, provider keys and OAuth tokens, write services, the
+  guard). **Accessibility Reviewer: Sonnet** (the MCP and provider editor
+  notes, follow notes and cards). They run in parallel; the Accessibility
+  Reviewer does a static review only.
+- **Batch B accessibility review:** `[HANDOFF:confirmed]`.
+  - The notes are linked to their controls and unlinked cleanly.
+  - No live region announces values or secrets.
+  - No focus is stolen from the drawer.
+  - The new CSS uses existing tokens.
+  - **Non-blocking (HAT candidate):** a follow note appears without any
+    screen-reader announcement. This matches the existing agent-editor
+    pattern. An optional visually hidden polite status ("This server was
+    changed by an approved change") would close it.
+- **Batch B code review** (Reviewer, Sonnet, security tier):
+  `[HANDOFF:confirmed]`, no blocking issues.
+  - **Results:** unit tier 11836 passed, 15 skipped; lanes `gleepglorp` 167,
+    `mcp` 105 and `providers` 144 passed.
+  - **Header casing is confirmed correct:** a proposed `accept` replaces an
+    existing `Accept` by folded name, with no duplicate.
+  - **Non-blocking items, dispositions:**
+    - **The MCP operator PUT still reads outside the transaction** (the old
+      race on OAuth keys and `_cache`): squawk 0400.
+    - **A dirty provider editor can revert an approved type change on
+      Save:** accepted for the flight, squawk 0401.
+    - **Fill-warning wording "after approving":** folded into Leg 6.
+    - **Provider create with a duplicate client id gives a 500**
+      (pre-existing): squawk 0402.
+    - **A high-entropy secret in a URL query with no known prefix** passes the
+      relaxed guard, but needs operator typing anyway. Accepted, and noted
+      for the debrief.
+  - **Squawk 0398 completed,** with sign-off.
+- **Batch B checkpoint commit.** Legs 4a, 4b, 5a and 5b are marked
+  `completed`. Squawks 0400-0402 are logged as open.
+- **Leg 6 design** (`legs/06-prompt-and-evals-setup.md`), drafted during the
+  Batch B review. **Risk tier: high,** because it edits frozen eval scoring
+  files (the FD re-pins them under the 2026-11-20 ruling) and safety-cell
+  classes.
 
 ## Leg Progress
 
@@ -547,6 +786,167 @@ Each item was walked against `9597b0f4`.
     operator messages are refused (fails closed); common-TLD false positives in agent free text
     after a fetch (for example `socket.io`) are refused until the operator types them.
   - No AC9 trip. Eval rates (`fill_made`, `propose-*`) may move; Legs 6 and 7 re-baseline.
+
+### 04a-mcp-server-kind
+
+- **Status**: landed
+- **Started**: 2026-11-21
+- **Completed**: 2026-11-21
+- **Changes Made**:
+  - New `the_one/mcp/service.py` (create, replace, change; `McpWriteError`, `McpSourceNotFound`,
+    `McpStaleError`, late-bound `McpWriteDeps`; validators moved with exact details; the
+    secret-looking key rule). `api.py` routes are thin (`_mcp_write_errors`, `_mcp_write_deps`).
+  - `MCPSourceRepository.create(on_commit=)` and `update_in_txn` (re-read inside the transaction).
+  - New `kinds/mcp_server.py` (fourth in `REGISTRY`), `Kind` members `warnings`, `card_extras`,
+    `needs_secret`, `relaxed_guard_keys`, `create_only_message`; `kinds.find`, `kinds.target_args`.
+  - `proposal_view` gains `warnings` and the create `target_id`; `display_values` rows; `errors.py`
+    maps the MCP errors; `config_changed` carries the pre-generated id.
+  - `guard.check(..., relaxed=)`; `target` on both tools; kind-named `propose_change` description.
+  - `describe()` adds `shape` and `provenance` (declared in `view_core.py` ALLOWED and operator paths).
+  - AC7b: `None` row skip, widened `LOADER_KEY_GLOBS`, residuals in `SECURITY-MODEL.md`.
+  - Guide topic (589 words), squawk 0398 Corrective Action and Verification (not completed),
+    `the_one/agents.md` and `SECURITY-MODEL.md` sections.
+- **Notes**:
+  - AC1 list (787 + 292 tests across the listed files) passed unedited after the routes were thinned,
+    before any change-path or kind code was written; no `[BLOCKED]`.
+  - Gates: `THE_ONE_TEST_NETNS=1 make test-unit` 11698 passed, 15 skipped; ruff check and format
+    clean. Lanes (one at a time, wall times for reference): `mcp` 105 passed (292 s),
+    `mcp-connection` 102 passed (290 s), `gleepglorp` 125 passed (333 s). `tests/test_evals_gleepglorp*.py`,
+    `test_evals_freeze.py` and the guide test pass.
+  - New tests: `tests/test_mcp_service.py` (55), `tests/test_gleepglorp_kind_mcp.py` (80), plus pins.
+  - Falsified (fix removed by editing, run, restored), all yes: case-insensitive header compare;
+    secret-looking row rule; OAuth-managed and stored-Sensitive row checks; guard relaxation applied
+    to rows (and relaxation absent); `None` row skip; surface-row refusal inside the mutator;
+    re-read under the lock (a concurrent-write test; a first version of the test did not falsify and
+    was replaced); stale check; open-only warnings; type-change refusal. Not falsified: import
+    boundary, describe markers, card extras, concurrency-apply-once (structural/derived).
+  - Pins updated, none weakened: `test_gleepglorp_proposals_shape/_kinds/_tool/_fill_tool/_outside`
+    (HOME moved from not-loader to loader keys), seam-import list, `view_core` allowlists.
+  - Deviations: the secret-looking rule lives in `mcp/service.py` (not the kind) because AC4 requires
+    the service to refuse it; the kind re-exports it. `api.py` keeps no wrappers for the moved
+    validators (no remaining callers); only `_drop_source_agent_tool_cache` delegates. Squawk 0398:
+    the `db/schema.py:798` citation no longer matches the grep; the notes citation points at
+    `SECURITY-MODEL.md`.
+  - Design calls: a proposal refuses an empty row; a create refuses a duplicate or reserved name;
+    `agent` is refused for an MCP server; `agent` and `target` conflict is refused for an agent.
+
+### 04b-mcp-editor-fill
+
+- **Status**: landed
+- **Started**: 2026-11-21
+- **Completed**: 2026-11-21
+- **Changes Made**:
+  - Server: `Kind.normalize(mode=)` on every kind (`kinds.normalize` forwards it, `fill_form` passes
+    `"fill"`); `mcp_server` fill mode accepts a bare `""` only for a secret-looking key;
+    `fillable = ("create", "change")`; `fill_form` generalized (kind in `FILLABLE`, editor named by
+    `Kind.label`, `notes_enabled` refusal agent-only, new description); `fill_view` uses
+    `card_extras` and a public `stale_fields` (`mcp/service.py`) for `mcp_server` change fills.
+  - Client: editor controller handles (`setType`, `setField`, `setRows`, notes, `rebase`, `saving`,
+    `onIdle`), `connectionFields` / `envHeaders` silent handles; new `mcp-editor-fill.js`,
+    `mcp-editor-follow.js`, `mcp-kinds.js` (registry order agent, rule, routine, mcp_server);
+    `proposal-cards.js` flattens `headers` / `env` rows, counts values, renders `view.warnings`
+    (`proposal-warning`, a `chat.css` rule); `index.html`; two registry rows pairs in
+    `docs/ui-testid-registry.md`.
+  - Tests: `tests/browser/test_flow_gleepglorp_fill_mcp.py` (8), `test_flow_gleepglorp_follow_mcp.py` (6),
+    two card tests in `test_flow_chat_proposals.py`, kinds test extended, seeder `target_id`, fill-mode
+    and view tests in `test_gleepglorp_kind_mcp.py`; pins updated (FILLABLE, enum, a character cap
+    beside the 90-token cap, lane list, the controller key list in the sign-in lifecycle test).
+    Lane list in `scripts/run-tests.sh`.
+  - Docs: `the_one/agents.md` section, `SECURITY-MODEL.md` (type decision, the fill handoff), guide
+    `mcp-servers.md` (trimmed to the 600-word cap).
+- **Notes**:
+  - `fill_form` description measured first: 78 tokens (o200k_base), 341 characters (cap 90 and 360).
+    Eval measurement stays Legs 6 and 7.
+  - Lanes (one at a time, wall times for reference): `gleepglorp` 141 passed (397 s), `mcp` 105 passed
+    (283 s), `mcp-connection` 101 passed + 1 failure fixed (the controller key-list pin in
+    `test_destroy_is_idempotent`, re-run passed) (290 s), `library` 122 passed (370 s). Unit tier first run:
+    two failures fixed (guide word cap 687 -> under 600; raw `#route` hashes in two new tests, now
+    `_nav.href`); a second full run is recorded below if it differed.
+  - Falsified (fix removed by editing, run, restored): fill-mode empty-row acceptance limited to
+    secret-looking keys: yes; proposal still refusing the empty row: yes; type change refused on
+    change fills (both the kind check and `create_only`): yes; existing plain row kept (handoff never
+    replaces it): yes; follow not overwriting a dirty field: yes. Not falsified: the card rows and
+    footer, the note linkage, whenSettled.
+  - Deviations: a kept command group reports `command`, or `args` when the fill carries only `args`
+    (the outcome route requires kept to be a subset of the fill's keys); `outside.py` unedited (a unit
+    assertion pins the empty-value skip); a handoff never replaces an existing row of any kind.
+    The follow test drives `App.approvals.record` (what the approve response calls) after changing the
+    row through the API, not a real approval.
+
+### 05a-provider-kind
+
+- **Status**: landed
+- **Started**: 2026-11-21
+- **Completed**: 2026-11-21
+- **Changes Made**:
+  - `the_one/llm/provider_service.py` (new): `ProviderWriteError/NotFound/StaleError`, `ProviderWriteDeps`,
+    `create_provider`, `replace_provider` (the PUT, on `update_in_txn`), `change_provider`, moved validators,
+    type-fact helpers (`takes_key`, `base_url_for`, `seeded_config`). Repo behind `TYPE_CHECKING`; no
+    interface/gleepglorp imports (ast test).
+  - `LLMProviderRepository.create(on_commit=)` and `update_in_txn`; `PROVIDER_TYPE_DEFAULTS` and derived
+    `CLAUDE_PROVIDER_TYPES` in `db/_provider_types.py` (pinned to the client `TYPE_DEFAULTS`); `api.py` routes
+    thin, aliases kept.
+  - `kinds/provider.py` (registered fifth), `errors.py` mapping, `outside.APP_DEFAULT_URLS` exemption,
+    `providers` detail `options` and `key_stored`, `propose_change` description and `target_args`, guide
+    `model-providers.md` (596 words), `agents.md`, `SECURITY-MODEL.md`. `Kind.needs_secret` removed (mode used).
+  - Tests: `tests/test_provider_service.py` (45), `tests/test_gleepglorp_kind_provider.py` (57); pins updated
+    (registry, operator-only sets, enum, describe lists, seam-import list, provenance allowlist, the 4a
+    `needs_secret` assertion).
+- **Notes**:
+  - AC1: 13 files (test_provider_api, secret_mask_roundtrip, name_rule, invalid_json, agent_provider_check,
+    gleepglorp_settings, reasoning_effort_field, provider_types_consistency, store_static, proposals_continuation,
+    encryption_status, drawer_seed, name_repair) 497 passed, assertions unedited, run before the change path or kind.
+    No test pinned the old PUT `updated_at`; the response now carries the written value (new route test pins it).
+  - AC2: deterministic race tests for service replace, service change and the PUT route. Falsified (stale read
+    outside the transaction restored): all three failed (plus two 404 tests); restored, pass.
+  - Falsified (yes): guard default-URL exemption, relaxed `base_url` guard (needed a long hex path: a UUID is
+    already stripped by the guard, so the UUID case is a pass-case only), service key-taking refusal, kind
+    key-taking refusal, key clearing into ollama. Not falsified: warnings sentences, mock refusals, name uniqueness.
+  - Lanes (reference): providers 144 passed (327 s), gleepglorp 141 passed (347 s). Unit tier
+    `THE_ONE_TEST_NETNS=1 make test-unit`: 11811 passed, 15 skipped (383 s). Static JS guards 396 passed. ruff clean.
+  - Deviations: duplicate provider names refused by the kind (not required by the leg; keeps name targeting
+    unambiguous); creating `anthropic-plan` warns "sign in" (not listed in the leg); `base_url` is not added to a
+    type-change proposal's stored changes (the service fills the default); evals not run (no eval baseline compare
+    for the description wording; provisional, Legs 6 and 7).
+
+### 05b-provider-editor-fill
+
+- **Status**: landed
+- **Started**: 2026-11-21
+- **Completed**: 2026-11-21
+- **Changes Made**:
+  - Server: `provider` kind `fillable = ("create", "change")`; `fill_view` gains `clears_key` (provider
+    change, type differs from `base.type`, base type takes a key), `warnings` (the kind's, for pending
+    fills, MCP included: closes DD9's fill-warnings gap) and a provider `stale` branch; `fill_form` reply
+    appends the warnings; description names the provider kind.
+  - Client: new `provider-editor-controller.js` (the handles; `provider-editor.js` stays at 894 of 895
+    lines and returns the controller), `provider-editor-fill.js`, `provider-editor-follow.js`,
+    `provider-kinds.js` (registry order ... mcp_server, provider); `provider-editor.js` extracts
+    `applyType` (change handler, `setType` and Cancel all call it); `providers-section.js` keeps the live
+    controller (`current`, `controller()` seam), attaches fill and follow, re-mounts on a type change
+    by approval; `index.html`; two registry rows (`provider-filled-note`, `provider-approved-change-note`).
+  - Tests: `tests/test_gleepglorp_fill_provider.py` (25), `tests/browser/test_flow_gleepglorp_fill_provider.py`
+    (14), `test_flow_gleepglorp_follow_provider.py` (12, two real Approves, a stale approve, the cards);
+    pins updated (FILLABLE, enum, 440-character cap, provider kind registration, kinds browser test, seeder
+    `target_key` from the registry, lane list in `run-tests.sh` and `test_run_tests_lanes.py`).
+  - Docs: `the_one/agents.md` section, guide `model-providers.md` (trimmed to the 600-word cap).
+- **Notes**:
+  - `fill_form` description measured first: 89 tokens (o200k_base), 397 characters (caps 90 and 440).
+    Provisional platform text; eval compare is Legs 6 and 7.
+  - Falsified (fix removed by editing, run, restored): `clears_key` computed on the server, both
+    key-taking to key-taking and into ollama: yes; the client `clearKey` (keyless and key-taking to a
+    different key-taking type, Save storing null): yes; a typed key kept: yes; Cancel restoring the
+    type-driven rows and key label: yes; the follow's clean-field rebase / Save after follow sending the
+    approved values (two tests): yes; fill-time warnings present (view, tool reply, MCP): yes. Not
+    falsified: the notes' `aria-describedby` linkage, `whenSettled`, the card rows.
+  - Lanes (one at a time, reference): `gleepglorp` 167 passed (427 s); `providers` 144 passed (327 s);
+    `library` 122 passed (354 s). Unit tier `THE_ONE_TEST_NETNS=1 make test-unit`: 11836 passed, 15 skipped
+    (396 s). Static JS guards, `test_area_module_size.py`, `test_store_static.py` pass; ruff check and
+    format clean.
+  - Deviations: the key note for the token type reads "Enter the token from claude setup-token." (no
+    backticks); a Save from a dirty editor after a type change by approval still sends the old type (the
+    leg scopes it out; the note says Cancel); fill warnings reuse the proposal sentences ("... after
+    approving") unchanged.
 
 ## Decisions
 

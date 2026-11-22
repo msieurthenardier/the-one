@@ -34,15 +34,23 @@ FAILED = "Could not fill the form right now."
 
 
 class FillFormTool(Tool):
-    """Fill the operator's agent editor with unsaved values."""
+    """Fill the operator's agent, MCP server or model provider editor with unsaved values.
+
+    The description is platform prompt text: at most 90 tokens (o200k_base) and 440 characters
+    (a test pins both). The cap rose from 360 for the provider kind (M36 F4 L5b).
+    """
 
     name = FILL_FORM_TOOL_NAME
-    summary = "Fills the open agent editor with unsaved values; saves nothing itself."
+    summary = (
+        "Fills the open agent, MCP server or provider editor with unsaved values; saves nothing."
+    )
     description = (
-        "Fill the agent editor on the operator's screen with unsaved edits; they click Save. "
-        "Only when asked from the drawer; otherwise use propose_change. "
-        "action create: changes holds name and the fields. action change: agent names the "
-        "agent. Fields as propose_change for an agent, except notes_enabled."
+        "Fill an agent, MCP server or provider editor with unsaved edits; the operator saves. "
+        "Only from the drawer; else propose_change. "
+        "create: changes holds name and fields (MCP or provider type too). "
+        "change: agent, or target (MCP server or provider id or name); never an MCP type. "
+        "Fields as propose_change, except notes_enabled. "
+        'Leave a secret\'s value "" for the operator to enter; never a provider key.'
     )
     parameters = {
         "type": "object",
@@ -50,6 +58,7 @@ class FillFormTool(Tool):
             "kind": {"type": "string", "enum": list(kinds.FILLABLE)},
             "action": {"type": "string", "enum": list(shape.ACTIONS)},
             "agent": {"type": ["string", "null"]},
+            "target": {"type": ["string", "null"]},
             "changes": {"type": "object"},
         },
         "required": ["kind", "action", "changes"],
@@ -70,6 +79,7 @@ class FillFormTool(Tool):
         action: Any = None,
         agent: Any = None,
         changes: Any = None,
+        target: Any = None,
         **_extra: Any,
     ) -> str:
         turn = current_turn.get()
@@ -79,7 +89,7 @@ class FillFormTool(Tool):
         if turn is None or turn.page is None:
             return NEEDS_PAGE
         try:
-            return await self._fill(session_id, turn, kind, action, agent, changes)
+            return await self._fill(session_id, turn, kind, action, agent, changes, target)
         except shape.ShapeError as e:
             return str(e)
         except Exception:  # noqa: BLE001 - the tool never raises into the loop
@@ -87,16 +97,23 @@ class FillFormTool(Tool):
             return FAILED
 
     async def _fill(
-        self, session_id: str, turn: Any, kind: Any, action: Any, agent: Any, changes: Any
+        self,
+        session_id: str,
+        turn: Any,
+        kind: Any,
+        action: Any,
+        agent: Any,
+        changes: Any,
+        target: Any = None,
     ) -> str:
         from the_one import time_zones
         from the_one.config import settings
         from the_one.db.connection import get_connection
         from the_one.encryption import get_encryptor
 
-        if kind != "agent":
-            raise shape.ShapeError("Only kind agent can be filled.")
-        if isinstance(changes, dict) and "notes_enabled" in changes:
+        if kind not in kinds.FILLABLE:
+            raise shape.ShapeError(f"Only these kinds can be filled: {', '.join(kinds.FILLABLE)}.")
+        if kind == "agent" and isinstance(changes, dict) and "notes_enabled" in changes:
             return NO_NOTES
         conn = await get_connection()
         eff = await time_zones.load_effective_zone(conn)
@@ -104,14 +121,17 @@ class FillFormTool(Tool):
         norm = await kinds.normalize(
             kind,
             action,
-            {"agent": agent},
+            kinds.target_args(kind, agent, None, None, target),
             changes,
             conn=conn,
             now=time_zones.utcnow(),
             zone=eff.tzinfo,
             enc=enc,
+            mode="fill",
         )
-        refusal = await guard.check(conn, enc, norm.changes)
+        refusal = await guard.check(
+            conn, enc, norm.changes, relaxed=kinds.get(norm.kind).relaxed_guard_keys
+        )
         if refusal is not None:
             return refusal
         untrusted, sources = compute_taint(self._agent, current_tool_call_id.get(), turn)
@@ -145,9 +165,16 @@ class FillFormTool(Tool):
             if old is not None:
                 await push_fill_changed(session_id, await fill_view(conn, old))
         stored = await repo.get(fill_id)
+        warns: list[str] = []
         if stored is not None:
-            await push_fill_requested(session_id, await fill_view(conn, stored))
-        return (
-            f"Fill {fill_id} is on the operator's screen as unsaved edits in the agent editor. "
+            view = await fill_view(conn, stored)
+            warns = list(view.get("warnings") or [])
+            await push_fill_requested(session_id, view)
+        reply = (
+            f"Fill {fill_id} is on the operator's screen as unsaved edits in the "
+            f"{kinds.get(norm.kind).label} editor. "
             "Nothing is saved until they click Save."
         )
+        if warns:
+            reply += " Tell the operator: " + " ".join(warns)
+        return reply

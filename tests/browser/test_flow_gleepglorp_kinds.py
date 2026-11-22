@@ -35,6 +35,8 @@ _SCRIPT_ORDER_JS = """() => {
   return {
     kinds: at('/js/gleepglorp-kinds.js'), approvals: at('/js/approvals.js'),
     frames: at('/areas/chat/window-frames.js'), agentKinds: at('/areas/studio/agent-kinds.js'),
+    mcpKinds: at('/areas/studio/mcp-kinds.js'),
+    providerKinds: at('/areas/studio/provider-kinds.js'),
     agentsList: at('/areas/studio/agents-list.js')
   };
 }"""
@@ -79,6 +81,22 @@ _REGISTRY_JS = """() => {
     App.approvals.clear('plain');
     out.afterClear = App.approvals.forAgent('plain');
     out.targetAfterClear = App.approvals.forTarget('stub_target', 't-1');
+    // The MCP server kind records under its target id; a create without one records nothing.
+    out.mcpCreate = App.approvals.record(
+      { kind: 'mcp_server', fields: ['name'], proposal_id: 9005 });
+    out.mcpRecord = App.approvals.record({
+      kind: 'mcp_server', target_id: 'srv-1', fields: ['url'], session_id: 's1',
+      proposal_id: 9006, at: '2026-01-02T11:00:00+00:00'
+    });
+    out.mcpFor = App.approvals.forTarget('mcp_server', 'srv-1');
+    // The provider kind records under its target id too, and invalidates `providers`.
+    out.providerCreate = App.approvals.record(
+      { kind: 'provider', fields: ['name'], proposal_id: 9007 });
+    out.providerRecord = App.approvals.record({
+      kind: 'provider', target_id: 'prov-1', fields: ['type'], session_id: 's1',
+      proposal_id: 9008, at: '2026-01-02T12:00:00+00:00'
+    });
+    out.providerFor = App.approvals.forTarget('provider', 'prov-1');
   } finally {
     App.store.invalidate = realInvalidate;
   }
@@ -97,15 +115,16 @@ def test_the_agent_kinds_register_during_script_load_before_any_socket_frame(
         "() => ({ names: App.gleepglorpKinds.names(),"
         " gg: ['get', 'peek', 'prime'].map(k => typeof App.gleepglorp[k]) })"
     )
-    assert got["names"] == ["agent", "rule", "routine"]
+    assert got["names"] == ["agent", "rule", "routine", "mcp_server", "provider"]
     assert got["gg"] == ["function", "function", "function"]
     order = page.evaluate(_SCRIPT_ORDER_JS)
     assert -1 not in order.values()
     assert order["kinds"] < order["approvals"] < order["frames"]
-    assert order["agentsList"] < order["agentKinds"]
-    # Only the agent kind is fillable; the labels carry today's wording.
+    assert order["agentsList"] < order["agentKinds"] < order["mcpKinds"] < order["providerKinds"]
+    # The agent, MCP server and provider kinds are fillable; the labels carry today's wording.
     shape = page.evaluate(
-        "() => ['agent', 'rule', 'routine'].map(n => { const k = App.gleepglorpKinds.get(n);"
+        "() => ['agent', 'rule', 'routine', 'mcp_server', 'provider'].map(n => {"
+        " const k = App.gleepglorpKinds.get(n);"
         " return [n, !!k.fill, k.store, k.labels.editorUnavailable, k.labels.targetGone]; })"
     )
     assert shape == [
@@ -130,6 +149,20 @@ def test_the_agent_kinds_register_during_script_load_before_any_socket_frame(
             "The agent editor could not open.",
             "That agent no longer exists.",
         ],
+        [
+            "mcp_server",
+            True,
+            "mcp-sources",
+            "The MCP server editor could not open.",
+            "That MCP server no longer exists.",
+        ],
+        [
+            "provider",
+            True,
+            "providers",
+            "The model provider editor could not open.",
+            "That model provider no longer exists.",
+        ],
     ]
 
 
@@ -143,7 +176,7 @@ def test_the_registry_and_approvals_record_a_stub_id_targeted_kind(
     out = page.evaluate(_REGISTRY_JS)
 
     assert out["unknown"] is None
-    assert out["names"] == ["agent", "rule", "routine", "stub_target"]
+    assert out["names"] == ["agent", "rule", "routine", "mcp_server", "provider", "stub_target"]
     assert out["same"] is True
     assert out["dupThrew"] is True and out["dupAgentThrew"] is True
     # An unknown kind, or a stub detail with no target id, is not recorded.
@@ -165,8 +198,14 @@ def test_the_registry_and_approvals_record_a_stub_id_targeted_kind(
     assert out["afterClear"] == {}
     assert list(out["targetAfterClear"]) == ["url", "name"]
     # Each recorded change invalidated its kind's store and emitted the event.
-    assert out["invalidated"] == ["stub-store", "agents"]
-    stub_event, rule_event = out["events"]
+    assert out["mcpCreate"] is False and out["mcpRecord"] is True
+    assert out["mcpFor"] == {"url": {"at": "2026-01-02T11:00:00+00:00", "session_id": "s1"}}
+    assert out["providerCreate"] is False and out["providerRecord"] is True
+    assert out["providerFor"] == {"type": {"at": "2026-01-02T12:00:00+00:00", "session_id": "s1"}}
+    assert out["invalidated"] == ["stub-store", "agents", "mcp-sources", "providers"]
+    stub_event, rule_event, mcp_event, provider_event = out["events"]
+    assert mcp_event["kind"] == "mcp_server" and mcp_event["target_id"] == "srv-1"
+    assert provider_event["kind"] == "provider" and provider_event["target_id"] == "prov-1"
     assert stub_event["kind"] == "stub_target" and stub_event["target_id"] == "t-1"
     assert "agent" not in stub_event
     assert stub_event["fields"] == ["url", "name"]

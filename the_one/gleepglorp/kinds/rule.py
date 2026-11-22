@@ -46,6 +46,7 @@ async def normalize(
     now: datetime,
     zone: tzinfo,
     enc: Any = None,
+    mode: str = "propose",
 ) -> Normalized:
     agent = await existing_agent(conn, target.get("agent"))
     stored: dict[str, Any] = {}

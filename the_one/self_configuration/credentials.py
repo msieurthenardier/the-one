@@ -39,8 +39,8 @@ from the_one.self_configuration.constants import (
 _BEARER_PREFIX = "Bearer "
 
 # identifier -> (source_id, secret). Process-local, in-memory (Edge Case:
-# "two processes sharing a data dir" is already unsupported per CLAUDE.md's
-# single-process assumption; this registry inherits that posture).
+# "two processes sharing a data dir" is already unsupported per SECURITY-MODEL.md's
+# "Single-process-at-a-time assumption"; this registry inherits that posture).
 _registry: dict[str, tuple[str, str]] = {}
 
 # NOTE: no boolean "already registered" flag here (there was one; removed).

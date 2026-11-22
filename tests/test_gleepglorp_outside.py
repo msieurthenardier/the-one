@@ -219,9 +219,29 @@ def test_loader_keys(key) -> None:
     assert is_loader_key(key) is True
 
 
-@pytest.mark.parametrize("key", ["PATHNAME", "ENVIRONMENT", "GITHUB_TOKEN", "API_KEY", "HOME"])
+@pytest.mark.parametrize("key", ["PATHNAME", "ENVIRONMENT", "GITHUB_TOKEN", "API_KEY", "HOMEPAGE"])
 def test_not_loader_keys(key) -> None:
     assert is_loader_key(key) is False
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "NODE_TLS_REJECT_UNAUTHORIZED",
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "PYTHONINSPECT",
+        "BUN_INSTALL",
+        "DENO_DIR",
+        "GEM_HOME",
+        "BUNDLE_GEMFILE",
+        "JAVA_HOME",
+        "MAVEN_OPTS",
+        "GRADLE_OPTS",
+    ],
+)
+def test_the_widened_loader_keys(key) -> None:
+    assert is_loader_key(key) is True
 
 
 def test_the_loader_glob_list_is_pinned() -> None:
@@ -235,6 +255,8 @@ def test_the_loader_glob_list_is_pinned() -> None:
         "JDK_JAVA_OPTIONS", "CLASSPATH", "DOTNET_STARTUP_HOOKS",
         "GIT_SSH_COMMAND", "GIT_PROXY_COMMAND", "GIT_EXEC_PATH", "GIT_CONFIG*", "GIT_SSL_*",
         "*_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+        "NODE_TLS_REJECT_UNAUTHORIZED", "HOME", "XDG_*", "PYTHONINSPECT", "BUN_*", "DENO_*",
+        "GEM_*", "BUNDLE_*", "JAVA_HOME", "MAVEN_OPTS", "GRADLE_OPTS",
     )  # fmt: skip
 
 
@@ -491,6 +513,15 @@ def test_a_non_loader_env_value_may_come_from_a_linked_page() -> None:
 
 def test_an_empty_sensitive_row_value_is_not_checked() -> None:
     assert stub_check({"env": {"API_TOKEN": ""}, "headers": {"X-Key": ""}}, U("hello")) is None
+
+
+def test_a_none_row_value_is_skipped_not_checked_as_the_string_none() -> None:
+    hist = [U("hello")]
+    # declared rows (env) and free rows (headers): None is "no value", never the text "None".
+    assert stub_check({"env": {"THING_MODE": None}}, *hist) is None
+    assert stub_check({"headers": {"X-Note": None}}, *hist) is None
+    # ...and a real value next to it is still checked.
+    assert stub_check({"env": {"A": None, "B": "evil"}}, *hist) is not None
 
 
 def test_rows_that_are_not_declared_are_free_text() -> None:
@@ -771,7 +802,7 @@ async def test_a_stub_kind_goes_through_the_propose_tool(world, monkeypatch) -> 
     class StubKind(SimpleNamespace):
         pass
 
-    stub = StubKind(name="stub", fields=STUB.fields)
+    stub = StubKind(name="stub", fields=STUB.fields, relaxed_guard_keys=frozenset())
     real_get = kinds.get
 
     async def fake_normalize(kind, action, target, changes, **kw):

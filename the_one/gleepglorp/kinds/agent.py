@@ -147,6 +147,7 @@ async def normalize(
     now: datetime,
     zone: tzinfo,
     enc: Any = None,
+    mode: str = "propose",
 ) -> Normalized:
     from the_one.tools.builtins import builtin_tool_names
 

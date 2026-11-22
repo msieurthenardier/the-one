@@ -646,7 +646,7 @@ def seed_gleepglorp_fill(
     *,
     kind: str = "agent",
     action: str = "change",
-    agent_name: str = "plain",
+    agent_name: str | None = "plain",
     changes: dict | None = None,
     base: dict | None = None,
     tool_call_id: str | None = "tc-1",
@@ -658,29 +658,39 @@ def seed_gleepglorp_fill(
     claimed_at: str | None = None,
     resolved_at: str | None = None,
     claim_token: str | None = None,
+    target_id: str | None = None,
 ) -> int:
     """INSERT one ``gleepglorp_fills`` row by sync sqlite3 (M36 F3 L6).
 
     Only GleepGlorp's fill tool writes these, so a browser test that needs a receipt in a given
     state seeds it, as ``seed_gleepglorp_proposal`` does. ``changes`` and ``base`` use the stored
-    field names (ids, not names). Returns the id.
+    field names (ids, not names). An id-targeted kind (``mcp_server``) passes ``agent_name=None``
+    and, for a change, ``target_id``; its ``target_key`` is the kind registry's (a create's comes
+    from ``changes["name"]``). Returns the id.
     """
     import sqlite3
 
-    target_key = f"{kind}:{agent_name}"
+    from the_one.gleepglorp import kinds
+
+    if kinds.find(kind) is not None and kinds.get(kind).resolve_target is not None:
+        # An id-targeted kind (the MCP server, the model provider): the registry's key.
+        target_key = kinds.target_key(kind, action, target_id, (changes or {}).get("name"))
+    else:
+        target_key = f"{kind}:{agent_name}"
     conn = sqlite3.connect(str(data_dir / "the-one.db"))
     try:
         cur = conn.execute(
             "INSERT INTO gleepglorp_fills (session_id, tool_call_id, kind, action, agent_name,"
-            " target_key, changes, base, status, outcome, claim_token, untrusted,"
+            " target_id, target_key, changes, base, status, outcome, claim_token, untrusted,"
             " untrusted_sources, created_at, claimed_at, resolved_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session_id,
                 tool_call_id,
                 kind,
                 action,
                 agent_name,
+                target_id,
                 target_key,
                 json.dumps(changes or {}),
                 json.dumps(base) if base is not None else None,

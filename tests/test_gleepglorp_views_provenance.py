@@ -116,7 +116,17 @@ REVIEWED_ALLOWED: dict[str, dict[str, frozenset[str]]] = {
     "providers": {
         "list": _L | {"id"},
         "detail": frozenset(
-            {"id", "name", "type", "address", "oauth_active", "agents", "used_by_gleepglorp"}
+            {
+                "id",
+                "name",
+                "type",
+                "address",
+                "oauth_active",
+                "agents",
+                "used_by_gleepglorp",
+                "options",
+                "key_stored",
+            }
         ),
     },
     "knowledge_bases": {
