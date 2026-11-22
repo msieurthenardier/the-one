@@ -83,15 +83,20 @@ async def test_build_prompts_follows_the_web_access_setting(tmp_path) -> None:
     from tests._schema_template import connect_template_db
     from the_one.gleepglorp.settings import GleepGlorpSettings, save_settings
 
+    # The shipped web-on and web-off texts are equal (p5b), so prove the wiring with a sentinel
+    # web-off text through the same override seam the eval candidates use.
+    sentinel = "SENTINEL-WEB-OFF-ANSWERING"
+    sections = {**gp.active_sections(), "WEB_OFF_ANSWERING": sentinel}
     conn = await connect_template_db(tmp_path / "t.db")
     try:
-        on = await gp.build_prompts(conn, tool_available=True)
-        assert "Use the web only for outside facts" in on.tool_capable
-        await save_settings(conn, GleepGlorpSettings(web_access=False))
-        off = await gp.build_prompts(conn, tool_available=True)
-        assert "web" not in off.tool_capable.split("\n\n")[4].lower()
-        assert off.tool_capable != on.tool_capable
-        assert off.tool_free == on.tool_free
+        with gp.override_sections(sections):
+            on = await gp.build_prompts(conn, tool_available=True)
+            assert sentinel not in on.tool_capable
+            await save_settings(conn, GleepGlorpSettings(web_access=False))
+            off = await gp.build_prompts(conn, tool_available=True)
+            assert sentinel in off.tool_capable
+            assert sentinel not in off.tool_free  # the tool-free text ignores the web setting
+            assert off.tool_free == on.tool_free
     finally:
         await conn.close()
 
