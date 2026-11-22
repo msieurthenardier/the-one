@@ -454,6 +454,7 @@ class Harness:
         from the_one.config import settings
         from the_one.db.connection import get_connection
         from the_one.db.repositories import (
+            LLMProviderRepository,
             MCPSourceRepository,
             SecretRepository,
             SQLiteAgentStore,
@@ -474,6 +475,11 @@ class Harness:
                 await MCPSourceRepository(conn, enc).delete(key)
             elif kind == "secret":
                 await SecretRepository(conn, enc).delete(key)
+            elif kind == "provider":
+                try:
+                    await LLMProviderRepository(conn, enc).delete(key)
+                except KeyError:
+                    pass
 
     async def _seed_gleepglorp(self, spec: RunSpec, conn: Any) -> set[str]:
         """Seed a ``builder = "gleepglorp"`` run. GleepGlorp is one singleton per data directory,
@@ -483,8 +489,9 @@ class Harness:
         seeded notes and the ``[app]`` rows go in. Returns the seeded note ids."""
         from the_one.agent.config import AgentConfig
         from the_one.config import settings
-        from the_one.db.models import MCPSource
+        from the_one.db.models import LLMProviderConfig, MCPSource
         from the_one.db.repositories import (
+            LLMProviderRepository,
             MCPSourceRepository,
             SecretRepository,
             SQLiteAgentStore,
@@ -549,10 +556,25 @@ class Harness:
                 }
             else:
                 config = {"url": x(srv.url), "headers": {k: x(v) for k, v in srv.headers}}
-            row_id = f"ev-mcp-{len(self._app_rows)}"
+            row_id = srv.id or f"ev-mcp-{len(self._app_rows)}"
             await mcps.create(MCPSource(id=row_id, name=x(srv.name), type=srv.type, config=config))
             self._app_rows.append(("mcp", row_id))
             self._run_secrets += [x(v) for _k, v in (*srv.headers, *srv.env)]
+        providers = LLMProviderRepository(conn, enc)
+        for prov in sc.app.providers:
+            await providers.create(
+                LLMProviderConfig(
+                    id=prov.id,
+                    name=x(prov.name),
+                    type=prov.type,  # type: ignore[arg-type]
+                    base_url=x(prov.base_url),
+                    api_key=x(prov.api_key) or None,
+                    config=dict(prov.config),
+                )
+            )
+            self._app_rows.append(("provider", prov.id))
+            if prov.api_key:
+                self._run_secrets.append(x(prov.api_key))
         secrets = SecretRepository(conn, enc)
         for sec in sc.app.secrets:
             made = await secrets.create(
@@ -653,6 +675,13 @@ class Harness:
             tt.approve_outcome = "none_open"
             return None
         tt.proposal_id = open_proposal.id
+        # The seeded MCP and provider rows are removed by id, not by a created row's id, so no
+        # listed scenario approves a create of either kind; applying one would leak a row.
+        assert not (
+            step.kind == "approve"
+            and open_proposal.kind in ("mcp_server", "provider")
+            and open_proposal.action == "create"
+        ), "an eval run must not approve an mcp_server or provider create"
         if step.kind == "dismiss":
             res = await dismiss_proposal(conn, open_proposal.id, continue_chat=False)
             if res.outcome != "dismissed":

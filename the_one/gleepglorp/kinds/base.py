@@ -37,7 +37,8 @@ SummaryFn = Callable[..., Awaitable[dict[str, Any]]]
 #: ``resolve_target(conn, ref) -> (target_id, name)``: the existing target a model named by
 #: id or name; raises ``ShapeError`` with a plain sentence for an unknown or ambiguous ref.
 ResolveTargetFn = Callable[..., Awaitable[tuple[str, str]]]
-#: ``warnings(conn, enc, p) -> list[str]``
+#: ``warnings(conn, enc, p, mode="propose") -> list[str]``; ``mode`` is ``"propose"`` (a proposal
+#: card: the operator approves) or ``"fill"`` (a fill: the operator saves the form themselves).
 WarningsFn = Callable[..., Awaitable[list[str]]]
 #: ``card_extras(conn, p) -> {"title": ..., "target_gone": ..., ...}``
 CardExtrasFn = Callable[..., Awaitable[dict[str, Any]]]
@@ -85,8 +86,10 @@ class Kind:
     title: Callable[[Any], str] = default_title
     card_title: Callable[[str, str | None], str] | None = None
     resolve_target: ResolveTargetFn | None = None
-    #: ``warnings(conn, enc, p) -> [sentence]``: what the operator should know before
-    #: approving, read from the stored row (computed for pending and failed proposals only).
+    #: ``warnings(conn, enc, p, mode="propose") -> [sentence]``: what the operator should know
+    #: before approving (``mode="fill"``: before saving), read from the stored row (computed for
+    #: pending and failed proposals only). A kind whose sentences do not mention approval ignores
+    #: ``mode``.
     warnings: WarningsFn | None = None
     #: ``card_extras(conn, p) -> {title, target_gone, ...}``: replaces the store's built-in
     #: card extras (agent, rule, routine) for a kind that sets it.

@@ -346,7 +346,8 @@ async def fill_view(conn: aiosqlite.Connection, fill: Fill) -> dict[str, Any]:
 
         # The kind's proposal-time warnings, read from the stored row, for a fill still to be
         # applied (a ``Fill`` carries the ``action``, ``changes`` and ``target_id`` they read).
-        warnings = await kind.warnings(conn, get_encryptor(settings.data_dir), fill)
+        # ``mode="fill"``: the operator saves the form, so no sentence says "after approving".
+        warnings = await kind.warnings(conn, get_encryptor(settings.data_dir), fill, mode="fill")
     return {
         "id": fill.id,
         "kind": fill.kind,

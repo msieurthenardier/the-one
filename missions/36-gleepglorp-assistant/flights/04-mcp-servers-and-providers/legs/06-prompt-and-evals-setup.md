@@ -1,6 +1,7 @@
 # Leg: 06-prompt-and-evals-setup
 
-**Status**: planning
+**Status**: aborted. It never went in-flight, and was superseded at its design review on
+2026-11-21 by `06a-eval-harness-and-candidates.md` and `06b-eval-scenarios.md`.
 **Flight**: [MCP servers and model providers](../flight.md)
 
 ## Objective

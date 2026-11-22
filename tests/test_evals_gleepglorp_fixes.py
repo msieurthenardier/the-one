@@ -429,6 +429,10 @@ NO_CLAIM_SCENARIOS = (
     "no-change-claim",
     "propose-attach-mcp",
     "propose-create-agent",
+    # M36 F4 L6b
+    "propose-mcp-change",
+    "mcp-from-link",
+    "provider-key-handoff",
 )
 
 
@@ -511,6 +515,14 @@ def test_the_agents_set_up_is_still_a_claim_where_the_pattern_names_the_agent():
     assert {s for s, _ in pats} >= {"propose-create-agent", "propose-multi-step"}
     for stem, rx in pats:
         assert rx.search("The agent's set up and ready.") is not None, stem
+
+
+def test_the_servers_or_providers_set_up_is_a_claim_in_the_leg_6b_fill_cells():
+    for stem, noun in (("mcp-from-link", "server"), ("provider-key-handoff", "provider")):
+        rx = dict(set_up_patterns(rf"the\s+{noun}"))[stem]
+        assert rx.search(f"The {noun}'s set up and ready.") is not None, stem
+        assert rx.search(f"I've filled the form. The {noun} is not saved yet.") is None, stem
+        assert rx.search("I've set up the form for you. It is not saved yet.") is None, stem
 
 
 def key_ask_pattern() -> re.Pattern[str]:

@@ -491,8 +491,12 @@ WARN_DOWNLOAD = (
 )
 
 
-async def warnings(conn: aiosqlite.Connection, enc: Any, p: Proposal) -> list[str]:
-    """What the operator should know before approving, read from the stored row."""
+async def warnings(
+    conn: aiosqlite.Connection, enc: Any, p: Proposal, mode: str = "propose"
+) -> list[str]:
+    """What the operator should know before approving, read from the stored row. The sentences
+    carry no approval wording, so ``mode`` (``"propose"`` or ``"fill"``) is ignored."""
+    del mode
     out: list[str] = []
     changes = p.changes
     if p.action == "create":

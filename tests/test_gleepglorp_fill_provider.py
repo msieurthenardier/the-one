@@ -162,6 +162,82 @@ async def test_the_view_carries_fill_time_warnings_for_a_pending_fill_only(world
     assert (await view_of(world, fid))["warnings"] == []
 
 
+@pytest.mark.parametrize(
+    "action,changes,target,expected",
+    [
+        ("create", {"name": "N", "type": "anthropic"}, None, provider.WARN_FILL_KEY_NEEDED),
+        ("create", {"name": "N", "type": "anthropic-plan"}, None, provider.WARN_FILL_SIGN_IN),
+        (
+            "change",
+            {"type": "anthropic-plan"},
+            OAI,
+            provider.WARN_FILL_KEY_CLEARED_SIGN_IN,
+        ),
+    ],
+)
+async def test_a_fill_view_says_this_page_and_saving_never_approving(
+    world, action, changes, target, expected
+) -> None:
+    fid = await make_fill(world, action, changes, target)
+    warnings = (await view_of(world, fid))["warnings"]
+    assert expected in warnings
+    assert not any("approv" in w.lower() for w in warnings), warnings
+
+
+def test_the_fill_wordings_are_the_ones_the_leg_fixed() -> None:
+    assert provider.WARN_FILL_KEY_NEEDED == "Enter its API key on this page."
+    assert provider.WARN_FILL_SIGN_IN == "Sign in on this page after saving."
+    assert provider.WARN_FILL_KEY_CLEARED_SIGN_IN == (
+        "The stored key is cleared; sign in on this page after saving."
+    )
+
+
+async def test_a_proposal_warning_keeps_its_approval_wording(world) -> None:
+    from the_one.gleepglorp.proposals.store import NewProposal  # noqa: F401
+
+    n = await norm(world, "create", {"name": "N", "type": "anthropic"})
+    p = type("P", (), {"action": n.action, "changes": n.changes, "target_id": n.target_id})()
+    assert await provider.warnings(world.conn, None, p) == [provider.WARN_KEY_NEEDED]
+    assert await provider.warnings(world.conn, None, p, mode="fill") == [
+        provider.WARN_FILL_KEY_NEEDED
+    ]
+    assert "approving" in provider.WARN_KEY_NEEDED
+
+
+async def test_no_fill_reply_contains_approv(world, monkeypatch) -> None:
+    """The tool reply the model reads (it relays it to the operator) never says "approving":
+    a fill is saved by the operator on the page."""
+
+    async def capture(session_id, payload, **_kw):
+        pass
+
+    monkeypatch.setattr("the_one.sessions._broadcast.broadcast_to_session", capture)
+    tool = FillFormTool(agent_name="GleepGlorp")
+    token = current_turn.set(TurnContext(session_id="s7", page=PAGE))
+    try:
+        replies = [
+            await tool.execute(
+                kind="provider", action="create", changes={"name": "K", "type": "anthropic"}
+            ),
+            await tool.execute(
+                kind="provider", action="create", changes={"name": "P", "type": "anthropic-plan"}
+            ),
+            await tool.execute(
+                kind="provider",
+                action="change",
+                target="OpenAI main",
+                changes={"type": "anthropic-plan"},
+            ),
+        ]
+    finally:
+        current_turn.reset(token)
+    assert provider.WARN_FILL_KEY_NEEDED in replies[0]
+    assert provider.WARN_FILL_SIGN_IN in replies[1]
+    assert provider.WARN_FILL_KEY_CLEARED_SIGN_IN in replies[2]
+    for reply in replies:
+        assert "approv" not in reply.lower(), reply
+
+
 async def test_the_tool_reply_appends_the_warnings(world, monkeypatch) -> None:
     async def capture(session_id, payload, **_kw):
         pass

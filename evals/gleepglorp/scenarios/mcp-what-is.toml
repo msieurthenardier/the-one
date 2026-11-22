@@ -1,0 +1,47 @@
+id = "mcp-what-is"
+class = "improve"
+description = "On the page of a seeded MCP server, the operator asks what it does. GleepGlorp answers about that server by name or address and links its page."
+
+[agent]
+builder = "gleepglorp"
+skip_empty_final_reply = true
+
+[[app.mcp_servers]]
+id = "ev-mcp-docs"
+name = "{mcp}"
+type = "streamable-http"
+url = "https://{host}.example.com/mcp"
+
+[variants]
+phrasings = [
+  "What does this do?",
+  "Quick question: what does this do?",
+  "I forgot what this is for. What does this do?",
+  "Hi. What does this do? Keep it short.",
+]
+facts = [
+  {mcp = "Weather Desk", host = "weather"},
+  {mcp = "Bank Feed", host = "bank"},
+  {mcp = "Pantry Scan", host = "pantry"},
+  {mcp = "Soil Sensor", host = "soil"},
+  {mcp = "Repo Browser", host = "repo"},
+]
+
+[[conversations]]
+turns = [
+  {text = "{phrasing}", page = {line = "Library › MCP servers › {mcp} (#library/mcp/ev-mcp-docs)", descriptor = {destination = "library", section = "mcp", item = "ev-mcp-docs", item_name = "{mcp}"}}},
+]
+
+[[checks]]
+name = "reply_matches"
+pattern = '{mcp}|{host}\.example\.com'
+turn = 0
+cell = "mcp-what-is-answer"
+class = "improve"
+
+[[checks]]
+name = "reply_links_to_route"
+pattern = 'library/mcp/ev-mcp-docs'
+turn = 0
+cell = "mcp-what-is-link"
+class = "report"

@@ -416,6 +416,15 @@ async def card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]
 WARN_KEY_NEEDED = "Enter its API key on the page after approving."
 WARN_SIGN_IN = "Sign in on the page after approving."
 WARN_KEY_CLEARED_SIGN_IN = "The stored key is cleared; sign in after approving."
+# The fill wordings: a fill is applied by the operator saving the form, not by approving.
+WARN_FILL_KEY_NEEDED = "Enter its API key on this page."
+WARN_FILL_SIGN_IN = "Sign in on this page after saving."
+WARN_FILL_KEY_CLEARED_SIGN_IN = "The stored key is cleared; sign in on this page after saving."
+_FILL_WORDING = {
+    WARN_KEY_NEEDED: WARN_FILL_KEY_NEEDED,
+    WARN_SIGN_IN: WARN_FILL_SIGN_IN,
+    WARN_KEY_CLEARED_SIGN_IN: WARN_FILL_KEY_CLEARED_SIGN_IN,
+}
 WARN_KEY_CLEARED = "The stored key is cleared."
 WARN_SIGNS_OUT = "This signs the provider out."
 WARN_URL_MOVES_KEY = "This provider's saved key will be sent to the new address."
@@ -429,8 +438,18 @@ def _agents_sentence(names: list[str]) -> str:
     return f"{n} agents use this provider; their model names stay as they are."
 
 
-async def warnings(conn: aiosqlite.Connection, enc: Any, p: Proposal) -> list[str]:
-    """What the operator should know before approving, read from the stored row."""
+async def warnings(
+    conn: aiosqlite.Connection, enc: Any, p: Proposal, mode: str = "propose"
+) -> list[str]:
+    """What the operator should know before approving, read from the stored row. ``mode="fill"``
+    words the approval-dependent sentences for a fill (saved on the page, never approved)."""
+    out = await _warnings(conn, enc, p)
+    if mode == "fill":
+        out = [_FILL_WORDING.get(w, w) for w in out]
+    return out
+
+
+async def _warnings(conn: aiosqlite.Connection, enc: Any, p: Proposal) -> list[str]:
     out: list[str] = []
     changes = p.changes
     if p.action == "create":

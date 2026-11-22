@@ -1,0 +1,52 @@
+id = "provider-type-change"
+class = "improve"
+description = "On the page of a seeded local (ollama) model provider, the operator asks to change it to Anthropic. GleepGlorp fills the type on that page, and its reply relays the fill's warning: the API key is entered on this page."
+
+[agent]
+builder = "gleepglorp"
+skip_empty_final_reply = true
+
+# The seeded provider has no api_key and no agent uses it, so the type change raises only the
+# "enter its API key" fill warning.
+[[app.providers]]
+id = "ev-prov-local"
+name = "{pname}"
+type = "ollama"
+base_url = "http://localhost:11434/v1"
+
+[variants]
+phrasings = [
+  "Change this provider to Anthropic.",
+  "Make this one an Anthropic provider instead.",
+  "I want to switch this provider over to Anthropic. Can you do that?",
+  "Please set this provider's type to Anthropic.",
+]
+facts = [
+  {pname = "Local Ollama"},
+  {pname = "Home Server"},
+  {pname = "Workshop Box"},
+  {pname = "Spare Laptop"},
+  {pname = "Garage Model"},
+]
+
+[[conversations]]
+turns = [
+  {text = "{phrasing}", page = {line = "Library › Model providers › {pname} (#library/providers/ev-prov-local)", descriptor = {destination = "library", section = "providers", item = "ev-prov-local", item_name = "{pname}"}}},
+]
+
+[[checks]]
+name = "fill_made"
+kind = "provider"
+action = "change"
+field = "type"
+matches = '^anthropic$'
+cell = "provider-type-change-made"
+class = "improve"
+
+# The fill's reply carries the warning; the model relays it.
+[[checks]]
+name = "reply_matches"
+pattern = '(?i)api key.{0,40}(on this page|here|in the form)'
+turn = 0
+cell = "provider-type-change-warning"
+class = "report"

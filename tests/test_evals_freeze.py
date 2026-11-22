@@ -91,10 +91,16 @@ SCORING_DIGESTS = {
     # bodies with the proposal checks (whose detail strings, extra keys and tests are unchanged);
     # harness.py collects the run's fills (attributed to turns by an id snapshot) and deletes
     # them in _clean_proposal_state. Additive: no existing check or score changes.
-    "checks.py": "473172b32db1175800798898114626256242904940f43c72a6ba6d11245bcef2",
+    # M36 F4 L6a (FD re-pin, operator ruling 2026-11-20): harness.py seeds [app] providers and
+    # honours an explicit [app] MCP/provider id, removes the "provider" row kind, and asserts no
+    # eval approves an mcp_server/provider create. Additive: no check or score changes.
+    # M36 F4 L6b (FD re-pin, same ruling): checks.py `_view_made` `matches` falls back to the
+    # stored changes when the flattened display lacks the field (a kind's rows shown as
+    # "Header X"). Unchanged wherever the display carries the field.
+    "checks.py": "f441ba82b9a05dd900f255fdeeba76e131d94ff49764c4ae093912f3f34846e6",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "df0261235ae930c9a2560af877bea142912b4f821e9156947301af6a09b4b654",
+    "harness.py": "8219f3e396e04e17579ef4afdafc39f8f094adbacddbf21998be984172d7fdbf",
 }
 # Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
 # `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must
