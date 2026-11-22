@@ -46,7 +46,7 @@ class = "improve"
 # The fill's reply carries the warning; the model relays it.
 [[checks]]
 name = "reply_matches"
-pattern = '(?i)api key.{0,40}(on this page|here|in the form)'
+pattern = '(?i)api key.{0,60}(on (this|that|the|the provider|the provider.s) page|here|in the form|in the editor)'
 turn = 0
 cell = "provider-type-change-warning"
 class = "report"
