@@ -83,7 +83,7 @@ async def test_build_prompts_follows_the_web_access_setting(tmp_path) -> None:
     from tests._schema_template import connect_template_db
     from the_one.gleepglorp.settings import GleepGlorpSettings, save_settings
 
-    # The shipped web-on and web-off texts are equal (p5b), so prove the wiring with a sentinel
+    # The shipped web-on and web-off texts are equal (p5d), so prove the wiring with a sentinel
     # web-off text through the same override seam the eval candidates use.
     sentinel = "SENTINEL-WEB-OFF-ANSWERING"
     sections = {**gp.active_sections(), "WEB_OFF_ANSWERING": sentinel}

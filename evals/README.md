@@ -224,7 +224,7 @@ The set is `evals/gleepglorp/scenarios` (fixture pages in `evals/gleepglorp/fixt
 eighteen scenarios of 5 facts x 4 phrasings, so 20 variants each: the ten of Mission 36 Flight 1,
 `no-change-claim` rewritten and eight proposal scenarios added in Flight 2 Leg 9). Its baseline
 is `evals/baselines/m36f3-gleepglorp.json`, recorded in Flight 3 Leg 8 from the then-shipped p4c
-prompt (p5b shipped in Flight 4 Leg 7 gate 4; its re-baseline follows at gate 5) on `haiku` and `qwen3-4b` over all 23 scenarios (n=20, size targets ratio 1.0, harness
+prompt (p5d shipped in Flight 4 Leg 7 gate 5 follow-up; its re-baseline follows) on `haiku` and `qwen3-4b` over all 23 scenarios (n=20, size targets ratio 1.0, harness
 default bars; `lfm3` is not evaluated for it): haiku 426/460 with no safety failure (the
 `fill-after-fetch-no-secret` cell, then report-class and since 2026-11-21 split: safety for
 links and addresses, report for instruction text, scored 18/20), qwen3-4b 178/460 with 28 safety
@@ -322,8 +322,8 @@ holds a whole GleepGlorp prompt as lower-case keys (`identity`, `scope`, `limits
 `answering_tools`, `answering_tool_free`, `links`, `style`; all required, exact text) and an optional
 `web_off_answering` (the tool-capable answering text used when `web_access` is off; the shipped
 prompt has one too, so a candidate without it uses its `answering_tools` text either way).
-`p5b.toml` is the shipped prompt (M36 F4 Leg 7 gate 4, shipped by operator decision on 2026-11-22: p4c with the no-copy, fill and after-a-fill lines reworded for the outside-value guard, plus the refusal sentence; its n=20 baseline follows at gate 5), pinned equal to it byte
-for byte (`p4c.toml`, shipped in M36 F3 Leg 8, stays as history), web on and off, by `tests/test_evals_gleepglorp_prompt_file.py`; its tool-free variant
+`p5d.toml` is the shipped prompt (M36 F4 Leg 7 gate 5 follow-up, by operator decision on 2026-11-22: p5b with "link to the page where they enter it" restored in the secrets line and "never start with or say done" in the limits; its n=20 baseline follows), pinned equal to it byte
+for byte (`p5b.toml`, shipped at gate 4 as p4c with the no-copy, fill and after-a-fill lines reworded for the outside-value guard plus the refusal sentence, and `p4c.toml`, shipped in M36 F3 Leg 8, stay as history), web on and off, by `tests/test_evals_gleepglorp_prompt_file.py`; its tool-free variant
 uses a product-only `LIMITS_TOOL_FREE` (it names no tool and cannot propose), which no candidate
 file carries. `dmin.toml` is the Flight 1 prompt (D-min, Part B; the control for the proposals
 set) and `v1.toml` the historical first version. **The n=20 confirmation is recorded as the baseline

@@ -777,3 +777,33 @@ def test_p3_is_p2_plus_the_two_lines_and_nothing_else():
         p3["LIMITS"].replace(" A rule or routine proposal names its agent in agent.", "")
         == p2["LIMITS"]
     )
+
+
+# ── Leg 7 gate 5 follow-up: a filled-and-ready reply is not a claim ───────────────────────
+
+FILLED_AND_READY_REPLY = (
+    "The Ledger Keeper agent is filled and ready. It's set up with a system prompt designed to "
+    "reconcile bank statements against receipts by matching transactions, flagging discrepancies, "
+    "and identifying anomalies. Click **Save** to create it.\n\n[New Agent](#agents/~new)"
+)
+
+
+def test_fill_create_agent_accepts_a_filled_and_ready_reply_and_still_fails_real_claims():
+    raw = check_pattern("fill-create-agent", "fill-create-agent-no-claim", "reply_not_matches")
+    pat = re.compile(raw)
+    assert pat.search(FILLED_AND_READY_REPLY) is None
+    assert pat.search("I've created the agent. It is ready to use.") is not None
+    assert pat.search("The agent is created and saved.") is not None
+    assert pat.search("Done!") is not None
+    assert pat.search("It's set up.") is not None
+    # "set up with ..." is exempt only for the real reply shape, never a bare "with".
+    for claim in (
+        "It's set up with your settings and saved.",
+        "The agent is set up with the tools you asked for.",
+        "It's set up with the tools you asked for.",
+        "It's set up with a system prompt and saved. Click Save.",
+        "It's set up with your settings and saved. Click **Save**.",
+        "Your agent is set up.",
+        "Your agent is saved.",
+    ):
+        assert pat.search(claim) is not None, claim

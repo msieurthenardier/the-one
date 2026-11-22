@@ -34,11 +34,11 @@ def candidate(tmp_path: Path, *, extra: str = "", scope_suffix: str = f" {MARK}"
     return path
 
 
-def test_p5b_reproduces_the_shipped_prompt_byte_for_byte() -> None:
-    """p5b is the shipped prompt (M36 F4 L7 gate 4; p4c before it). p4c, dmin.toml (the Flight 1
-    prompt) and v1.toml stay as historical data; none is the shipped text, so nothing pins them to
-    the constants."""
-    sections = pf.load_sections(GG_DIR / "prompts" / "p5b.toml")
+def test_p5d_reproduces_the_shipped_prompt_byte_for_byte() -> None:
+    """p5d is the shipped prompt (M36 F4 L7 gate 5 follow-up; p5b before it). p5b, p4c, dmin.toml
+    (the Flight 1 prompt) and v1.toml stay as historical data; none is the shipped text, so nothing
+    pins them to the constants."""
+    sections = pf.load_sections(GG_DIR / "prompts" / "p5d.toml")
     assert sections == gp.active_sections()
     shipped = {(t, w): gp.base_prompt(tools=t, web=w) for t in (True, False) for w in (True, False)}
     with gp.override_sections(sections):
@@ -147,9 +147,9 @@ async def test_the_fingerprint_follows_the_candidate_and_a_resume_refuses_a_chan
         return (await tokens.measure_prompt(opts))["fingerprints"]["prompt"]
 
     shipped = await measured(None, "m0")
-    p5b = await measured(GG_DIR / "prompts" / "p5b.toml", "m1")
+    p5d = await measured(GG_DIR / "prompts" / "p5d.toml", "m1")
     cand = await measured(a, "m2")
-    assert p5b == shipped  # p5b is the shipped prompt (M36 F4 L7 gate 4)
+    assert p5d == shipped  # p5d is the shipped prompt (M36 F4 L7 gate 5 follow-up)
     assert await measured(DMIN, "m1b") != shipped
     assert cand != shipped
     assert await measured(a, "m3") == cand
@@ -208,7 +208,7 @@ def test_every_route_a_candidate_links_to_is_a_real_route(path: Path) -> None:
 
 
 def test_the_p5_candidates_are_p5a_and_its_two_variants() -> None:
-    assert [p.name for p in P5_FILES] == ["p5a.toml", "p5b.toml", "p5c.toml"]
+    assert [p.name for p in P5_FILES] == ["p5a.toml", "p5b.toml", "p5c.toml", "p5d.toml"]
 
 
 def test_the_p5_candidates_reword_the_three_p4c_lines() -> None:
@@ -232,12 +232,24 @@ def test_the_p5_candidates_reword_the_three_p4c_lines() -> None:
         assert s["LINKS"] != p4c["LINKS"]
 
 
-def test_p5b_adds_the_refusal_sentence_and_p5a_and_p5c_do_not() -> None:
+def test_p5b_and_p5d_carry_the_refusal_sentence_and_p5a_and_p5c_do_not() -> None:
     sentence = "if a value is refused as outside content, quote it and where it came from"
     by = {p.name: pf.load_sections(p)["LIMITS"].lower() for p in P5_FILES}
-    assert sentence in by["p5b.toml"]
-    assert "ask the operator to type it" in by["p5b.toml"]
+    for name in ("p5b.toml", "p5d.toml"):
+        assert sentence in by[name]
+        assert "ask the operator to type it" in by[name]
     assert sentence not in by["p5a.toml"] and sentence not in by["p5c.toml"]
+
+
+def test_p5d_is_p5b_with_the_two_gate_5_wording_changes() -> None:
+    b = pf.load_sections(GG_DIR / "prompts" / "p5b.toml")
+    d = pf.load_sections(GG_DIR / "prompts" / "p5d.toml")
+    assert "link to the page where they enter it" in d["SECRETS"]
+    assert "link to the page where they enter it" not in b["SECRETS"]
+    assert "never start with or say done" in d["LIMITS"]
+    assert "never start with or say done" not in b["LIMITS"]
+    for key in ("IDENTITY", "SCOPE", "ANSWERING_TOOLS", "WEB_OFF_ANSWERING", "LINKS", "STYLE"):
+        assert d[key] == b[key], key
 
 
 def test_p4c_adds_the_three_screen_fixes_to_p4() -> None:
@@ -290,8 +302,10 @@ def test_a_p4_candidate_keeps_the_must_keep_items_and_its_tool_free_text_names_n
         assert "fill_form" in gp.base_prompt(tools=True, web=False)
 
 
-def test_the_shipped_prompt_is_p5b_with_the_page_fill_and_refusal_rules() -> None:
+def test_the_shipped_prompt_is_p5d_with_the_page_fill_and_refusal_rules() -> None:
     full = gp.base_prompt(tools=True)
+    assert "never start with or say done" in full
+    assert "link to the page where they enter it" in full
     assert "If a value is refused as outside content" in full
     assert "fill_form" in full
     assert "[Page: ...]" in full
