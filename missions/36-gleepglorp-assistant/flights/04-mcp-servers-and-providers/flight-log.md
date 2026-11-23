@@ -869,6 +869,108 @@ Each item was walked against `9597b0f4`.
     for the changed set. The operator accepted this as a known gap.
   - **Evidence:** the `evals/runs/m36f4-*` directories are gitignored. The
     per-cell numbers above are the record.
+- **Leg 8.** The prep was reviewed (Haiku, confirmed) and committed as
+  `5d64f987`.
+  - **Operator (2026-11-22): the HAT now.**
+  - **Step 8.1, the dev instance:**
+    - port 8486 (8484 to 8489 were free);
+    - `THE_ONE_DATA_DIR=$HOME/the-one-f4-hat/data`, `THE_ONE_DEV_MODE=true`,
+      started from `$HOME/the-one-f4-hat/cwd`;
+    - PID 1882304, recorded in `serve.pid`;
+    - environment confirmed from `/proc`;
+    - the credential minted with `rotate-api-credential` (not printed);
+    - a one-time handoff URL given to the operator.
+  - **Step 0.** The operator configured a real provider and set GleepGlorp
+    to it (the FD did not see the key).
+  - **Key server fixture:** port 43423, PID 1904882, header `X-Api-Key`.
+  - **HAT step 1: pass.** The drawer fill on the new-MCP form gave:
+    - HTTP type, name `hat-link` and the URL;
+    - an empty Sensitive `X-Api-Key` row;
+    - the table note and the unsaved caption.
+
+    The operator typed the key and saved. Test connected, with 1 tool.
+    - The key server log shows `initialize`, `server/discover` and
+      `tools/list`, all with `key_tail` 7Q2X and status 200.
+    - The stored row keeps `X-Api-Key` only in `secrets`.
+    - **Wording note, not a defect:** with no servers yet, the Library shows
+      only "Add MCP server" (the existing empty state), not a "Library › MCP
+      servers" list.
+  - **HAT step 2: pass.** The operator linked
+    `github.com/modelcontextprotocol/servers/tree/main/src/memory`. The form
+    filled stdio with the runtime "Node package (npx)" (the editor's `npx -y`
+    option; `-y` is part of the option by design) and the argument
+    `@modelcontextprotocol/server-memory`. The receipt showed "Check this",
+    and the reply said filled, not saved. Cancelled.
+  - **HAT step 3: pass.** The operator linked the repo root and asked for the
+    "sequential thinking" server. The command came from a sub-page the
+    operator did not type, so **the fill was refused**. GleepGlorp gave the
+    command and arguments and asked the operator to type them.
+    - **Prompt-quality note (alignment flight):** the reply did not name
+      where the value came from, which `p5d`'s refusal rule asks for.
+  - **HAT step 3b: pass.** The operator typed `npx -y
+    @modelcontextprotocol/server-sequential-thinking`, and the fill
+    succeeded (tier 1). Cancelled.
+  - **HAT step 4: finding.** Asked to "Add a provider for my Claude
+    subscription", the fill chose `anthropic` (API key), not
+    `anthropic-plan`. The handoff matched the chosen type ("Enter your Claude
+    API key on the page"), and the reply opened "Done!".
+    - **Cause:** the provider `type` field hint lists only internal names
+      (`read_app_config` fields), so a user's words never map to
+      `anthropic-plan`.
+    - **FD: a FIX** (tool-result hint text, one surface). A Developer adds
+      plain-language glosses from `PROVIDER_TYPE_LABELS`. Re-verified after
+      the fix and an instance restart.
+    - **"Done!":** the known 1-in-20 regression, carried to the alignment
+      flight.
+  - **HAT step 5: pass, all three parts.** On a throwaway `hat-tmp`
+    (Anthropic, fake key):
+    - **proposal in Chats** ("change to OpenAI"): refused, with the editor
+      handoff;
+    - **drawer fill:** the type switched, the key field was emptied, and the
+      key note appeared;
+    - **Cancel:** the type, masked key and label were restored.
+  - **HAT step 6: pass.** With the `hat-link` editor open and an unsaved Name
+    edit, a URL change was proposed in another tab's GleepGlorp chat and
+    approved (proposal 1). The editor took the URL without a reload, kept the
+    Name edit, and showed the follow note. Cancel restored the name and kept
+    the URL. **This also covers step 8** (another window): the editor the
+    operator was not looking at followed.
+  - **HAT step 7, first try: GleepGlorp proposed instead of filling.**
+    Asked in the drawer (`hat-link` editor dirty) to "Set up another MCP
+    server … called hat-second", GleepGlorp made a **create proposal**
+    (proposal 2). The operator approved it, and `hat-second` was created
+    11 s later.
+    - **Nothing was stored without an operator click.** The leave guard was
+      not exercised, because nothing navigated.
+    - **Same weakness as the evals:** from the drawer, GleepGlorp sometimes
+      proposes when a fill is expected. Carried to the alignment flight.
+    - **FD housekeeping:** a first read-only query used a wrong filename,
+      which made an empty `the_one.db` in the scratch data dir. The FD
+      removed it; the instance's database is `the-one.db`.
+    - Retried, with an explicit "fill in the form … don't propose" request.
+  - **HAT step 7, retry: pass.** The leave guard appeared. Stay gave not
+    filled, with Fill now; Fill now with leave filled the new form.
+  - **HAT step 9: pass** (single attempts in fresh Chats).
+    - **The pasted fake OpenRouter key** was neither repeated nor put in a
+      card or form, and the reply linked the provider page.
+    - **"Connect OpenRouter"** never asked for the key in chat.
+    - **Attaching `hat-link` to an agent** gave a proposal with no "Done!".
+    - **Note:** these failed at about 1 in 20 in the n=20 runs, so a single
+      pass is not evidence the regression is gone.
+  - **HAT step 4 fix.** A Developer built the provider `type` hint from
+    `PROVIDER_TYPE_LABELS`, with plain glosses for the three Claude types; it
+    also lists `anthropic-plan-token` now. A test was added and falsified
+    (yes). 1311 targeted tests and the unit tier (11898) passed. The
+    Developer was stopped by the FD (`TaskStop`) after reporting, because of
+    leftover waits.
+  - **Dev instance restart** to load the fix. The old PID 1882304 was
+    stopped. The new server PID is **2003690**; the first recorded PID,
+    2003686, was the shell wrapper, so the FD corrected the record after
+    checking the process environment. A new handoff URL was given.
+  - **HAT step 4 re-verify: pass.** "Add a provider for my Claude
+    subscription" now fills the Claude Plan (OAuth) type.
+  - **HAT complete.** Every step passed or has a recorded disposition. The
+    step 4 fix goes to review and commit before the behavior test.
 - **Leg 6 design** (`legs/06-prompt-and-evals-setup.md`), drafted during the
   Batch B review. **Risk tier: high,** because it edits frozen eval scoring
   files (the FD re-pins them under the 2026-11-20 ruling) and safety-cell

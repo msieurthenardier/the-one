@@ -29,7 +29,11 @@ from urllib.parse import urlparse
 
 import aiosqlite
 
-from the_one.db._provider_types import PROVIDER_TYPE_DEFAULTS, PROVIDER_TYPES
+from the_one.db._provider_types import (
+    PROVIDER_TYPE_DEFAULTS,
+    PROVIDER_TYPE_LABELS,
+    PROVIDER_TYPES,
+)
 from the_one.gleepglorp.kinds.base import Kind, changed_labels
 from the_one.gleepglorp.kinds.deps import KindDeps
 from the_one.gleepglorp.kinds.errors import reraise
@@ -53,6 +57,18 @@ _URL_MAX = 2000
 _ANTHROPIC_PLAN = "anthropic-plan"
 _PLAN_TOKEN = provider_service.PLAN_TOKEN_TYPE
 
+#: Plain-language words per type, so a user's wording maps to the type name. The editor label
+#: comes from ``PROVIDER_TYPE_LABELS`` (no drift); this adds who it is for.
+_TYPE_WORDS = {
+    "anthropic": "Claude with an API key",
+    "anthropic-plan": "Claude Pro/Max subscription: sign in on the page",
+    "anthropic-plan-token": "Claude Pro/Max subscription with a setup token",
+}
+_TYPE_GLOSS = ", ".join(
+    f"{t} ({PROVIDER_TYPE_LABELS[t]}" + (f"; {_TYPE_WORDS[t]}" if t in _TYPE_WORDS else "") + ")"
+    for t in TYPES
+)
+
 PROVIDER_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("name", "text", "Name", "name", create_required=True),
     FieldSpec(
@@ -61,9 +77,8 @@ PROVIDER_FIELDS: tuple[FieldSpec, ...] = (
         "Type",
         "type",
         hint=(
-            "ollama, openai-compatible, openai, anthropic, openrouter or anthropic-plan; the "
-            "operator enters a key or signs in on the page. Changing between types that take a "
-            "key is refused: the operator does that in the editor"
+            f"{_TYPE_GLOSS}; the operator enters a key or signs in on the page. Changing "
+            "between types that take a key is refused: the operator does that in the editor"
         ),
         create_required=True,
     ),

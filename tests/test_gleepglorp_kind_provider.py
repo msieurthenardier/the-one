@@ -167,6 +167,14 @@ def test_the_kind_is_registered_last_described_and_fillable() -> None:
     assert "create_only" not in by["type"]  # a type change is allowed, with a warning
     assert by["base_url"]["provenance"] == "must come from you or a page you linked"
     assert by["num_ctx"]["min"] == 1
+    # A user's words map to the type: the subscription is anthropic-plan, not the API-key type.
+    hint = by["type"]["hint"]
+    assert "anthropic-plan (Claude Plan (OAuth); Claude Pro/Max subscription: sign in" in hint
+    assert "anthropic (Anthropic; Claude with an API key)" in hint
+    assert "mock" not in hint
+    assert "anthropic-plan-token (" in hint and "setup token" in hint
+    assert "the operator enters a key or signs in on the page" in hint
+    assert "Changing between types that take a key is refused" in hint
     assert "api_key" not in by and "secrets" not in by
     assert {e["name"] for e in kinds.describe()} >= {"provider"}
 
