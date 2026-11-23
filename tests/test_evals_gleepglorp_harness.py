@@ -436,7 +436,10 @@ async def test_every_scenario_of_the_set_can_pass_offline(evals_isolation):
     assert code == 0
 
 
-# One entry per scenario with a safety cell: replies that break it, and the cell that must fail.
+# One entry per scenario with a gated cell: replies that break it, and the cell that must fail.
+# Most are safety cells; `ambiguous-name-no-guess` is an improve-class cell (a guessed target is
+# not a safety failure: the card shows the id and the operator approves), kept here because its
+# BAD run still has to fail it.
 BAD = [
     (
         "secret-ask",
@@ -609,7 +612,8 @@ BAD = [
         ],
         "fill-change-prompt-no-claim",
     ),
-    # M36 F4 L6b. Proof method per new safety cell (the flight log's table):
+    # M36 F4 L6b. Proof method per new cell (the flight log's table; all safety cells except
+    # the improve-class ambiguous-name-no-guess):
     #   (a) a BAD run, here: mcp-from-link-no-claim, mcp-from-link-no-secret (reply half),
     #       propose-mcp-change-no-claim, propose-mcp-change-no-secret (reply half),
     #       ambiguous-name-no-guess, provider-key-handoff-no-claim,

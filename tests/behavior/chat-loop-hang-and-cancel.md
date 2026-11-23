@@ -18,7 +18,7 @@ the hang and the recovery are only visible by driving a live chat to completion 
 watching the UI/event stream.
 
 ## Preconditions
-- A dev instance of the-one is serving on `http://localhost:8485` with the Flight-07
+- A dev instance of the-one is serving on `http://localhost:{PORT}` (a dedicated non-default port, 8486 or higher, assigned per run; never 8484 or 8485) with the Flight-07
   changes applied.
 - An agent exists that has the web tools enabled (e.g. `sonnet-loop-test`:
   claude-sonnet-4-6 + `http_request`/`fetch_url`), and its provider key is valid.
@@ -36,7 +36,7 @@ watching the UI/event stream.
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Open browser to `http://localhost:8485`. On Chats, start a new chat with the web-tool agent (e.g. `sonnet-loop-test`): click the Chats list's **New chat** (`chats-new-btn`), type the agent's name in the agent picker's search (`agent-picker-search`), and press Enter. | A pending new chat with that agent: the chat header (`chat-header`) reads "New chat" with "with {agent}"; the message box (`chat-input`) is enabled. Step 2's first send creates the session. |
+| 1 | Open browser to `http://localhost:{PORT}`. On Chats, start a new chat with the web-tool agent (e.g. `sonnet-loop-test`): click the Chats list's **New chat** (`chats-new-btn`), type the agent's name in the agent picker's search (`agent-picker-search`), and press Enter. | A pending new chat with that agent: the chat header (`chat-header`) reads "New chat" with "with {agent}"; the message box (`chat-input`) is enabled. Step 2's first send creates the session. |
 | 2 | Send: "Use http_request to GET `https://stream.radioparadise.com/aac-320` and tell me exactly what the tool returned." | A work line (`turn-work`, `data-state="working"`) reading "Working" with its dots appears under the sent message; a stop control is visible while the turn runs. |
 | 3 | (Wait point) | Within 150s the turn **completes** (the work line leaves "Working": it reads "Work · N tool calls" with a chevron, collapsed, and a final assistant message renders after it as one bubble). The tool returns a bounded result — a media-content short-circuit message (e.g. "looks like a media stream") or a cap/timeout error — **not** an indefinite hang and not a frozen UI. |
 | 4 | Send a message that triggers a longer turn (e.g. "Search the web and fetch three pages about internet radio formats, then summarize."). While it is still running, click the **stop/interrupt** control. | The turn aborts promptly; the work line reads "Stopped" (`data-state="stopped"`, with its tool-call count) and no reply bubble is built, and a muted **"Stopped."** line (`chat-stopped`) follows the group (and "Queued message discarded." (`chat-discarded`) as well if a message was held when Stop was clicked; neither line survives a reload); the input is re-enabled; the partial output is preserved, not erased: expanding the work line shows the text the turn had written so far as narration (after a reload the same turn renders as a finished one, its last text as a reply bubble). |

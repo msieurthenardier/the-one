@@ -20,7 +20,7 @@ protocol, and the Chat UI — only observable by driving a live instance, which 
 Witnessed paradigm fits.
 
 ## Preconditions
-- A dev instance of the-one serves on `http://localhost:8485` with the Flight-08 working
+- A dev instance of the-one serves on `http://localhost:{PORT}` (a dedicated non-default port, 8486 or higher, assigned per run; never 8484 or 8485) with the Flight-08 working
   tree applied (`THE_ONE_DEV_MODE=true`).
 - To make the overlay threshold reliably observable in a short session, the instance runs
   with a LOW warn threshold, e.g. `THE_ONE_CONTEXT_WARN_PCT=5` (and a crit above it, e.g.
@@ -54,7 +54,7 @@ Witnessed paradigm fits.
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | Open browser to `http://localhost:8485`. Click the rail's "Settings" link, then "Built-in tools" in the Settings nav (`#settings/tools`), and open the `web_search` tool config (its name link on the Web tab; the editor opens below the tool list, at `#settings/tools/web_search`). | The web_search config form renders with an engine selector (`search_backend`) as a **dropdown** (`<select>`), defaulting to DuckDuckGo (its option reads "DuckDuckGo (default, no key needed)"). No API-key fields are visible for DuckDuckGo. The editor header shows the breadcrumb "Settings / Built-in tools", the title `web_search`, the subtitle "Web", and the Enabled switch is a `role=switch` named "Enabled for all agents". |
+| 1 | Open browser to `http://localhost:{PORT}`. Click the rail's "Settings" link, then "Built-in tools" in the Settings nav (`#settings/tools`), and open the `web_search` tool config (its name link on the Web tab; the editor opens below the tool list, at `#settings/tools/web_search`). | The web_search config form renders with an engine selector (`search_backend`) as a **dropdown** (`<select>`), defaulting to DuckDuckGo (its option reads "DuckDuckGo (default, no key needed)"). No API-key fields are visible for DuckDuckGo. The editor header shows the breadcrumb "Settings / Built-in tools", the title `web_search`, the subtitle "Web", and the Enabled switch is a `role=switch` named "Enabled for all agents". |
 | 2 | In the engine dropdown, select **Brave**. | Exactly Brave's field appears — a `brave_api_key` input rendered as a **password** field (`type="password"`) with an **eye-toggle** button; SearXNG / Google PSE / Tavily fields stay hidden. `[a11y]` the eye button has an `aria-label` ("Show password"). |
 | 3 | Click the eye-toggle on the Brave key field. | The input flips to `type="text"` (value visible) and the button's `aria-label` switches to "Hide password". Clicking again flips it back. |
 | 4 | Select **Google PSE** in the dropdown. | Brave's field hides; Google PSE's **two** fields appear (`google_pse_api_key` masked + `google_pse_cse_id` plain). Switching engines reveals exactly the selected engine's fields. |

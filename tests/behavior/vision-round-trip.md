@@ -23,8 +23,8 @@ adapted here into re-runnable spec form.
 
 ## Preconditions
 
-- the-one is running host-native and reachable on `http://localhost:8485` (the mission dev
-  instance), with `THE_ONE_DEV_MODE=true`.
+- the-one is running host-native and reachable on `http://localhost:{PORT}` (a dedicated dev instance on a dedicated non-default
+  port, 8486 or higher, assigned per run; never 8484 or 8485), with `THE_ONE_DEV_MODE=true`.
 - A **live Anthropic API key** is configured on a vision-capable model (the default,
   `claude-sonnet-4-6` or later — vision is implicit, no feature flag). Verify with an **active
   probe** (decay-prone precondition: credentials expire/rotate): `POST
@@ -37,9 +37,9 @@ adapted here into re-runnable spec form.
   before the run — write down the expected subject in the run log so the Validator has a ground
   truth to check the reply against). Do not use an abstract/ambiguous image — the Validator needs
   an unambiguous pass/fail bar for "grounded".
-- A **chrome-devtools** browser apparatus is attached to 8485. **Never touch 8484.**
+- A **chrome-devtools** browser apparatus is attached to `{PORT}`. **Never touch 8484 or 8485.**
 - **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
-  "Behavior-test credential convention" — read the long-lived credential from 8485's
+  "Behavior-test credential convention" — read the long-lived credential from the `{PORT}` instance's
   data directory, mint a handoff URL for the Step-1 browser navigation (single-use;
   re-mint before Step 7's reload if the session cookie is no longer valid), and attach
   `Authorization: Bearer <credential>` to the precondition probe's `curl` call.
@@ -56,7 +56,7 @@ adapted here into re-runnable spec form.
 
 | # | Actions | Expected Results |
 |---|---------|------------------|
-| 1 | (Setup, no judgment) Confirm the live-Anthropic precondition probe passed. Open a fresh chrome-devtools page at `http://localhost:8485`, hard-reload with `ignoreCache`. On Chats, click the Chats list's **New chat** (`chats-new-btn`), type the vision-capable agent's name in the agent picker's search (`agent-picker-search`), and press Enter. | A pending new chat opens for that agent: the hash is `#chats/~new/{agent}`, and the chat header (`chat-header`) reads "New chat" with "with {agent}" (`chat-agent-line`), above the new-chat state (`chat-new-state`) naming the agent. The message box (`chat-input`) is enabled. |
+| 1 | (Setup, no judgment) Confirm the live-Anthropic precondition probe passed. Open a fresh chrome-devtools page at `http://localhost:{PORT}`, hard-reload with `ignoreCache`. On Chats, click the Chats list's **New chat** (`chats-new-btn`), type the vision-capable agent's name in the agent picker's search (`agent-picker-search`), and press Enter. | A pending new chat opens for that agent: the hash is `#chats/~new/{agent}`, and the chat header (`chat-header`) reads "New chat" with "with {agent}" (`chat-agent-line`), above the new-chat state (`chat-new-state`) naming the agent. The message box (`chat-input`) is enabled. |
 | 2 | Attach the test image fixture via the hidden file input (the composer's attach control). | [a11y] A chicklet appears in the `chat-attachments` row above the composer, showing a rendered thumbnail of the attached image (not a broken image icon). |
 | 3 | Type "what is in this image?" into the message box and send. | This first send creates the session (the hash becomes `#chats/{id}`). The user bubble renders the typed text followed by the `[image]` indicator (not `[object Object]`, not a crash). The staged chicklet clears from the composer. |
 | 4 | Wait for the assistant's reply. | Within a reasonable timeout (~30s), the assistant bubble renders a reply, AND the reply text is **grounded in the actual content of the attached image** — it describes the subject noted in Preconditions (e.g. mentions the red bicycle), not a generic "I can't see images" refusal or an unrelated answer. This is the core live-vision proof. |

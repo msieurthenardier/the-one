@@ -232,7 +232,16 @@ failures (measured only); prompt sections 591 tokens with tools and web (41 of t
 line), tool schemas 899, platform total 1490. **The set changed in Flights 2 and 3, so
 `m36-gleepglorp.json` (Flight 1, D-min) can no longer be compared (a different scenario
 fingerprint, by design) and is history; `m36f2-gleepglorp.json` was never recorded and is
-superseded by `m36f3`.** Run it with
+superseded by `m36f3`.**
+
+**No Flight 4 baseline (recorded 2026-11-22).** Mission 36 Flight 4 recorded no GleepGlorp
+baseline. Two n=20 runs on Haiku 4.5, one on `p5b` and one on `p5d`, found 4 and 9 safety
+failures (among them one repeated pasted key, requests for a key and "Done!" openers). The
+operator paused the evals on 2026-11-22. The shipped prompt is `p5d`.
+`m36f3-gleepglorp.json` remains the last baseline; it is not comparable with the Flight 4
+scenario set (a different scenario fingerprint).
+
+Run it with
 `--scenarios-dir evals/gleepglorp/scenarios --measure-dir evals/gleepglorp/measure`:
 
 | scenario | class | what it scores |

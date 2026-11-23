@@ -38,17 +38,17 @@ with the prefix `lnd-`.
   example:
 
   ```
-  THE_ONE_PORT=8485 THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/lnd/data THE_ONE_DEV_MODE=true THE_ONE_STUB_TEST_ENDPOINT=1 <repo>/.venv/bin/the-one serve
+  THE_ONE_PORT={PORT} THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/lnd/data THE_ONE_DEV_MODE=true THE_ONE_STUB_TEST_ENDPOINT=1 <repo>/.venv/bin/the-one serve
   ```
 
   Start it from a scratch working directory, not the repo root (`mkdir -p <scratch>/cwd && cd <scratch>/cwd`; CLAUDE.md "SAFETY RULE"), detached with the PID recorded; stop it by that PID.
 
   - Create the credential first with
     `THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/lnd/data the-one rotate-api-credential` (a fresh data directory has no `api-credential`).
-  - **Never** port 8484, and never the operator's default data directory (CLAUDE.md,
+  - `{PORT}` is a dedicated non-default port, 8486 or higher, assigned per run; **never** port 8484 or 8485, and never the operator's default data directory (CLAUDE.md,
     "Behavior-test credential convention" safety rule).
-  - The orchestrator states the actual base URL (`{base}`, default
-    `http://127.0.0.1:8485`) and scratch directory at run time; both apply to every step.
+  - The orchestrator states the actual base URL (`{base}`, e.g.
+    `http://127.0.0.1:{PORT}`) and scratch directory at run time; both apply to every step.
 - **Probes**, run immediately before the run:
   - `GET {base}/api/live` returns HTTP 200;
   - `GET {base}/api/providers/types` (with the credential) lists `mock`;

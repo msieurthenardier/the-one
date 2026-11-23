@@ -12,7 +12,7 @@ Verify that the app shell's core navigation contract holds against the running i
 
 ## Preconditions
 
-- The **instance under test** is running and serving (probe: HTTP 200 on `/` immediately before the run). Default `http://127.0.0.1:8485` — a dedicated dev instance with a scratch data directory; the operator's packaged app owns `:8484` and must never be targeted (see CLAUDE.md's "Behavior-test credential convention" safety rule). The orchestrator states the actual base URL at run time and it applies to every step below.
+- The **instance under test** is running and serving (probe: HTTP 200 on `/` immediately before the run). `http://127.0.0.1:{PORT}` — a dedicated dev instance on a dedicated non-default port (8486 or higher, assigned per run; never 8484 or 8485) with a scratch data directory; the operator's packaged app owns `:8484` and must never be targeted (see CLAUDE.md's "Behavior-test credential convention" safety rule). The orchestrator states the actual base URL at run time and it applies to every step below.
 - A browser apparatus is attached and can open tabs to that origin: goldfinch MCP, or a CDP/Playwright-driven Chromium using real input events.
 - **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
   "Behavior-test credential convention" — read the long-lived credential from the
