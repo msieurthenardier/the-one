@@ -145,6 +145,7 @@ class FillFormTool(Tool):
                 kinds.get(norm.kind),
                 norm.changes,
                 outside.collect(self._agent, current_tool_call_id.get(), turn),
+                norm.base,
             )
             if refusal is not None:
                 return refusal

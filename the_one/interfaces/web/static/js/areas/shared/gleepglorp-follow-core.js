@@ -14,6 +14,8 @@
 //       Registers handler(detail) on App.approvals.CONFIG_CHANGED for a change of `kind` with a
 //       target_id. The document is the transport and has no `off`, so a kind registers once per
 //       page; a second call for the same kind is a no-op.
+//   fieldNotes(place, {testid}) -> {show(detail, fields), clear()}
+//       The per-field follow notes (the Library editors that place a note under each field).
 //   refetchThen(ctl, url, isCurrent, fn)
 //       Waits for the controller to be idle, fetches `url`, and calls fn(row) when the controller
 //       is still the live one (isCurrent() and ctl.alive()). A Save that began while the row was
@@ -78,7 +80,35 @@
     });
   }
 
+  // fieldNotes(place, {testid}) -> {show(detail, fields), clear()}
+  //   The per-field follow notes of an editor (DD14: one note under each changed field it shows).
+  //   place(field, el) appends el where the field's control lives and returns the controls it
+  //   describes, or null for a field the editor does not show (that field gets no note). show
+  //   replaces the notes drawn before; each note is linked on its controls' aria-describedby
+  //   (through App.gleepglorpFill.link) and clear removes the notes and unlinks them.
+  function fieldNotes(place, opts) {
+    var drawn = [];
+    function clear() {
+      drawn.forEach(function (d) {
+        App.gleepglorpFill.unlink(d.entry);
+        if (d.el.parentNode) d.el.parentNode.removeChild(d.el);
+      });
+      drawn = [];
+    }
+    function show(detail, fields) {
+      clear();
+      (fields || []).forEach(function (field) {
+        var el = buildNote(detail, Object.assign({}, opts, { field: field }));
+        var controls = place(field, el);
+        if (!controls) return;
+        drawn.push({ el: el, entry: App.gleepglorpFill.link(el, controls) });
+      });
+    }
+    return { show: show, clear: clear };
+  }
+
   window.App.gleepglorpFollow = {
-    buildNote: buildNote, matches: matches, listen: listen, refetchThen: refetchThen
+    buildNote: buildNote, matches: matches, listen: listen, refetchThen: refetchThen,
+    fieldNotes: fieldNotes
   };
 })();

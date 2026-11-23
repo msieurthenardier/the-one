@@ -81,15 +81,25 @@ def test_every_registered_kind_meets_the_registry_rules() -> None:
             assert k.target_noun, k.name
 
 
-def test_the_declared_addressing_and_flags_of_the_five_kinds() -> None:
+def test_the_declared_addressing_and_flags_of_the_seven_kinds() -> None:
     assert {k.name: k.addressing for k in kinds.REGISTRY} == {
         "agent": "agent",
         "rule": "agent-owned",
         "routine": "agent-owned",
         "mcp_server": "id",
         "provider": "id",
+        "knowledge_base": "id",
+        "secret": "id",
     }
-    assert all(k.keyerror_is_gone for k in kinds.REGISTRY)
+    # The five kinds whose services raise a bare KeyError set it; the knowledge-base and secret
+    # services raise typed not-found errors, so a stray KeyError is re-raised, not hidden.
+    assert {k.name for k in kinds.REGISTRY if k.keyerror_is_gone} == {
+        "agent",
+        "rule",
+        "routine",
+        "mcp_server",
+        "provider",
+    }
 
 
 def test_validate_kind_refuses_each_broken_rule() -> None:

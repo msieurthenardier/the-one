@@ -63,7 +63,15 @@ def test_shape_of_the_tool() -> None:
     schema = t.to_schema()
     assert schema["name"] == "propose_change" == PROPOSE_CHANGE_TOOL_NAME
     props = schema["parameters"]["properties"]
-    assert props["kind"]["enum"] == ["agent", "rule", "routine", "mcp_server", "provider"]
+    assert props["kind"]["enum"] == [
+        "agent",
+        "rule",
+        "routine",
+        "mcp_server",
+        "provider",
+        "knowledge_base",
+        "secret",
+    ]
     assert props["action"]["enum"] == ["create", "change"]
     assert set(props) == {"kind", "action", "agent", "rule", "routine", "target", "changes"}
     assert schema["parameters"]["required"] == ["kind", "action", "changes"]

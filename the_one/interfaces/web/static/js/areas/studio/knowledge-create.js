@@ -34,6 +34,7 @@
   function renderKnowledgeCreate(container, callbacks) {
     callbacks = callbacks || {};
     var alive = true;
+    var saving = false;
 
     var root = _el('div', { className: 'knowledge-inventory knowledge-create' });
     container.appendChild(root);
@@ -133,6 +134,7 @@
         nameInput.focus();
         return;
       }
+      saving = true;
       shell.setBusy(true);
       App.api.fetchJson('/api/knowledge-bases', {
         method: 'POST',
@@ -151,6 +153,7 @@
         if (callbacks.onCreateSuccess) callbacks.onCreateSuccess(kb);
       }).catch(function (err) {
         if (!alive) return;
+        saving = false;
         shell.setBusy(false);
         var fe = App.api.fieldErrors(err, ['name']);
         if (fe.fields.name) {
@@ -158,12 +161,32 @@
           nameInput.focus();
         }
         errorLine.set('danger', fe.text || '');
+        ctl.idle();
       });
     }
 
+    // The GleepGlorp handles (knowledge-editor-controller.js). The create form has no saved
+    // baseline: its baseline is empty, and dirty is "either field holds anything". `saving`
+    // stays true after a successful create (the form is about to be replaced).
+    var ctl = App.studio.knowledgeEditorController.create({
+      isCreate: true, id: null, el: root, shell: shell,
+      nameInput: nameInput, descInput: descInput, nameField: nameField, descField: descField,
+      isAlive: function () { return alive; },
+      saving: function () { return saving; },
+      checkDirty: reportDirty,
+      afterSet: function (key) {
+        if (key === 'name') {
+          nameField.setError(null);
+          refreshHint();
+        }
+        reportDirty();
+      }
+    });
+
     return {
       focus: function () { nameInput.focus(); },
-      destroy: function () { alive = false; }
+      controller: ctl,
+      destroy: function () { alive = false; ctl.destroy(); }
     };
   }
 

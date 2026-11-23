@@ -81,8 +81,13 @@
     var slot = App.ui.util.mountSlot();
     var handleKey = null;
 
+    // The live editor's GleepGlorp controller (the create form's or the mounted detail's), or
+    // null: while the detail is still loading, after a failed load and after a teardown.
+    var current = null;
+
     function teardown() {
       clearKnowledgePoll();
+      current = null;
       slot.destroy(); // runs the mount's destroyFn: handle.destroy()
       handleKey = null;
       state.knowledgeDetailHandle = null;
@@ -100,6 +105,7 @@
     function setHandle(box, handle) {
       box.handle = handle;
       state.knowledgeDetailHandle = handle;
+      current = handle.controller || null;
     }
 
     function statusLine(kind, text) {
@@ -175,7 +181,19 @@
       }));
     }
 
-    self._focusKbCreate = function () { pane.focusCreate('knowledge'); };
+    // The create form takes focus when it opens, except for the one navigation a GleepGlorp fill
+    // makes (focus stays in the drawer composer).
+    self._focusKbCreate = function () {
+      if (App.studio.knowledgeEditorFill.consumeCreateFocusSuppression()) return;
+      pane.focusCreate('knowledge');
+    };
+
+    // GleepGlorp's fill and an approval's follow reach the live editor through this accessor.
+    App.studio.knowledgeEditorFill.attach(function () { return current; });
+    App.studio.knowledgeEditorFollow.attach({
+      getController: function () { return current; },
+      reload: reloadLibrary
+    });
 
     function findKnowledgeBase(id) {
       if (!state.knowledgeBases) return null;

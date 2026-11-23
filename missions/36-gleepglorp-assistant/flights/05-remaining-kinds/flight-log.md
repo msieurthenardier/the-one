@@ -226,6 +226,206 @@ next batch's notes.
 
 ---
 
+### Batch A commit
+- **`7627373a`** "flight/5: Batch A groundwork — kind hooks, squawks 0400/0382/0402/0401, lane
+  split, client cores": 51 files. Not pushed; the push waits for the PR.
+
+### 03a-library-kinds-server
+**Status**: completed (Batch B checkpoint commit)
+**Started**: 2026-11-23
+
+#### FD notes on landing
+- **A mid-leg nudge.** The Developer reported "waiting on background work" while no test
+  process was running. The FD sent a status nudge, and the run went on to finish normally:
+  12,069 unit tests passed, and six browser lanes or files passed, each run alone.
+- **Carried to the Batch B review:**
+  - **The leg text was wrong about `write_file`.** It is not a refused tool (the refused set is
+    `send_to_platform_channel`, `continue`, `search_tools`, the notes and routine tools, and the
+    self-configuration prefix). The tests use those instead.
+  - **The knowledge-base operator-only refusal links `[Library](#library)`,** because
+    `operator_only_message` receives no id.
+  - **The end-to-end gone tests pass either way,** since `exists` withdraws first. Only the
+    unit test covers `translate`'s gone mapping.
+  - **The guide topics say GleepGlorp can fill these forms one leg ahead of the client seams**
+    (Leg 3b). Batch B commits both together.
+
+#### Changes Made
+- New services `the_one/knowledge/service.py` and `the_one/secret_store/service.py`; thin
+  routes in `api.py` and `secrets_api.py`; repository hooks (`KnowledgeBaseRepository.create`
+  `on_commit`, `update_in_txn`; `SecretRepository.update` `precheck`/`on_commit`).
+- Kinds `knowledge_base` and `secret` appended to `REGISTRY`; `typed_items` guard mode
+  (`FieldSpec`, `outside.plan`/`check(base=)`, both tools pass `norm.base`, `describe` provenance);
+  `errors.translate` learns the six new errors; ids in the two read views and the paths tables;
+  `propose_change` description kind list; guide topics, `agents.md`, `SECURITY-MODEL.md`.
+- New tests: `test_knowledge_service.py`, `test_secret_service.py`,
+  `test_gleepglorp_kind_knowledge_base.py`, `test_gleepglorp_kind_secret.py`,
+  `test_gleepglorp_typed_items.py`.
+- Pins updated: the AC7 list, plus `test_gleepglorp_targets.py::test_other_kinds_get_no_id`
+  (kinds with ids), `test_gleepglorp_proposals_shape.py` (`OPERATOR_ONLY_FIELDS` set, the
+  `describe`/fields listings and "Valid names", and the unknown-kind probe `secret` -> `widget`).
+
+#### Verification
+- `make test-unit` (netns): 12069 passed, 15 skipped. Token-budget test ran (not skipped).
+- Browser lanes alone: knowledge 65, library 122, agent-tabs 221, agents 186, routing 193,
+  `test_flow_jump_to.py` (shared) 26: all passed.
+- Falsified (edit, run, restore): the lost-update race, stale (kb and secret), typed_items
+  fetched-only/no-anchor/removal, relaxed keys, operator-only `values`, refused tool, value-reader
+  grep, `translate` gone mapping. Not falsified: the trusted-turn case (the guard simply does not run).
+- Leg text slip: `write_file` is not a refused tool; tests use `send_to_platform_channel`,
+  `continue`, `search_tools`.
+
+#### Notes
+- **Design review** (Developer, Sonnet): approve with changes, 3 high and 4 medium findings,
+  all applied.
+  - **High:**
+    - AC1's race is reworded to the real lost update (a name-only PUT losing a concurrent
+      description);
+    - `kinds/errors.py` translation added (AC6b), without which a stale or gone target would
+      have been a 500;
+    - six more pins listed.
+  - **Medium:**
+    - no deps change is needed (the knowledge-base repository is built from `conn`; the secret
+      repository comes from `deps.agent`);
+    - `typed_items` placement, folding, and `sources.typed` only;
+    - the secret service's imports avoid `interfaces`;
+    - `allowed_tools` errors flattened to a `ShapeError`.
+  - **The reviewer's questions, answered by the FD:**
+    - `keyerror_is_gone=False` for both new kinds;
+    - `name` and `description` stay free-text guarded;
+    - ids go in `OPERATOR_PATHS` for list and detail.
+  - **No second review cycle:** the fixes are the reviewer's own and change no design.
+- **Batch B's first leg, tiered high** (write boundary; secret metadata is
+  security-sensitive).
+- **Leg-design decisions:**
+  - the services go in `knowledge/service.py` and `secret_store/service.py`;
+  - a secret fill create records metadata only;
+  - `allowed_tools` is replaced whole and checked at normalize;
+  - `typed_items` is a new guard mode, with `base` passed to `outside.check`.
+
+---
+
+### 03b-library-kinds-editors
+**Status**: completed (Batch B checkpoint commit)
+**Started**: 2026-11-23
+
+#### FD notes on landing
+- **Host clean on landing:** no pytest, `run-tests.sh` or uvicorn process left; no wait loop.
+  Load was about 5.6 from outside this flight, so no lane reading here counts toward a budget.
+- **Batch-end sweep (FD):** no selector, class or testid was removed in Batch B
+  (`git diff 7627373a` over `static/`). The kind-list pins outside the legs' files
+  (`test_evals_freeze.py`, `test_evals_gleepglorp_kinds.py`, `evals/harness.py`,
+  `evals/scenario.py`) pin the eval side, which Leg 5 owns; the unit run covers them and passed.
+- **Unverified after the fix:** the Developer re-ran only the two failing unit tests after its
+  fix, not the whole unit tier. The Batch B Reviewer runs it.
+- **Carried to the Batch B review:** the loose router-name assertion in the secret follow test;
+  the `gleepglorp-kinds` lane at 71 tests (about 250 s on a loaded host, provisional budget
+  210 s; Leg 7 re-measures).
+
+#### Changes Made
+- **Cores:** `App.gleepglorpFill.link` / `unlink` exposed (`notes()` now uses them);
+  `App.gleepglorpFollow.fieldNotes(place, {testid})` is the per-field follow note;
+  `registerLibraryKind` takes optional `beforeNavigate` / `afterNavigate`.
+- **Editors:** `knowledge-create.js`, `knowledge-detail.js` and `secret-editor.js` gained a
+  `saving` flag and idle waiters (flushed when a Save ends; a create's stays true) and return
+  `controller`. New: `knowledge-editor-{controller,fill,follow}.js` (one controller for the
+  create and edit forms), `secret-editor-{controller,fill,follow}.js`, `knowledge-kinds.js`,
+  `secret-kinds.js` (script tags in `index.html`, kinds after `provider-kinds.js`).
+- **Glue:** `knowledge-glue.js` and `secret-glue.js` keep `current`, `attach` the fill and
+  follow modules; the secret glue's `followed(row)` is the follow path (not `onSaveSuccess`).
+  `_focusKbCreate` consumes the one-shot suppression flag (`knowledgeEditorFill`), set by
+  `knowledge-kinds.js` in `beforeNavigate` (create only) and cleared in `afterNavigate`.
+- **Notes (DD14):** per-field `kb-filled-note` / `secret-filled-note` and follow notes
+  `kb-approved-change-note` / `secret-approved-change-note`; the chips note "Filled by
+  GleepGlorp: added X, Y."; the handoff note under the values table, linked to row 0's value
+  input and redrawn from `recomputeDirty`. No placement beyond the DD14 list.
+- **Docs:** `docs/ui-testid-registry.md` (4 rows), `the_one/agents.md` (client kinds registry /
+  shared helpers), `guide/secrets.md` (one sentence: the form's first key follows the name).
+- **Tests:** four new browser files (8 + 6 + 9 + 6 tests, `gleepglorp-kinds` lane by glob);
+  `test_gleepglorp_client_helpers.py` (tuples + the client-order-equals-`kinds.KINDS` test);
+  pins: `test_flow_gleepglorp_kinds.py` (script order, names x2, shape table) and
+  `tests/test_run_tests_lanes.py` (`gleepglorp-kinds` file set, four files added).
+
+#### Verification
+- Guards (ui_guards, token_definitions, design_tokens_a11y, ui_ownership, area_module_size,
+  store_static, guide, lanes, client_helpers): 543 passed; no file over 800 lines, no `ALLOWANCE`.
+- `THE_ONE_TEST_NETNS=1 make test-unit`: first run 2 failed (guide `secrets` 609 words over the
+  600 limit; the lanes test pin), both fixed and re-run green; nothing else failed (12068 passed).
+- Lanes, each alone: `gleepglorp-kinds` 71, `gleepglorp-fill` 45, `gleepglorp-chat` 82,
+  `knowledge` 65, `library` 122, `agents` 186, all passed.
+- Falsified (each safety test failed with its fix removed, then restored): value input stays
+  empty (create + value-ignored tests), masked rows and keys untouched, kept field (secret and
+  KB), dirty follow (secret and KB), leave-guard Stay (secret, KB, KB suppression leak).
+- The leg text said "you kept your unsaved edits"; the real Stay receipt reads "You chose to
+  stay on the page you were editing.", and the tests pin that.
+- Weak spot: the secret follow test's check that the router name followed a rename is loose
+  (`page.title()` or body text); the list row and title assertions beside it are strict.
+
+#### Notes
+- **Design review** (Developer, Sonnet): approve with changes, 3 medium and 5 low findings, all
+  applied. Each question was answered by the FD:
+  - **The focus flag** lives on `knowledgeEditorFill` and is consumed by the glue's
+    `_focusKbCreate` wrapper, not `library-pane`.
+  - **The secret follow** uses a dedicated `followed(row)` glue method (`onSaveSuccess` would
+    clear the leave guard's dirty mirror).
+  - **Follow notes** are linked on `aria-describedby` through the core's exposed link helpers,
+    and `clearNotes` removes both note families.
+  - **The handoff note** with no row 0 or an empty key reads "Enter a key and value, then
+    Create.", is redrawn on input and is linked to row 0's value input.
+  - **Notes are event-only.**
+- **No second review cycle.**
+- **Designed after Leg 3a landed,** from a read-only survey of the knowledge-base and secret
+  editors. None of the three editors had a controller, a `saving` flag or idle waiters, and the
+  knowledge-base create form autofocuses on mount.
+- **Tiered high:** secrets are in the editor, and the shared Studio modules change.
+- **Leg-design decisions:**
+  - one controller per editor family;
+  - the core's `create` / `edit:{id}` keys;
+  - a one-shot focus suppression through optional nav hooks in `registerLibraryKind`;
+  - a failed KB detail load times out (accepted);
+  - per-field follow notes (DD14).
+
+---
+
+### Batch B checkpoint review (Legs 3a, 3b)
+**Status**: completed. Legs 3a and 3b were marked `completed`, and the checkpoint commit followed.
+Its ref is recorded in the next batch's notes.
+- **The crew:**
+  - Reviewer: Sonnet (security-sensitive: secret metadata, the `typed_items` guard, the write
+    services);
+  - Accessibility Reviewer: Sonnet, a static review, in parallel (Leg 3b changes UI).
+- **Accessibility Reviewer:** `[HANDOFF:confirmed]`, no blocking issue. Its one open point, whether
+  the note icon is hidden from screen readers, the FD confirmed: `App.ui.icon` sets
+  `aria-hidden="true"` and `focusable="false"` (`static/js/ui/core.js:229`). Non-blocking: the
+  fill and follow notes are read on focus, not announced as they appear, which matches DD14.
+- **Reviewer:** code and artifacts read in full, no blocking issue, but **no test run finished**.
+  It stopped its own unit run after about a minute (its whole run lasted about 78 s) and so could
+  not confirm. Its verdicts on the carried items:
+  - `write_file`: not in any code or test. The leg text was corrected by the FD (two lines in
+    `legs/03a-library-kinds-server.md`).
+  - The knowledge-base operator-only link to `#library`: acceptable.
+  - Gone coverage: adequate (`test_translate_maps_the_new_services_errors`).
+  - Guide topics: match the client and server.
+  - The loose router-name assertion: tighten it (done in the fix pass).
+  - A nit: two statements on one line in `secret-editor-controller.js` (done).
+- **Verification moved to the fix pass** (below), which ran the full unit tier, the guards and
+  the four lanes one at a time. The FD read the fix diff and accepted it without a second review
+  cycle: a tightened assertion (falsified) and a line split, no design change.
+- **No stray processes.** The pytest process the Reviewer saw had exited by the time the FD
+  checked. Load was 5.6-8 from other projects' sessions throughout.
+
+Batch B fix pass (Reviewer found no blocking issue; two non-blocking items fixed):
+
+- `tests/browser/test_flow_gleepglorp_follow_secret.py`: the vacuous "router's name followed" check now asserts `page.title()` ends with ` — Api renamed · GleepGlorp AI` (document.title is router-owned, set only through `App.router.sync(..., {name})`). Falsified: yes. With the `{ name: row.name }` option removed from `followed(row)` in `secret-glue.js`, the test failed (title stayed `Library — Secrets — Api access · GleepGlorp AI`); the option was restored by editing.
+- `secret-editor-controller.js` `setField`: the two statements sharing a line are split onto their own lines.
+
+Verification (netns, one at a time):
+
+- `THE_ONE_TEST_NETNS=1 make test-unit`: 12070 passed, 15 skipped, 5017 deselected (8m11s).
+- Static guards (test_ui_guards, test_token_definitions, test_design_tokens_a11y, test_ui_ownership, test_area_module_size): 421 passed.
+- Browser lanes (wall time informational, host loaded): gleepglorp-kinds 71 passed (3m43s); gleepglorp-fill 45 passed (2m02s); knowledge 65 passed (5m06s); library 122 passed (6m21s). No failures, no flakes.
+
+---
+
 ## Decisions
 
 ### Planning decisions (operator, 2026-11-23)

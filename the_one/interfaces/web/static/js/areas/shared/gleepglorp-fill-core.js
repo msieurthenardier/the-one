@@ -25,6 +25,8 @@
 //       `table` entry), linking each note id on its controls' aria-describedby (appended, never
 //       replacing) and unlinking it exactly when the note goes (SC 1.3.1). skipIfUnchanged makes
 //       it a no-op while the wanted list is what is drawn.
+//   link(el, controls) -> entry, unlink(entry)
+//       The aria-describedby bookkeeping, for a note placed outside notes() (the follow notes).
 //   writer(c, b, rv, {onlyIn?}) -> {written, kept, keep, wrote, operatorScalar, finish}
 //       What one write did. operatorScalar(k): the control differs from the baseline AND from
 //       what a fill wrote there. keep(k) records a kept key (only keys present in `onlyIn`
@@ -131,6 +133,32 @@
     return { isCreate: isCreate, vals: vals };
   }
 
+  // Link a note to the controls it describes: its id is appended to each control's
+  // aria-describedby (never replacing) and the entry {id, controls} is returned, so unlink(entry)
+  // takes exactly that id away again (SC 1.3.1). A note without an id gets a generated one.
+  // The follow modules reuse these for their per-field notes.
+  var linkSeq = 0;
+  function link(el, controls) {
+    if (!el.id) el.id = 'gg-note-' + (++linkSeq);
+    var entry = { id: el.id, controls: controls };
+    controls.forEach(function (c) {
+      var ids = (c.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+      if (ids.indexOf(entry.id) === -1) ids.push(entry.id);
+      c.setAttribute('aria-describedby', ids.join(' '));
+    });
+    return entry;
+  }
+
+  function unlink(entry) {
+    entry.controls.forEach(function (c) {
+      var ids = (c.getAttribute('aria-describedby') || '').split(/\s+/).filter(function (x) {
+        return x && x !== entry.id;
+      });
+      if (ids.length) c.setAttribute('aria-describedby', ids.join(' '));
+      else c.removeAttribute('aria-describedby');
+    });
+  }
+
   function notes(ctl, o) {
     var testid = o.testid;
     var idPrefix = o.idPrefix || testid;
@@ -139,27 +167,8 @@
     var drawnSig = null;
     var seq = 0;
 
-    function unlink_(entry) {
-      entry.controls.forEach(function (c) {
-        var ids = (c.getAttribute('aria-describedby') || '').split(/\s+/).filter(function (x) {
-          return x && x !== entry.id;
-        });
-        if (ids.length) c.setAttribute('aria-describedby', ids.join(' '));
-        else c.removeAttribute('aria-describedby');
-      });
-    }
-
-    function link_(entry) {
-      entry.controls.forEach(function (c) {
-        var ids = (c.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
-        if (ids.indexOf(entry.id) === -1) ids.push(entry.id);
-        c.setAttribute('aria-describedby', ids.join(' '));
-      });
-      placed.push(entry);
-    }
-
     function removeAll() {
-      placed.forEach(unlink_);
+      placed.forEach(unlink);
       placed = [];
       drawnSig = null;
       var old = ctl.el.querySelectorAll('[data-testid="' + testid + '"]');
@@ -187,7 +196,7 @@
       list.forEach(function (n) {
         var el = build_(n.field, n.text);
         var controls = n.table ? ctl.placeTableNote(el) : ctl.placeNote(n.field, el);
-        link_({ id: el.id, controls: controls || [] });
+        placed.push(link(el, controls || []));
       });
       drawnSig = sig;
     }
@@ -224,6 +233,6 @@
 
   window.App.gleepglorpFill = {
     module: module, libraryRoute: libraryRoute, prepare: prepare, notes: notes, writer: writer,
-    same: same, has: has
+    link: link, unlink: unlink, same: same, has: has
   };
 })();

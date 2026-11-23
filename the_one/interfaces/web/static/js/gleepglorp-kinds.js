@@ -54,7 +54,8 @@
   // `store` the App.store collection an approval invalidates, `noun` the lower-case item noun
   // ("MCP server", "model provider"), `fill` a function returning the editor's fill module
   // (late-bound, as the module loads after this file). An approval records under (name,
-  // target_id); a create's frame without a target_id records nothing.
+  // target_id); a create's frame without a target_id records nothing. `beforeNavigate(view)` and
+  // `afterNavigate()` are optional (the knowledge base's one-shot create-focus suppression).
   function registerLibraryKind(o) {
     var fillOf = o.fill;
     var section = o.section;
@@ -95,10 +96,11 @@
         },
         isOpen: function (key) { return fillOf().isOpen(key); },
         whenSettled: function (key) { return fillOf().whenSettled(key); },
-        // These editors have no tabs, and a create form does not take focus for a fill.
+        // These editors have no tabs. A create form that takes focus when it opens (the knowledge
+        // base's) passes beforeNavigate / afterNavigate to keep focus in the drawer (late-bound).
         select: function () {},
-        beforeNavigate: function () {},
-        afterNavigate: function () {},
+        beforeNavigate: function (view) { if (o.beforeNavigate) o.beforeNavigate(view); },
+        afterNavigate: function () { if (o.afterNavigate) o.afterNavigate(); },
         apply: function (view) { return fillOf().apply(view); }
       }
     });

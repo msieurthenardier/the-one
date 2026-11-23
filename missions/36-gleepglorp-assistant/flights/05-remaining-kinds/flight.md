@@ -987,13 +987,13 @@ agents (2026-11-23).
   - the `provider-editor.js` split;
   - squawk 0401;
   - agent, MCP and provider lanes unedited.
-- [ ] `03a-library-kinds-server` — High risk: write boundary.
+- [x] `03a-library-kinds-server` — High risk: write boundary.
   - `knowledge/service.py` and the secrets service, with repository hooks and thin routes;
   - the `knowledge_base` and `secret` kinds (warnings, the create-proposal refusal);
   - ids in the views;
   - guard cases;
   - guide topics.
-- [ ] `03b-library-kinds-editors` — High risk: secrets in the editor. Designed after 3a lands.
+- [x] `03b-library-kinds-editors` — High risk: secrets in the editor. Designed after 3a lands.
   - the knowledge create and detail seams and the secret editor seam;
   - the appliers and follows on the DD4 core;
   - the empty value row;

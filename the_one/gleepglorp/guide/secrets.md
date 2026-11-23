@@ -39,6 +39,10 @@ The value is hidden from the agent and the model only while it stays the exact v
 
 Open a secret to change its description, its keys, or its allowed tools. Values show as hidden, so to change one, type the new value. The **Used by** section lists the agents that have it. **Delete secret** removes it, and if agents use it, you are told how many it will be removed from before you confirm.
 
+## Ask GleepGlorp
+
+GleepGlorp can propose a change to a secret's name, description or allowed tools. Nothing changes until you approve. It can fill the new-secret form, but it can't create a secret by proposal, and it never sees or sets a value or a key: enter those yourself. The form's first key follows the name. After reading a web page, it can add an allowed tool only if you name that tool in your own message. The card says which keys can then be sent to the added tools.
+
 ## Related topics
 
 - "agent-tools" for the Tools tab.

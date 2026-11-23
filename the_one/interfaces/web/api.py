@@ -97,6 +97,7 @@ from the_one.embeddings import get_embedding_backend
 from the_one.embeddings import schedule_warm_up as _schedule_embedding_warm_up
 from the_one.encryption import Encryptor, get_encryptor, next_key_path
 from the_one.interfaces.web.middleware import CALLER_SCOPE_KEY
+from the_one.knowledge import service as kb_service
 from the_one.knowledge.extractors import ExtractionError, extractor_for
 from the_one.knowledge.indexer import MAX_FILE_BYTES
 from the_one.knowledge.manager import get_manager as get_indexing_manager
@@ -510,6 +511,24 @@ async def _evict_agent_connections(agent_name: str) -> None:
 async def _kb_repo() -> KnowledgeBaseRepository:
     conn = await get_connection()
     return KnowledgeBaseRepository(conn)
+
+
+@contextlib.contextmanager
+def _kb_write_errors() -> Iterator[None]:
+    """Turn the knowledge-base write service's refusals into the ``HTTPException`` the routes
+    always returned (Mission 36 F5 L3a)."""
+    try:
+        yield
+    except kb_service.KbWriteError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
+    except kb_service.KbNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+
+
+async def _kb_write_deps() -> kb_service.KbWriteDeps:
+    return kb_service.KbWriteDeps(
+        repo=await _kb_repo(), agent_store=_agent_store, warm_up=_schedule_embedding_warm_up
+    )
 
 
 async def _resolve_kb_tool_names(cfg: AgentConfig) -> dict[str, str]:
@@ -2136,62 +2155,16 @@ async def get_knowledge_base(kb_id: str) -> dict[str, Any]:
 @router.post("/knowledge-bases", status_code=201)
 async def create_knowledge_base(request: Request) -> dict[str, Any]:
     data = await _read_json(request)
-    data["name"] = _checked_name(data.get("name"))
-    if "id" not in data:
-        data["id"] = uuid.uuid4().hex[:12]
-    try:
-        kb = KnowledgeBase.model_validate(data)
-    except ValidationError as e:
-        # Leg 5 review fix (BLOCKING 2): a client-supplied `id` (e.g.
-        # "../../../evil") must 422 via the model's charset validator, not
-        # crash as an unhandled 500 — `KnowledgeBase.id` is used verbatim
-        # to build a filesystem path in `UsearchStore._path_for`.
-        raise HTTPException(status_code=422, detail=_validation_detail(e))
-    repo = await _kb_repo()
-    await repo.create(kb)
-    # M24 F02 L03, DD-1: kick the embedding warm-up on the operator's first
-    # KB after a cold start, so they don't pay the model load inside their
-    # first indexing request either. Idempotent — no bookkeeping needed.
-    # Squawk 0055: the task handle is held inside ``the_one.embeddings``
-    # (not discarded here) so it can't be garbage-collected mid-flight.
-    _schedule_embedding_warm_up()
+    with _kb_write_errors():
+        kb = await kb_service.create_knowledge_base(await _kb_write_deps(), data)
     return kb.model_dump()
 
 
 @router.put("/knowledge-bases/{kb_id}")
 async def update_knowledge_base(kb_id: str, request: Request) -> dict[str, Any]:
     data = await _read_json(request)
-    data["id"] = kb_id
-    repo = await _kb_repo()
-    try:
-        existing = await repo.get(kb_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Knowledge base not found: {kb_id}")
-
-    # ``model_copy(update=...)`` does NOT re-run field validators in
-    # Pydantic v2, so a malformed PUT would silently bypass validation
-    # and corrupt the stored row. Round-trip through ``model_dump() |
-    # data → model_validate(...)`` so the validator fires on the merged
-    # payload. Mirrors ``update_connector`` (M10 F2 L6). Squawk 0013.
-    try:
-        merged = existing.model_dump()
-        merged.update(data)
-        if "name" in data:
-            merged["name"] = _checked_name(merged["name"])
-        updated = KnowledgeBase.model_validate(merged)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=_validation_detail(e))
-    await repo.update(updated)
-
-    # L2-D7/L2-D9: the agent rewrite happens AFTER the knowledge-base row
-    # has committed (write_transaction raises on re-entry by the same task,
-    # so this can never be one atomic unit with the write above). Most PUTs
-    # touch only description/etc. and must not load and re-save every
-    # attached agent, hence the raw-name check here and the slug check inside.
-    if existing.name != updated.name:
-        from the_one.knowledge.kb_rename import carry_kb_rename
-
-        await carry_kb_rename(existing, updated, get_agent_store=_agent_store)
+    with _kb_write_errors():
+        updated = await kb_service.replace_knowledge_base(await _kb_write_deps(), kb_id, data)
     return updated.model_dump()
 
 

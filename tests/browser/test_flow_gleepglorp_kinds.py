@@ -37,6 +37,8 @@ _SCRIPT_ORDER_JS = """() => {
     frames: at('/areas/chat/window-frames.js'), agentKinds: at('/areas/studio/agent-kinds.js'),
     mcpKinds: at('/areas/studio/mcp-kinds.js'),
     providerKinds: at('/areas/studio/provider-kinds.js'),
+    knowledgeKinds: at('/areas/studio/knowledge-kinds.js'),
+    secretKinds: at('/areas/studio/secret-kinds.js'),
     agentsList: at('/areas/studio/agents-list.js')
   };
 }"""
@@ -115,15 +117,26 @@ def test_the_agent_kinds_register_during_script_load_before_any_socket_frame(
         "() => ({ names: App.gleepglorpKinds.names(),"
         " gg: ['get', 'peek', 'prime'].map(k => typeof App.gleepglorp[k]) })"
     )
-    assert got["names"] == ["agent", "rule", "routine", "mcp_server", "provider"]
+    assert got["names"] == [
+        "agent",
+        "rule",
+        "routine",
+        "mcp_server",
+        "provider",
+        "knowledge_base",
+        "secret",
+    ]
     assert got["gg"] == ["function", "function", "function"]
     order = page.evaluate(_SCRIPT_ORDER_JS)
     assert -1 not in order.values()
     assert order["kinds"] < order["approvals"] < order["frames"]
     assert order["agentsList"] < order["agentKinds"] < order["mcpKinds"] < order["providerKinds"]
-    # The agent, MCP server and provider kinds are fillable; the labels carry today's wording.
+    assert order["providerKinds"] < order["knowledgeKinds"] < order["secretKinds"]
+    # The agent, MCP server, provider, knowledge base and secret kinds are fillable; the labels
+    # carry today's wording.
     shape = page.evaluate(
-        "() => ['agent', 'rule', 'routine', 'mcp_server', 'provider'].map(n => {"
+        "() => ['agent', 'rule', 'routine', 'mcp_server', 'provider', 'knowledge_base',"
+        " 'secret'].map(n => {"
         " const k = App.gleepglorpKinds.get(n);"
         " return [n, !!k.fill, k.store, k.labels.editorUnavailable, k.labels.targetGone]; })"
     )
@@ -163,6 +176,20 @@ def test_the_agent_kinds_register_during_script_load_before_any_socket_frame(
             "The model provider editor could not open.",
             "That model provider no longer exists.",
         ],
+        [
+            "knowledge_base",
+            True,
+            "knowledge-bases",
+            "The knowledge base editor could not open.",
+            "That knowledge base no longer exists.",
+        ],
+        [
+            "secret",
+            True,
+            "secrets",
+            "The secret editor could not open.",
+            "That secret no longer exists.",
+        ],
     ]
 
 
@@ -176,7 +203,16 @@ def test_the_registry_and_approvals_record_a_stub_id_targeted_kind(
     out = page.evaluate(_REGISTRY_JS)
 
     assert out["unknown"] is None
-    assert out["names"] == ["agent", "rule", "routine", "mcp_server", "provider", "stub_target"]
+    assert out["names"] == [
+        "agent",
+        "rule",
+        "routine",
+        "mcp_server",
+        "provider",
+        "knowledge_base",
+        "secret",
+        "stub_target",
+    ]
     assert out["same"] is True
     assert out["dupThrew"] is True and out["dupAgentThrew"] is True
     # An unknown kind, or a stub detail with no target id, is not recorded.

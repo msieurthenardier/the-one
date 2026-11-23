@@ -153,6 +153,7 @@
       refreshHint();
       nameField.setError(null);
       shell.setError('');
+      ctl.clearNotes();
       onValuesChanged();
       App.focusAfter.restore(focusTok, shell.titleEl);
     }
@@ -197,9 +198,11 @@
         snapshot = readValues();
         setInputsDisabled(false);
         shell.setBusy(false);
+        ctl.clearNotes();
         onValuesChanged();
         if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated);
         App.focusAfter.restore(saveTok, shell.titleEl);
+        ctl.idle();
       }, function (err) {
         if (!alive) return;
         busy = false;
@@ -210,8 +213,35 @@
         shell.setError(fe.text || '');
         App.focusAfter.restore(saveTok, shell.saveButton);
         if (fe.fields.name) nameInput.focus();
+        ctl.idle();
       });
     }
+
+    // The GleepGlorp handles (knowledge-editor-controller.js): the fill writes the two inputs as
+    // unsaved edits, an approved change rebases them. adopt() points the frame at a newer
+    // stored row (Cancel restores from it).
+    var ctl = App.studio.knowledgeEditorController.create({
+      isCreate: false, id: kb.id, el: root, shell: shell,
+      nameInput: nameInput, descInput: descInput, nameField: nameField, descField: descField,
+      isAlive: function () { return alive; },
+      saving: function () { return busy; },
+      checkDirty: onValuesChanged,
+      afterSet: function (key) {
+        if (key === 'name') {
+          refreshHint();
+          nameField.setError(null);
+        }
+        shell.setError('');
+        onValuesChanged();
+      },
+      snapshot: function (next) { if (next !== undefined) snapshot = next; return snapshot; },
+      adopt: function (row) {
+        stored = row;
+        shell.setTitle(row.name);
+        shell.setSubtitle(row.description || '');
+        refreshHint();
+      }
+    });
 
 
     // ── Composition. DOM order is today's: header, fields, Folders, Status,
@@ -327,6 +357,7 @@
     root.appendChild(danger.el);
 
     return {
+      controller: ctl,
       updateStatus: function (s) {
         if (!alive) return;
         status.update(s);
@@ -339,6 +370,7 @@
       // calls) do nothing, and a parked focus restore is dropped.
       destroy: function () {
         alive = false;
+        ctl.destroy();
         App.focusAfter.cancel();
         search.destroy();
         status.destroy();

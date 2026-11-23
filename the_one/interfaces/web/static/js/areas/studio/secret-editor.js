@@ -53,6 +53,8 @@
     var destroyed = false;
     var tok = slot.mount(function () { destroyed = true; }, h);
     var snapshot = '';
+    var saving = false;
+    var ctl = null; // the GleepGlorp handles (secret-editor-controller.js), built after the mount
 
     function current() { return !destroyed && slot.isCurrent(tok); }
 
@@ -61,6 +63,16 @@
       var d = JSON.stringify(readValues()) !== snapshot;
       h.shell.setDirty(d);
       if (callbacks.onDirtyChange) callbacks.onDirtyChange(d);
+      if (ctl) ctl.changed(); // the fill's notes follow what the controls now hold
+    }
+
+    // A new secret's first key follows the name (until the key is typed by hand). Typing and
+    // GleepGlorp's fill (controller.setField('name')) share this one rule.
+    function followNameKey() {
+      if (isCreate && !keyTouched && kv) {
+        var rows = kv.values();
+        if (rows.length) kv.setRow(0, { key: slug(nameInput.value) });
+      }
     }
 
     // ── Secret section ────────────────────────────────────────────────
@@ -68,10 +80,7 @@
       id: 'secret-name', value: stored.name || '', placeholder: 'Home address',
       testid: 'secret-name', dataset: { field: 'name' }, onInput: function () {
         nameField.setError(null);
-        if (isCreate && !keyTouched && kv) {
-          var rows = kv.values();
-          if (rows.length) kv.setRow(0, { key: slug(nameInput.value) });
-        }
+        followNameKey();
         recomputeDirty();
       }
     });
@@ -315,6 +324,7 @@
     }
 
     function revertToBaseline() {
+      ctl.clearNotes();
       applyRecord(stored);
       snapshot = JSON.stringify(readValues());
       clearErrors();
@@ -362,6 +372,7 @@
       var body = JSON.stringify(payload);
       payload = null;
       var saveTok = App.focusAfter.begin(shell.saveButton);
+      saving = true;
       shell.setBusy(true);
       var url = isCreate ? '/api/secrets' : '/api/secrets/' + encodeURIComponent(stored.id);
       App.api.fetchJson(url, {
@@ -383,8 +394,10 @@
         applyRecord(stored);
         snapshot = JSON.stringify(readValues());
         shell.setTitle(updated.name || '');
+        saving = false;
         shell.setBusy(false);
         shell.setDirty(false);
+        ctl.clearNotes();
         if (callbacks.onDirtyChange) callbacks.onDirtyChange(false);
         App.focusAfter.restore(saveTok, shell.titleEl);
         if (callbacks.onSaveSuccess) {
@@ -392,20 +405,42 @@
             if (window.console && console.error) console.error('onSaveSuccess failed', e);
           }
         }
+        ctl.idle();
       }).catch(function (err) {
         if (!current()) return;
         var rest = showServerError(err);
         if (rest.length) shell.setError(rest.join(' '));
+        saving = false;
         shell.setBusy(false);
         App.focusAfter.defer(null);
         App.focusAfter.restore(saveTok, shell.saveButton);
+        ctl.idle();
       });
     }
 
+    // The GleepGlorp handles (secret-editor-controller.js). Only the metadata (name,
+    // description, allowed tools) is ever written or rebased by it: never a value, never a row.
+    ctl = App.studio.secretEditorController.create({
+      isCreate: isCreate, id: isCreate ? null : stored.id, el: container, shell: shell,
+      nameInput: nameInput, descInput: descInput, nameField: nameField, descField: descField,
+      chips: chips, toolsField: toolsField, kv: kv, valuesSection: values,
+      followNameKey: followNameKey, recompute: recomputeDirty, isDirty: function () {
+        return JSON.stringify(readValues()) !== snapshot;
+      },
+      isAlive: current, saving: function () { return saving; },
+      snapshot: function (next) { if (next !== undefined) snapshot = next; return snapshot; },
+      adopt: function (meta) {
+        stored = Object.assign({}, stored, meta);
+        shell.setTitle(meta.name || '');
+      }
+    });
+
     return {
+      controller: ctl,
       destroy: function () {
         if (slot.isCurrent(tok)) slot.destroy();
         else destroyed = true;
+        ctl.destroy();
       },
       // The leave guard's discard (App.nav): reset the STILL-MOUNTED editor to its baseline.
       discard: function () { if (current()) revertToBaseline(); },

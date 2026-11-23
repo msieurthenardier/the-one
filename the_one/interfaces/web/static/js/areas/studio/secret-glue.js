@@ -35,7 +35,10 @@
 
     var handle = null;
     var handleKey = null;
+    var handleGen = null; // state.editorGen when the live editor mounted
     var epoch = 0;
+    // The live editor's GleepGlorp controller, or null (none mounted, or torn down).
+    var current = null;
 
     // The area seams studio-route.js reads (serialize) and writes (hydrate), exposed on the
     // area object like the other Library groups' (studio.js keeps the state itself).
@@ -68,6 +71,7 @@
       var old = handle;
       handle = null;
       handleKey = null;
+      current = null;
       if (old && old.destroy) old.destroy();
     }
 
@@ -132,6 +136,8 @@
           },
           onDirtyChange: function (d) { if (secGen === state.editorGen) state.dirty = d; }
         });
+        handleGen = secGen;
+        current = handle ? handle.controller : null;
         App.focusAfter.flush();
         syncLibrarySelection(false);
         return;
@@ -145,6 +151,25 @@
       renderLibraryEmpty();
       syncLibrarySelection(false);
     }
+
+    // GleepGlorp's fill and an approval's follow (secret-editor-fill.js, -follow.js) reach the
+    // live editor through this accessor. A follow is NOT a Save: followed(row) leaves the form
+    // mode, the dirty mirror and the mount alone (onSaveSuccess clears `dirty` and re-mounts a
+    // create), and only moves what an approval changed: the cached row, the list, the router's
+    // name and the Library selection.
+    App.studio.secretEditorFill.attach(function () { return current; });
+    App.studio.secretEditorFollow.attach({
+      getController: function () { return current; },
+      followed: function (row) {
+        if (handleGen !== state.editorGen) return; // discarded meanwhile: no resurrection
+        state.editingSecret = row;
+        reloadLibrary('secrets');
+        if (window.App && window.App.router) {
+          App.router.sync('studio', 'secrets/' + encodeURIComponent(row.id), { name: row.name });
+        }
+        syncLibrarySelection(true);
+      }
+    });
 
     function findSecret(id) {
       if (!state.secrets) return null;

@@ -384,17 +384,20 @@ def collect(agent: Any, tool_call_id: str | None, turn: Any = None) -> Sources |
 
 # --- the check ------------------------------------------------------------------------
 
-_FREE, _DECLARED, _ROWS, _SKIP = "free", "declared", "rows", "skip"
+_FREE, _DECLARED, _ROWS, _SKIP, _TYPED_ITEMS = "free", "declared", "rows", "skip", "typed_items"
 
 
 def plan(fields: tuple[FieldSpec, ...]) -> dict[str, str]:
     """How each stored field is checked: ``free`` (addresses must be typed), ``declared``
-    (typed or linked), ``rows`` (a declared rows field), or ``skip`` (a ``ref``-resolved
-    field, a hidden field, a schedule, a boolean or a number)."""
+    (typed or linked), ``rows`` (a declared rows field), ``typed_items`` (each item added must
+    be named in the operator's own text), or ``skip`` (a ``ref``-resolved field, a hidden
+    field, a schedule, a boolean or a number)."""
     out: dict[str, str] = {}
     for f in fields:
         if f.stored in HIDDEN_FIELDS or f.ref or f.type in ("schedule", "boolean", "integer"):
             out[f.stored] = _SKIP
+        elif f.typed_items:
+            out[f.stored] = _TYPED_ITEMS
         elif f.address_or_command:
             out[f.stored] = _ROWS if f.rows else _DECLARED
         elif f.rows:
@@ -492,12 +495,44 @@ def _free_text(label: str, value: str, sources: Sources | None) -> str | None:
     return None
 
 
-def check(kind: Any, changes: dict[str, Any], sources: Sources | None) -> str | None:
+def _typed_items_refusal(
+    label: str, value: Any, stored: str, sources: Sources | None, base: dict[str, Any] | None
+) -> str | None:
+    """The refusal for an item ADDED to a ``typed_items`` field that the operator did not name.
+
+    The items added are those in ``value`` and not in ``base`` (all of them without a base, as
+    on a create). Each must stand alone (``token_match``) in the operator's own typed text:
+    never a linked page. No anchor (``sources`` of ``None``) refuses any addition. A removal
+    is never refused."""
+    if not isinstance(value, (list, tuple)):
+        return _no_source(label, str(value))
+    had = {fold(i).strip() for i in (base or {}).get(stored, []) if isinstance(i, str)}
+    for item in value:
+        if not isinstance(item, str):
+            return _no_source(label, str(item))
+        folded = fold(item).strip()
+        if not folded or folded in had:
+            continue
+        if sources is None or not any(token_match(folded, t) for t in sources.typed):
+            return (
+                f"{label} would add {_q(folded)}, and the operator did not name it. "
+                "Say which tool may receive this secret: name it yourself. " + REFUSAL_TAIL
+            )
+    return None
+
+
+def check(
+    kind: Any,
+    changes: dict[str, Any],
+    sources: Sources | None,
+    base: dict[str, Any] | None = None,
+) -> str | None:
     """The refusal sentence for a value that did not come from the operator, else ``None``.
 
-    ``changes`` is ``Normalized.changes`` (keyed by ``FieldSpec.stored``). Run only on an
-    untrusted turn. ``sources`` of ``None`` (no anchor) refuses every address, command and
-    loader key. An empty value is never checked.
+    ``changes`` is ``Normalized.changes`` (keyed by ``FieldSpec.stored``); ``base`` the stored
+    values a change was written against (only the ``typed_items`` mode reads it). Run only on
+    an untrusted turn. ``sources`` of ``None`` (no anchor) refuses every address, command,
+    loader key and added ``typed_items`` item. An empty value is never checked.
     """
     fields = tuple(kind.fields)
     modes = plan(fields)
@@ -511,7 +546,11 @@ def check(kind: Any, changes: dict[str, Any], sources: Sources | None) -> str | 
             continue
         spec = by_stored.get(stored)
         label = spec.label if spec is not None else stored
-        if mode == _FREE:
+        if mode == _TYPED_ITEMS:
+            refusal = _typed_items_refusal(label, value, stored, sources, base)
+            if refusal is not None:
+                return refusal
+        elif mode == _FREE:
             for s in _strings(value):
                 refusal = _free_text(label, s, sources)
                 if refusal is not None:

@@ -59,7 +59,10 @@ class FieldSpec:
     guard, ``the_one/gleepglorp/outside.py``, then accepts it from a page the operator linked
     as well as from the operator's own text). ``rows`` marks a ``{key: value}`` field (headers,
     env); for a field that is both ``rows`` and ``address_or_command`` the guard also treats
-    its keys as loader keys.
+    its keys as loader keys. ``typed_items`` marks a ``names`` field whose ADDED items grant
+    something (a secret's allowed tools): after outside content, each item added (those not in
+    the stored base; all of them on a create) must be named in the operator's own typed text;
+    a removal is never refused.
     """
 
     name: str
@@ -76,6 +79,7 @@ class FieldSpec:
     address_or_command: bool = False
     rows: bool = False
     fill_refused: str = ""
+    typed_items: bool = False
 
 
 @dataclass

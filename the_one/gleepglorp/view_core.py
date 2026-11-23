@@ -45,7 +45,8 @@ _DESC_CUT = 200
 # of dicts inside a detail. A key not listed here can never be emitted (``_emit``).
 
 _LIST_KEYS = frozenset({"name", "summary"})
-# MCP servers and providers also list ``id`` (the id a proposal targets; M36 F4 L1b).
+# MCP servers, providers, knowledge bases and secrets also list ``id`` (the id a proposal
+# targets; M36 F4 L1b, F5 L3a).
 _LIST_KEYS_WITH_ID = _LIST_KEYS | {"id"}
 
 ALLOWED: dict[str, dict[str, frozenset[str]]] = {
@@ -131,9 +132,9 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
         "nested": frozenset({"num_ctx", "thinking_enabled", "reasoning_effort"}),
     },
     "knowledge_bases": {
-        "list": _LIST_KEYS,
+        "list": _LIST_KEYS_WITH_ID,
         "detail": frozenset(
-            {"name", "description", "folders", "items", "latest_indexed", "indexer", "agents"}
+            {"id", "name", "description", "folders", "items", "latest_indexed", "indexer", "agents"}
         ),
         "nested": frozenset({"pending", "indexing", "indexed", "failed"}),
     },
@@ -148,8 +149,8 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
         "nested": frozenset({"name", "schedule", "next_run", "prompt", "enabled"}),
     },
     "secrets": {
-        "list": _LIST_KEYS,
-        "detail": frozenset({"name", "description", "keys", "allowed_tools", "agents"}),
+        "list": _LIST_KEYS_WITH_ID,
+        "detail": frozenset({"id", "name", "description", "keys", "allowed_tools", "agents"}),
         "nested": frozenset(),
     },
     "built_in_tools": {
@@ -295,8 +296,10 @@ OPERATOR_PATHS: dict[str, frozenset[str]] = {
     ),
     "knowledge_bases": frozenset(
         {
+            "knowledge_bases.list.id",
             "knowledge_bases.list.name",
             "knowledge_bases.list.summary",
+            "knowledge_bases.detail.id",
             "knowledge_bases.detail.name",
             "knowledge_bases.detail.description",
             "knowledge_bases.detail.folders",
@@ -331,8 +334,10 @@ OPERATOR_PATHS: dict[str, frozenset[str]] = {
     ),
     "secrets": frozenset(
         {
+            "secrets.list.id",
             "secrets.list.name",
             "secrets.list.summary",
+            "secrets.detail.id",
             "secrets.detail.name",
             "secrets.detail.description",
             "secrets.detail.keys",

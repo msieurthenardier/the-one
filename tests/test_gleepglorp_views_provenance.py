@@ -130,9 +130,9 @@ REVIEWED_ALLOWED: dict[str, dict[str, frozenset[str]]] = {
         ),
     },
     "knowledge_bases": {
-        "list": _L,
+        "list": _L | {"id"},
         "detail": frozenset(
-            {"name", "description", "folders", "items", "latest_indexed", "indexer", "agents"}
+            {"id", "name", "description", "folders", "items", "latest_indexed", "indexer", "agents"}
         ),
     },
     "connectors": {
@@ -140,8 +140,8 @@ REVIEWED_ALLOWED: dict[str, dict[str, frozenset[str]]] = {
         "detail": frozenset({"name", "type", "enabled", "default_agent", "channel_bindings"}),
     },
     "secrets": {
-        "list": _L,
-        "detail": frozenset({"name", "description", "keys", "allowed_tools", "agents"}),
+        "list": _L | {"id"},
+        "detail": frozenset({"id", "name", "description", "keys", "allowed_tools", "agents"}),
     },
     "built_in_tools": {
         "list": _L,

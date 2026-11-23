@@ -219,6 +219,10 @@ def test_gleepglorp_lanes_are_chat_fill_and_kinds(lanes: dict[str, set[str]]) ->
         "tests/browser/test_flow_gleepglorp_follow_mcp.py",
         "tests/browser/test_flow_gleepglorp_fill_provider.py",
         "tests/browser/test_flow_gleepglorp_follow_provider.py",
+        "tests/browser/test_flow_gleepglorp_fill_knowledge.py",
+        "tests/browser/test_flow_gleepglorp_follow_knowledge.py",
+        "tests/browser/test_flow_gleepglorp_fill_secret.py",
+        "tests/browser/test_flow_gleepglorp_follow_secret.py",
     }
     assert lanes["gleepglorp-chat"] == chat
     assert lanes["gleepglorp-fill"] == fill

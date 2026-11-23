@@ -43,9 +43,10 @@ class ProposeChangeTool(Tool):
     summary = "Proposes a change for the operator to approve; changes nothing itself."
     description = (
         "Propose one change; nothing changes until approved. "
-        "kind: agent, rule, routine, mcp_server or provider. agent names the agent (for a new "
-        "agent, put name in changes); rule is a rule's number from 1, routine a routine's "
-        "name; target is an existing MCP server's or provider's id or name. "
+        "kind: agent, rule, routine, mcp_server, provider, knowledge_base or secret. agent "
+        "names the agent (for a new agent, put name in changes); rule is a rule's number from "
+        "1, routine a routine's name; target is an existing MCP server's, provider's, "
+        "knowledge base's or secret's id or name. "
         "Fields and shapes: read_app_config kind=fields name=<kind>."
     )
     parameters = {
@@ -142,6 +143,7 @@ class ProposeChangeTool(Tool):
                 kinds.get(norm.kind),
                 norm.changes,
                 outside.collect(self._agent, current_tool_call_id.get(), turn),
+                norm.base,
             )
             if refusal is not None:
                 return refusal

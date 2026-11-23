@@ -315,6 +315,7 @@ async def test_routines_detail(world) -> None:
 async def test_secret_detail_shows_key_names_never_values(world) -> None:
     d, text = await _call(world, "secrets", "github")
     assert d == {
+        "id": world.library_secret_id,
         "name": "github",
         "description": "GitHub access",
         "keys": ["gh_token"],

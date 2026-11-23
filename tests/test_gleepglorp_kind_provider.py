@@ -150,7 +150,7 @@ async def stored(world, provider_id) -> LLMProviderConfig:
 
 
 def test_the_kind_is_registered_last_described_and_fillable() -> None:
-    assert kinds.REGISTRY[-1] is provider.KIND and kinds.KINDS[-1] == "provider"
+    assert kinds.REGISTRY[4] is provider.KIND and kinds.KINDS[4] == "provider"
     assert provider.KIND.fillable == ("create", "change") and "provider" in kinds.FILLABLE
     assert provider.KIND.operator_only == ("api_key", "secrets")
     assert provider.KIND.relaxed_guard_keys == frozenset({"base_url"})

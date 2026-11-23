@@ -4,6 +4,10 @@ The router has no prefix; ``api.py`` attaches it to ``api.router`` (prefix ``/ap
 bottom of that module. Handlers reach ``api.py`` helpers through ``_api`` at call time, so
 tests that patch ``the_one.interfaces.web.api.get_connection`` and friends still apply.
 
+The validation and the writes live in ``the_one/secret_store/service.py`` (Mission 36 F5 L3a),
+shared with GleepGlorp's approve path; these handlers only read the body, call the service and
+map its errors to ``HTTPException``.
+
 **No value ever leaves this module.** Every stored value is returned as the constant
 ``__MASKED__``, with no tail. The routes take no pydantic body parameter: the app has no
 ``RequestValidationError`` handler, so FastAPI's default 422 would echo the submitted
@@ -13,8 +17,9 @@ every 422 detail is a ``{type, loc, msg}`` list whose ``msg`` is a fixed sentenc
 
 from __future__ import annotations
 
+import contextlib
 import logging
-import re
+from collections.abc import Iterator
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -24,10 +29,8 @@ from the_one.db.repositories import (
     AgentMcpToolCacheRepository,
     MCPSourceRepository,
     Secret,
-    SecretInvalid,
-    SecretNameConflict,
 )
-from the_one.naming import NAME_CONFLICT_SECRET
+from the_one.secret_store import service as secret_service
 from the_one.secret_store.refused import is_refused_tool
 from the_one.self_configuration.constants import is_surface_row
 
@@ -47,13 +50,6 @@ _api = _ApiModule()
 
 router = APIRouter()
 
-KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-TOOL_NAME_MAX = 128
-
-
-def _err(loc: list[Any], msg: str) -> dict[str, Any]:
-    return {"type": "value_error", "loc": loc, "msg": msg}
-
 
 def _response(secret: Secret) -> dict[str, Any]:
     return {
@@ -71,116 +67,20 @@ def _not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="Secret not found.")
 
 
-def _conflict() -> HTTPException:
-    return HTTPException(status_code=409, detail=_api._name_conflict_detail(NAME_CONFLICT_SECRET))
+@contextlib.contextmanager
+def _write_errors() -> Iterator[None]:
+    """Turn the secret write service's refusals into the ``HTTPException`` the routes always
+    returned."""
+    try:
+        yield
+    except secret_service.SecretWriteError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
+    except secret_service.SecretNotFound:
+        raise _not_found() from None
 
 
-# ── Validation (shared by POST and PUT) ──────────────────────────────────
-
-
-def _check_allowed_tools(raw: Any, errors: list[dict[str, Any]]) -> list[str] | None:
-    if not isinstance(raw, list) or not raw:
-        errors.append(
-            _err(["allowed_tools"], "Choose at least one tool that may receive this secret.")
-        )
-        return None
-    tools: list[str] = []
-    for i, entry in enumerate(raw):
-        if not isinstance(entry, str):
-            errors.append(_err(["allowed_tools", i], "A tool name must be text."))
-            continue
-        name = entry.strip()
-        if not name or len(name) > TOOL_NAME_MAX:
-            errors.append(
-                _err(["allowed_tools", i], f"A tool name must be 1 to {TOOL_NAME_MAX} characters.")
-            )
-        elif re.search(r"\s", name):
-            errors.append(_err(["allowed_tools", i], "A tool name can't contain whitespace."))
-        elif is_refused_tool(name):
-            errors.append(
-                _err(
-                    ["allowed_tools", i],
-                    f"{name} stores or publishes what it receives, so it can't receive secrets.",
-                )
-            )
-        else:
-            tools.append(name)
-    return list(dict.fromkeys(tools))
-
-
-def _check_values(
-    raw: Any, errors: list[dict[str, Any]], *, creating: bool
-) -> list[dict[str, Any]] | None:
-    if not isinstance(raw, list) or not raw:
-        errors.append(_err(["values"], "Add at least one key and value."))
-        return None
-    pairs: list[dict[str, Any]] = []
-    seen_keys: set[str] = set()
-    seen_ids: set[str] = set()
-    for i, item in enumerate(raw):
-        if not isinstance(item, dict):
-            errors.append(_err(["values", i], "Each entry must have a key and a value."))
-            continue
-        key, value, pair_id = item.get("key"), item.get("value"), item.get("id")
-        if not isinstance(key, str) or not KEY_PATTERN.match(key):
-            errors.append(
-                _err(
-                    ["values", i, "key"],
-                    "A key can use letters, digits, _ and -, 1 to 64 characters.",
-                )
-            )
-        elif key.lower() in seen_keys:
-            errors.append(_err(["values", i, "key"], "This key repeats an earlier key."))
-        else:
-            seen_keys.add(key.lower())
-        if pair_id is not None:
-            if not isinstance(pair_id, str):
-                errors.append(_err(["values", i, "id"], "A pair id must be text."))
-            elif pair_id in seen_ids:
-                errors.append(_err(["values", i, "id"], "This id repeats an earlier id."))
-            else:
-                seen_ids.add(pair_id)
-        if not isinstance(value, str) or not value:
-            errors.append(_err(["values", i, "value"], "A value must be non-empty text."))
-        elif value == SECRET_MASK and (creating or pair_id is None):
-            errors.append(
-                _err(["values", i, "value"], "Enter the value; a masked value needs its pair id.")
-            )
-        pairs.append(
-            {
-                "id": pair_id if isinstance(pair_id, str) else None,
-                "key": key if isinstance(key, str) else "",
-                "value": value if isinstance(value, str) else "",
-            }
-        )
-    return pairs
-
-
-def _parse(data: dict[str, Any], *, creating: bool) -> dict[str, Any]:
-    """The validated, trimmed fields present in ``data`` (all of them when creating);
-    raises the list-shaped 422 otherwise. Never echoes an input."""
-    out: dict[str, Any] = {}
-    errors: list[dict[str, Any]] = []
-    if creating or "name" in data:
-        out["name"] = _api._checked_name(data.get("name"))
-    if "description" in data:
-        if isinstance(data["description"], str):
-            out["description"] = data["description"]
-        else:
-            errors.append(_err(["description"], "A description must be text."))
-    elif creating:
-        out["description"] = ""
-    if creating or "allowed_tools" in data:
-        tools = _check_allowed_tools(data.get("allowed_tools"), errors)
-        if tools is not None:
-            out["allowed_tools"] = tools
-    if creating or "values" in data:
-        pairs = _check_values(data.get("values"), errors, creating=creating)
-        if pairs is not None:
-            out["values"] = pairs
-    if errors:
-        raise HTTPException(status_code=422, detail=errors)
-    return out
+async def _write_deps() -> secret_service.SecretWriteDeps:
+    return secret_service.SecretWriteDeps(repo=await _api._secret_repo())
 
 
 # ── Routes ───────────────────────────────────────────────────────────────
@@ -203,16 +103,8 @@ async def get_secret(secret_id: str) -> dict[str, Any]:
 @router.post("/secrets", status_code=201)
 async def create_secret(request: Request) -> dict[str, Any]:
     data = await _api._read_json(request)
-    fields = _parse(data, creating=True)
-    repo = await _api._secret_repo()
-    try:
-        secret = await repo.create(
-            fields["name"], fields["description"], fields["allowed_tools"], fields["values"]
-        )
-    except SecretNameConflict:
-        raise _conflict() from None
-    except SecretInvalid as e:
-        raise HTTPException(status_code=422, detail=e.details) from None
+    with _write_errors():
+        secret = await secret_service.create_secret(await _write_deps(), data)
     logger.info("secret created: id=%s values=%d", secret.id, len(secret.values))
     return _response(secret)
 
@@ -220,18 +112,8 @@ async def create_secret(request: Request) -> dict[str, Any]:
 @router.put("/secrets/{secret_id}")
 async def update_secret(secret_id: str, request: Request) -> dict[str, Any]:
     data = await _api._read_json(request)
-    repo = await _api._secret_repo()
-    if await repo.get(secret_id) is None:
-        raise _not_found()
-    fields = _parse(data, creating=False)
-    try:
-        secret = await repo.update(secret_id, **fields)
-    except KeyError:
-        raise _not_found() from None
-    except SecretNameConflict:
-        raise _conflict() from None
-    except SecretInvalid as e:
-        raise HTTPException(status_code=422, detail=e.details) from None
+    with _write_errors():
+        secret = await secret_service.replace_secret(await _write_deps(), secret_id, data)
     logger.info("secret updated: id=%s values=%d", secret.id, len(secret.values))
     return _response(secret)
 

@@ -15,7 +15,15 @@ from __future__ import annotations
 from datetime import datetime, tzinfo
 from typing import Any
 
-from the_one.gleepglorp.kinds import agent, mcp_server, provider, routine, rule
+from the_one.gleepglorp.kinds import (
+    agent,
+    knowledge_base,
+    mcp_server,
+    provider,
+    routine,
+    rule,
+    secret,
+)
 from the_one.gleepglorp.kinds.base import Kind
 from the_one.gleepglorp.kinds.deps import KindDeps
 from the_one.gleepglorp.kinds.errors import ApplyError
@@ -34,6 +42,8 @@ REGISTRY: tuple[Kind, ...] = (
     routine.KIND,
     mcp_server.KIND,
     provider.KIND,
+    knowledge_base.KIND,
+    secret.KIND,
 )
 
 KINDS: tuple[str, ...] = tuple(k.name for k in REGISTRY)
@@ -58,12 +68,14 @@ __all__ = [
     "describe",
     "find",
     "get",
+    "knowledge_base",
     "mcp_server",
     "normalize",
     "provider",
     "resolve_by_id_or_name",
     "routine",
     "rule",
+    "secret",
     "spec_for",
     "target_args",
     "target_key",
@@ -176,6 +188,8 @@ def describe(kind: str | None = None) -> Any:
             d["shape"] = "an object of name → value"
         if f.address_or_command:
             d["provenance"] = "must come from you or a page you linked"
+        if f.typed_items:
+            d["provenance"] = "each tool you add must be named by you"
         if f.ref in REFS:
             d["reference"] = REFS[f.ref].describe_label
         out.append(d)
