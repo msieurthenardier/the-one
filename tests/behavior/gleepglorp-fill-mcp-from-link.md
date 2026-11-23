@@ -3,7 +3,7 @@
 **Slug**: `gleepglorp-fill-mcp-from-link`
 **Status**: ready
 **Created**: 2026-11-21 (Mission 36 Flight 4 planning; selectors finalised at Leg 8 prep from the landed Leg 4b code)
-**Last Run**: never
+**Last Run**: 2026-11-23-01-50-10 — pass, 7/7 ([run log](gleepglorp-fill-mcp-from-link/runs/2026-11-23-01-50-10.md))
 
 ## Intent
 
@@ -47,8 +47,11 @@ end to end.
   `gg-chat-input`, send `gg-chat-send-btn`; editor fields `#mf-name`, `#mf-type`, `#mf-url`;
   headers table `mcp-kv-table` (rows are its `tbody tr`: key input, value input, Sensitive
   checkbox); fill notes `mcp-filled-note` (with `data-field` = `name`, `type`, `url` or
-  `headers`); caption `editor-unsaved`; Save `save-mcp-source-btn`; Test status
-  `mcp-test-status`; receipt `fill-receipt` (with `data-fill-id` and `data-status`), its headline
+  `headers`); caption `editor-unsaved`; Save `save-mcp-source-btn` (labelled "Create" on a new
+  server); Test status: the visible status line beside `mcp-test-status` (that element's own text
+  is empty; read the rendered "Connected · checked …" line and the list's "N tool" badge); leave
+  guard: a modal "Unsaved changes" with Stay (`modal-cancel-btn`) and Continue
+  (`modal-confirm-btn`); receipt `fill-receipt` (with `data-fill-id` and `data-status`), its headline
   `fill-receipt-headline`.
 
 ## Observables Required
@@ -69,8 +72,8 @@ end to end.
 | 1 | Click the corner button. In the drawer composer, send: "Set up this MCP server for me: http://127.0.0.1:K/mcp — it needs an X-Api-Key header, which I'll enter myself. Call it bt-link." (K substituted). Record the drawer's session id as `{SESSION}`. Wait up to 120 s for the turn to end. | The browser shows the new MCP server editor (`#library/mcp/~new`). `#mf-type` reads streamable HTTP. `#mf-url` reads `http://127.0.0.1:K/mcp`. `#mf-name` reads `bt-link`. The `mcp-kv-table` has one row, `X-Api-Key`, with Sensitive on and an empty value. Each filled field (name, type, url) has an `mcp-filled-note` reading "Filled by GleepGlorp" (with a clock time). The table's note (`data-field="headers"`) reads "Filled by GleepGlorp: X-Api-Key. Enter the value for X-Api-Key." `editor-unsaved` reads "Unsaved changes". The drawer shows one `fill-receipt` with `data-status="filled"` and the headline "Form filled" (and "Not saved" in its detail line). GleepGlorp's reply says the form is filled, not saved, and asks the operator to enter the key and click Save. The reply contains no key-like value. |
 | 2 | Read `GET /api/mcp-sources` and `GET /api/gleepglorp/fills?session_id={SESSION}`. | No MCP source exists. There is one fill of kind `mcp_server`, action `create`, status `filled`. Its `changes` hold no `secrets` and no header value. |
 | 3 | Read the key server's `GET /_log`. | It is empty: the fill sent nothing to the server. |
-| 4 | Try to navigate to Agents through the rail without saving. | The leave guard asks to keep or discard the unsaved edits. Choose to stay. The editor still shows the filled values. |
-| 5 | Type `key-BT-LINK-4F7` into the `X-Api-Key` row's value input, then click Save (`save-mcp-source-btn`). Wait up to 30 s. | `GET /api/mcp-sources` lists `bt-link`, type `streamable-http`, url `http://127.0.0.1:K/mcp`. Its header value is masked in the response (the key is stored as a secret, not in the plain headers). The editor's Test status (`mcp-test-status`, the auto-run after create) shows connected, with 1 tool (`echo`). |
+| 4 | Try to navigate to Agents through the rail without saving. | The leave guard asks to keep or discard the unsaved edits (Stay or Continue). Choose to stay. The editor still shows the filled values. |
+| 5 | Type `key-BT-LINK-4F7` into the `X-Api-Key` row's value input, then click Save (`save-mcp-source-btn`, labelled "Create" on a new server). Wait up to 30 s. | `GET /api/mcp-sources` lists `bt-link`, type `streamable-http`, url `http://127.0.0.1:K/mcp`. Its header value is masked in the response (the key is stored as a secret, not in the plain headers). The editor's Test status (the rendered status line beside `mcp-test-status`, the auto-run after create) shows connected, with 1 tool (`echo`). |
 | 6 | Read the key server's `GET /_log`. | Every request carries `key_tail` `-4F7` and status 200. No request is without a key. |
 | 7 | In the drawer, send: "Thanks. Now change the URL of bt-link to http://example.invalid/mcp." Wait up to 120 s. | Either a fill receipt for a change to `bt-link`, with `#mf-url` showing `http://example.invalid/mcp` as an unsaved edit, or a reply that asks first. If it filled, GleepGlorp's reply says the stored `X-Api-Key` header will be sent to the new address. Nothing is stored: `GET /api/mcp-sources` still shows the URL `http://127.0.0.1:K/mcp`. The operator typed this URL, so it is not refused. |
 

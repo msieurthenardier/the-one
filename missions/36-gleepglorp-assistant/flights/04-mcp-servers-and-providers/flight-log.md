@@ -971,6 +971,29 @@ Each item was walked against `9597b0f4`.
     subscription" now fills the Claude Plan (OAuth) type.
   - **HAT complete.** Every step passed or has a recorded disposition. The
     step 4 fix goes to review and commit before the behavior test.
+  - **Step 4 fix:** reviewed (Haiku, confirmed; two low test pins added) and
+    committed as `86ec4d52`.
+  - **Clean-up before the behavior test** (operator-approved). The FD
+    deleted `hat-link`, `hat-second` and `hat-temp` from the dev instance
+    through its API. The MCP list is `[]`, and GleepGlorp is still ready.
+  - **Key server.** The HAT key server was stopped by PID. The recorded PID,
+    1904882, was its shell wrapper; the server child 1904884 was identified
+    by its listener and stopped. The behavior-test key server ran on port
+    42219 as PID 2019684, recorded directly.
+  - **Step 8.3, behavior test `gleepglorp-fill-mcp-from-link`: PASS, 7/7.**
+    - **Run:** 2026-11-23-01-50-10, live mode, Sonnet Executor and Validator.
+      The run log is at
+      `tests/behavior/gleepglorp-fill-mcp-from-link/runs/2026-11-23-01-50-10.md`.
+    - **Spec drift, fixed in the spec:**
+      - the new-server save button is labelled "Create";
+      - the visible Test status is the sibling of `mcp-test-status`;
+      - the guard's buttons are Stay and Continue.
+    - **Carried to the alignment flight:** the step 1 reply opened "Done!",
+      and GleepGlorp says "Click Save" where the button reads "Create".
+  - **Step 8.4.** The dev instance (PID 2003690) and the key server (PID
+    2019684) were stopped by PID, and the Executor's Chromium by its PID.
+    Afterwards nothing listened on 8484, 8485, 8486 or 42219. Ports 8484 and
+    8485 and the default data dir were never used (AC5).
 - **Leg 6 design** (`legs/06-prompt-and-evals-setup.md`), drafted during the
   Batch B review. **Risk tier: high,** because it edits frozen eval scoring
   files (the FD re-pins them under the 2026-11-20 ruling) and safety-cell
