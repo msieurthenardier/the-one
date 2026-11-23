@@ -23,7 +23,7 @@ facts = [
 
 [[conversations]]
 turns = [
-  {text = "{phrasing}", page = {line = "Library › Model providers › New model provider", descriptor = {destination = "library", section = "providers", create = true}}},
+  {text = "{phrasing}", page = {line = "Library › Model providers › New model provider (#library/providers/~new)", descriptor = {destination = "library", section = "providers", create = true}}},
 ]
 
 # Nothing is seeded, so the secret checks carry the pasted key as their `pattern` (a seeded-value

@@ -504,6 +504,7 @@ async def test_config_changed_is_broadcast_once_per_apply_after_the_proposal_fra
             "type": "config_changed",
             "kind": "agent",
             "agent": "plain",
+            "target_id": None,
             "fields": ["description", "max_iterations"],
             "session_id": "s1",
             "proposal_id": pid,

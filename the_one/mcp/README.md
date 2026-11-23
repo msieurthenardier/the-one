@@ -12,7 +12,8 @@ For project-wide conventions (`trust-the-runtime`,
 section.
 
 For the F3 sandbox boundary catalog (catalog messages 1-3, verbatim text), see
-`CLAUDE.md`'s F3 contracts §5.
+`the_one/agents.md`'s "Sandbox seam — platform-wide" (item 4, the `SandboxError`
+boundary); the message text itself is in `the_one/mcp/errors.py`.
 
 ## §1. Test-seam pattern
 
@@ -351,7 +352,8 @@ server. Strict-by-default profile:
 - `--die-with-parent` process supervision (sandboxed subprocess dies with
   the python parent, no orphan).
 - `HOME=/tmp` override regardless of operator-supplied env (MCP safe default;
-  see CLAUDE.md F3 contracts §7). Built-in tools use the host-workspace profile
+  see `the_one/agents.md`'s "Sandbox seam — platform-wide", item 6 "HOME policy").
+  Built-in tools use the host-workspace profile
   and pass real `$HOME` instead.
 
 **A03 RESOLVED (post-L1b)**: argv emits
@@ -395,8 +397,9 @@ or in any CI variable that is not pytest-scoped. The double-flag is the
 structural guarantee that production cannot accidentally bypass the sandbox
 via a single env-var slip.
 
-See `CLAUDE.md` F3 contracts §5 for the full catalog message text and the
-exception-class hierarchy contract.
+See `the_one/agents.md`'s "Sandbox seam — platform-wide" (item 4, the
+`SandboxError` boundary) for the contract, and `the_one/mcp/errors.py` for the
+full catalog message text and the exception-class hierarchy.
 
 ## §8. F4 pool semantics
 
@@ -488,7 +491,8 @@ passes empirically in ~10s per `--durations=10`).
   Client Foundation" section for the SDK pin, protocol revision,
   and pool-compat surface.
 - **F3 sandbox boundary catalog** (catalog messages 1-3 verbatim text): see
-  `CLAUDE.md`'s "F3 (MCP Sandbox) Contracts" section, contract #5.
+  `the_one/agents.md`'s "Sandbox seam — platform-wide" section, item 4 (the
+  `SandboxError` boundary); the message text is in `the_one/mcp/errors.py`.
 - **Cross-task anyio guard mechanism** (the `CancelScope.__aexit__` guard
   at the SDK + anyio layer): see flight 04 design `§2-detail` at
   `missions/07-mcp-integration/flights/04-idle-ttl-lifecycle/flight.md`.

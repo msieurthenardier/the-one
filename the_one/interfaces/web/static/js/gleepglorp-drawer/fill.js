@@ -12,8 +12,9 @@
 //
 // A per-window queue: fills run strictly one at a time, in id order. For each: claim (a refused
 // claim skips the fill silently), the Chats check, the open-dialog check, navigation to the
-// editor, the wait for it to settle, the write (App.studio.agentEditorFill.apply) and the
-// outcome. Nothing is stored by a fill: the values arrive as unsaved edits, and only the
+// editor, the wait for it to settle, the write and the outcome. Every editor step comes from the
+// fill's kind (App.gleepglorpKinds.get(kind).fill); a kind with no fill is reported not filled
+// (editor_unavailable) with no navigation. Nothing is stored by a fill: the values arrive as unsaved edits, and only the
 // operator's Save stores them. Focus never moves (the router's `opener` is the drawer's
 // composer, and a create form opened for a fill does not focus its name field).
 (function () {
@@ -58,37 +59,28 @@
       });
     }
 
-    function agentExists(name) {
-      return App.store.get('agents', { force: true }).then(function (list) {
-        return (list || []).some(function (a) { return a.name === name; });
-      }, function () { return true; }); // unknown: do not call it gone
-    }
-
-    function routeFor(view) {
-      return view.action === 'create'
-        ? { destination: 'agents', create: true }
-        : { destination: 'agents', id: view.agent_name };
+    // The kind's fill spec (App.gleepglorpKinds), or null: an unknown kind, or one with no fill.
+    function fillSpecOf(view) {
+      var kind = App.gleepglorpKinds.get(view.kind);
+      return (kind && kind.fill) || null;
     }
 
     // Open the editor the fill targets and wait for it. Resolves null when ready, or the reason
     // the fill could not go on ('stay' or 'editor_unavailable').
-    function open(view) {
-      var isCreate = view.action === 'create';
-      var key = isCreate ? 'create' : 'edit:' + view.agent_name;
-      var mod = App.studio.agentEditorFill;
-      if (mod.isOpen(key)) {
-        mod.selectGeneral();
-        return mod.whenSettled(key).then(function (ok) { return ok ? null : 'editor_unavailable'; });
+    function open(view, f) {
+      var key = f.openKey(view);
+      if (f.isOpen(key)) {
+        f.select();
+        return f.whenSettled(key).then(function (ok) { return ok ? null : 'editor_unavailable'; });
       }
-      var list = App.studio.agentsList;
-      if (isCreate) list.suppressNextCreateFocus();
-      // The flag is one-shot and always cleared when this navigation ends (a Stay, an open form
-      // or a superseded navigation never leak it to the next New agent).
-      function clearFlag() { list.clearCreateFocusSuppression(); }
-      return App.router.go(App.router.href(routeFor(view)), { opener: composerInput() })
+      f.beforeNavigate(view);
+      // The kind's one-shot navigation flag is always cleared when this navigation ends (a Stay,
+      // an open form or a superseded navigation never leak it to the next open).
+      function clearFlag() { f.afterNavigate(); }
+      return App.router.go(App.router.href(f.routeFor(view)), { opener: composerInput() })
         .then(function (went) {
           if (!went) { clearFlag(); return 'stay'; }
-          return mod.whenSettled(key).then(function (ok) {
+          return f.whenSettled(key).then(function (ok) {
             clearFlag();
             return ok ? null : 'editor_unavailable';
           });
@@ -104,20 +96,22 @@
       if (App.ui.modal.anyOpen() || App.router.isDeciding()) {
         return report(id, claim, 'not_filled', [], 'stay');
       }
+      var f = fillSpecOf(view);
+      if (!f) return report(id, claim, 'not_filled', [], 'editor_unavailable');
       var isChange = view.action !== 'create';
       if (isChange && view.target_gone) return report(id, claim, 'not_filled', [], 'target_gone');
-      var existing = isChange ? agentExists(view.agent_name) : Promise.resolve(true);
+      var existing = isChange ? f.exists(view) : Promise.resolve(true);
       return existing.then(function (exists) {
         if (!exists) return report(id, claim, 'not_filled', [], 'target_gone');
-        return open(view).then(function (problem) {
+        return open(view, f).then(function (problem) {
           if (problem === 'editor_unavailable' && isChange) {
-            // The agent may have gone while the editor was opening.
-            return agentExists(view.agent_name).then(function (still) {
+            // The target may have gone while the editor was opening.
+            return f.exists(view).then(function (still) {
               return report(id, claim, 'not_filled', [], still ? 'editor_unavailable' : 'target_gone');
             });
           }
           if (problem) return report(id, claim, 'not_filled', [], problem);
-          return App.studio.agentEditorFill.apply(view).then(function (res) {
+          return f.apply(view).then(function (res) {
             if (res.unavailable) return report(id, claim, 'not_filled', [], 'editor_unavailable');
             if (res.kept.length) return report(id, claim, 'partly_filled', res.kept, null);
             return report(id, claim, 'filled', [], null);

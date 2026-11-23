@@ -14,6 +14,7 @@ from tests._gleepglorp_seed import seed
 from tests._routine_app import routine_app, wait_for  # noqa: F401
 from the_one.agent._context import TurnContext, current_turn
 from the_one.agent.taint import TRUSTED_TOOL_NAMES
+from the_one.gleepglorp import kinds
 from the_one.gleepglorp.fill.store import GleepGlorpFillRepository
 from the_one.gleepglorp.fill.tool import (
     FILL_FORM_TOOL_NAME,
@@ -21,7 +22,6 @@ from the_one.gleepglorp.fill.tool import (
     NO_NOTES,
     FillFormTool,
 )
-from the_one.gleepglorp.proposals import shape
 from the_one.tools.base import Tool
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,11 +76,29 @@ def test_shape_of_the_tool() -> None:
     schema = t.to_schema()
     assert schema["name"] == "fill_form" == FILL_FORM_TOOL_NAME
     props = schema["parameters"]["properties"]
-    assert props["kind"]["enum"] == ["agent"]
+    assert props["kind"]["enum"] == ["agent", "mcp_server", "provider"]
     assert props["action"]["enum"] == ["create", "change"]
-    assert set(props) == {"kind", "action", "agent", "changes"}
+    assert set(props) == {"kind", "action", "agent", "target", "changes"}
     assert isinstance(t, Tool)
     assert "route" not in t.description.lower() and "/api" not in t.description
+
+
+def test_the_description_character_budget() -> None:
+    assert len(FillFormTool.description) <= 440
+    for needed in ("MCP server", "provider", "target", "type", '""'):
+        assert needed in FillFormTool.description
+
+
+def test_the_description_token_budget() -> None:
+    tiktoken = pytest.importorskip("tiktoken")
+    import os
+
+    os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(ROOT / "evals" / ".cache" / "tiktoken"))
+    try:
+        enc = tiktoken.get_encoding("o200k_base")
+    except Exception:  # noqa: BLE001 - no cached encoding on this host: not a failure
+        pytest.skip("o200k_base is not cached")
+    assert len(enc.encode(FillFormTool.description)) <= 90
 
 
 def test_it_is_trusted_in_the_taint_rule() -> None:
@@ -194,7 +212,7 @@ async def test_it_never_raises_into_the_loop(world, tool, monkeypatch) -> None:
     async def boom(*_a, **_k):
         raise RuntimeError("explodes")
 
-    monkeypatch.setattr(shape, "normalize", boom)
+    monkeypatch.setattr(kinds, "normalize", boom)
     assert await fill(tool, **create()) == "Could not fill the form right now."
 
 

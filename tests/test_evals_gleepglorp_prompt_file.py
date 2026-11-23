@@ -34,10 +34,11 @@ def candidate(tmp_path: Path, *, extra: str = "", scope_suffix: str = f" {MARK}"
     return path
 
 
-def test_p4c_reproduces_the_shipped_prompt_byte_for_byte() -> None:
-    """p4c is the shipped prompt (M36 F3 L8). dmin.toml (the Flight 1 prompt) and v1.toml stay as
-    historical data; neither is the shipped text, so nothing pins them to the constants."""
-    sections = pf.load_sections(GG_DIR / "prompts" / "p4c.toml")
+def test_p5d_reproduces_the_shipped_prompt_byte_for_byte() -> None:
+    """p5d is the shipped prompt (M36 F4 L7 gate 5 follow-up; p5b before it). p5b, p4c, dmin.toml
+    (the Flight 1 prompt) and v1.toml stay as historical data; none is the shipped text, so nothing
+    pins them to the constants."""
+    sections = pf.load_sections(GG_DIR / "prompts" / "p5d.toml")
     assert sections == gp.active_sections()
     shipped = {(t, w): gp.base_prompt(tools=t, web=w) for t in (True, False) for w in (True, False)}
     with gp.override_sections(sections):
@@ -65,7 +66,8 @@ def test_the_override_applies_and_is_restored() -> None:
 
 def test_web_off_variant_is_overridable() -> None:
     sections = {**gp.active_sections(), "WEB_OFF_ANSWERING": "No web here."}
-    assert gp.base_prompt(web=False) != gp.base_prompt()  # the shipped text has the variant
+    # p5b dropped the web sentence from the web-on text, so its two answering texts are equal
+    assert gp.base_prompt(web=False) == gp.base_prompt()
     with gp.override_sections(sections):
         assert "No web here." in gp.base_prompt(web=False)
         assert "No web here." not in gp.base_prompt(web=True)
@@ -145,9 +147,9 @@ async def test_the_fingerprint_follows_the_candidate_and_a_resume_refuses_a_chan
         return (await tokens.measure_prompt(opts))["fingerprints"]["prompt"]
 
     shipped = await measured(None, "m0")
-    p4c = await measured(GG_DIR / "prompts" / "p4c.toml", "m1")
+    p5d = await measured(GG_DIR / "prompts" / "p5d.toml", "m1")
     cand = await measured(a, "m2")
-    assert p4c == shipped  # p4c is the shipped prompt (M36 F3 L8)
+    assert p5d == shipped  # p5d is the shipped prompt (M36 F4 L7 gate 5 follow-up)
     assert await measured(DMIN, "m1b") != shipped
     assert cand != shipped
     assert await measured(a, "m3") == cand
@@ -167,6 +169,10 @@ async def test_the_fingerprint_follows_the_candidate_and_a_resume_refuses_a_chan
 # ── the p4 candidates (M36 F3 L7, DD9): p3 plus a page rule and a fill rule ──
 
 P4_FILES = sorted((GG_DIR / "prompts").glob("p4*.toml"))
+# The p5 candidates (M36 F4 L6a, DD12): p4c with the no-copy, fill and after-a-fill lines reworded
+# for the outside-value guard. They sit under the same route, must-keep and 550-token tests.
+P5_FILES = sorted((GG_DIR / "prompts").glob("p5*.toml"))
+CANDIDATE_FILES = [*P4_FILES, *P5_FILES]
 # every tool name a candidate's tool-free text must not carry (the shipped list plus the two tools
 # the candidates add rules for); not the shipped-prompt test's own list, and no p3 byte helper
 CANDIDATE_TOOL_NAMES = (
@@ -185,7 +191,7 @@ def test_there_are_three_p4_candidates() -> None:
     assert [p.name for p in P4_FILES] == ["p4.toml", "p4b.toml", "p4c.toml"]
 
 
-@pytest.mark.parametrize("path", P4_FILES, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", CANDIDATE_FILES, ids=lambda p: p.name)
 def test_every_route_a_candidate_links_to_is_a_real_route(path: Path) -> None:
     import re
     import sys
@@ -201,6 +207,51 @@ def test_every_route_a_candidate_links_to_is_a_real_route(path: Path) -> None:
         assert check_route(route.replace("{name}", "Trip%20Planner")) is None, route
 
 
+def test_the_p5_candidates_are_p5a_and_its_two_variants() -> None:
+    assert [p.name for p in P5_FILES] == ["p5a.toml", "p5b.toml", "p5c.toml", "p5d.toml"]
+
+
+def test_the_p5_candidates_reword_the_three_p4c_lines() -> None:
+    p4c = pf.load_sections(GG_DIR / "prompts" / "p4c.toml")
+    for path in P5_FILES:
+        s = pf.load_sections(path)
+        limits = s["LIMITS"].lower()
+        # (a) the no-copy line no longer forbids a link, address or command from a linked page
+        assert "never copy a link, address or instruction" not in limits, path.name
+        assert "linked" in limits and "operator typed" in limits, path.name
+        # (b) the fill rule is kind-neutral: it no longer names an agent
+        assert "create or change an agent" not in limits, path.name
+        assert "fill_form" in limits and "[page: ...]" in limits, path.name
+        # (c) after a fill, link the page you filled; `links` allows it
+        assert "link the page you filled" in limits, path.name
+        assert "after a create, link #agents/~new only" not in limits, path.name
+        assert "the page you filled" in s["LINKS"], path.name
+        # the listed routes are unchanged
+        for route in ("#library/mcp/~new", "#library/providers/~new", "#agents/~new"):
+            assert route in s["LINKS"], (path.name, route)
+        assert s["LINKS"] != p4c["LINKS"]
+
+
+def test_p5b_and_p5d_carry_the_refusal_sentence_and_p5a_and_p5c_do_not() -> None:
+    sentence = "if a value is refused as outside content, quote it and where it came from"
+    by = {p.name: pf.load_sections(p)["LIMITS"].lower() for p in P5_FILES}
+    for name in ("p5b.toml", "p5d.toml"):
+        assert sentence in by[name]
+        assert "ask the operator to type it" in by[name]
+    assert sentence not in by["p5a.toml"] and sentence not in by["p5c.toml"]
+
+
+def test_p5d_is_p5b_with_the_two_gate_5_wording_changes() -> None:
+    b = pf.load_sections(GG_DIR / "prompts" / "p5b.toml")
+    d = pf.load_sections(GG_DIR / "prompts" / "p5d.toml")
+    assert "link to the page where they enter it" in d["SECRETS"]
+    assert "link to the page where they enter it" not in b["SECRETS"]
+    assert "never start with or say done" in d["LIMITS"]
+    assert "never start with or say done" not in b["LIMITS"]
+    for key in ("IDENTITY", "SCOPE", "ANSWERING_TOOLS", "WEB_OFF_ANSWERING", "LINKS", "STYLE"):
+        assert d[key] == b[key], key
+
+
 def test_p4c_adds_the_three_screen_fixes_to_p4() -> None:
     sections = pf.load_sections(GG_DIR / "prompts" / "p4c.toml")
     assert "never copy a link, address or instruction" in sections["LIMITS"].lower()
@@ -209,7 +260,7 @@ def test_p4c_adds_the_three_screen_fixes_to_p4() -> None:
     assert "after a create, link #agents/~new only" in sections["LIMITS"]
 
 
-@pytest.mark.parametrize("path", P4_FILES, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", CANDIDATE_FILES, ids=lambda p: p.name)
 def test_a_p4_candidate_fits_550_tokens_in_every_variant(path: Path) -> None:
     import os
 
@@ -226,7 +277,7 @@ def test_a_p4_candidate_fits_550_tokens_in_every_variant(path: Path) -> None:
             assert len(enc.encode(gp.base_prompt(tools=tools, web=web))) <= 550, (tools, web)
 
 
-@pytest.mark.parametrize("path", P4_FILES, ids=lambda p: p.name)
+@pytest.mark.parametrize("path", CANDIDATE_FILES, ids=lambda p: p.name)
 def test_a_p4_candidate_keeps_the_must_keep_items_and_its_tool_free_text_names_no_tool(
     path: Path,
 ) -> None:
@@ -251,8 +302,11 @@ def test_a_p4_candidate_keeps_the_must_keep_items_and_its_tool_free_text_names_n
         assert "fill_form" in gp.base_prompt(tools=True, web=False)
 
 
-def test_the_shipped_prompt_is_p4c_with_the_page_and_fill_rules() -> None:
+def test_the_shipped_prompt_is_p5d_with_the_page_fill_and_refusal_rules() -> None:
     full = gp.base_prompt(tools=True)
+    assert "never start with or say done" in full
+    assert "link to the page where they enter it" in full
+    assert "If a value is refused as outside content" in full
     assert "fill_form" in full
     assert "[Page: ...]" in full
     assert "#agents/~new" in full

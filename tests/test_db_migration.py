@@ -5032,7 +5032,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 55
+        assert CURRENT_VERSION == 56
 
         await conn.close()
 
@@ -5388,7 +5388,7 @@ class TestSchemaV42:
         await ensure_schema(conn)
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 56 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert list(cols) == [
@@ -5534,7 +5534,7 @@ class TestSchemaV43:
         conn = await _open(tmp_path / "fresh43.db")
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 56 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             acols = {r["name"]: r for r in await cur.fetchall()}
         for name, default in (("notes_enabled", "0"), ("notes_next_number", "1")):
@@ -5675,13 +5675,13 @@ class TestSchemaV44:
         return conn
 
     async def test_current_version_is_45(self) -> None:
-        assert CURRENT_VERSION == 55
+        assert CURRENT_VERSION == 56
 
     async def test_v43_to_v44_preserves_rows_secrets_and_agent_link(self, tmp_path) -> None:
         conn = await self._v43_db(tmp_path)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55
+            assert (await cur.fetchone())[0] == 56
         async with conn.execute(
             "SELECT id, name, type, base_url, api_key, config, secrets FROM llm_providers"
         ) as cur:
@@ -5814,7 +5814,7 @@ class TestSchemaV45:
         fk = (await _fk_rows(conn, "agent_routine_runs"))["routine_id"]
         assert (fk["table"], fk["on_delete"]) == ("agent_routines", "CASCADE")
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55
+            assert (await cur.fetchone())[0] == 56
         await conn.close()
 
     async def test_v44_database_migrates(self, tmp_path) -> None:
@@ -5966,7 +5966,7 @@ class TestSchemaV46:
         await ensure_schema(conn)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55
+            assert (await cur.fetchone())[0] == 56
         async with conn.execute(
             "SELECT routines_self_config_enabled, routines_require_approval FROM agents"
         ) as cur:
@@ -6013,7 +6013,7 @@ class TestSchemaV47:
         await ensure_schema(conn)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55
+            assert (await cur.fetchone())[0] == 56
         async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
             assert [r["name"] for r in await cur.fetchall()] == _RUN_COLS
         async with conn.execute(
@@ -6372,7 +6372,7 @@ class TestSchemaV48:
         second = await _routine(conn, "d")
         assert first[:4] == second[:4]
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55
+            assert (await cur.fetchone())[0] == 56
         await conn.close()
 
     async def test_database_without_routine_tables_migrates(self, tmp_path) -> None:
@@ -6385,7 +6385,7 @@ class TestSchemaV48:
         await conn.commit()
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55
+            assert (await cur.fetchone())[0] == 56
         await conn.close()
 
 
@@ -6577,7 +6577,7 @@ class TestSchemaV49:
             ("u2", None, 1, "still_running"),
         ]
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55
+            assert (await cur.fetchone())[0] == 56
         await conn.close()
 
     async def test_indexes_unique_checks_and_foreign_keys_survive(self, tmp_path) -> None:
@@ -6872,7 +6872,7 @@ class TestSchemaV54:
     async def test_fresh_database_has_the_table(self, tmp_path) -> None:
         conn = await _open(tmp_path / "fresh54.db")
         await ensure_schema(conn)
-        assert CURRENT_VERSION == 55
+        assert CURRENT_VERSION == 56
         async with conn.execute("PRAGMA table_info(gleepglorp_proposals)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert set(cols) == {
@@ -6916,15 +6916,29 @@ class TestSchemaV54:
             assert (await cur.fetchone())[0] == 1
         await conn.close()
 
-    async def test_check_constraints_refuse_bad_values(self, tmp_path) -> None:
+    async def test_table_accepts_any_kind_and_keeps_action_and_status_checks(
+        self, tmp_path
+    ) -> None:
+        # v56 dropped the kind CHECK: the kinds registry is the gate now. The action and
+        # status CHECKs stay.
         conn = await _open(tmp_path / "check54.db")
         await ensure_schema(conn)
         import sqlite3
 
+        await conn.execute(
+            "INSERT INTO gleepglorp_proposals (session_id, kind, action, target_key, "
+            "changes, created_at) VALUES ('s', 'mcp_server', 'create', 'k', '{}', 't')"
+        )
         with pytest.raises(sqlite3.IntegrityError):
             await conn.execute(
                 "INSERT INTO gleepglorp_proposals (session_id, kind, action, target_key, "
-                "changes, created_at) VALUES ('s', 'bogus', 'create', 'k', '{}', 't')"
+                "changes, created_at) VALUES ('s', 'agent', 'bogus', 'k', '{}', 't')"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            await conn.execute(
+                "INSERT INTO gleepglorp_proposals (session_id, kind, action, target_key, "
+                "changes, status, created_at) VALUES ('s', 'agent', 'create', 'k', '{}', "
+                "'bogus', 't')"
             )
         await conn.close()
 
@@ -7066,7 +7080,7 @@ class TestSchemaV53:
         assert any(r["name"] == "idx_gleepglorp_notes_number" for r in uniques)
         async with conn.execute("SELECT id, next_number FROM gleepglorp_notes_counter") as cur:
             assert [tuple(r) for r in await cur.fetchall()] == [(1, 1)]
-        assert await self._count(conn, "SELECT MAX(version) FROM schema_version") == 55
+        assert await self._count(conn, "SELECT MAX(version) FROM schema_version") == 56
         await conn.close()
 
     async def test_a_live_gleepglorp_agents_chats_survive(self, tmp_path) -> None:
@@ -7116,7 +7130,7 @@ class TestSchemaV52:
     async def test_fresh_replay_has_the_column(self, tmp_path) -> None:
         conn = await _open(tmp_path / "fresh52.db")
         await ensure_schema(conn)
-        assert CURRENT_VERSION == 55
+        assert CURRENT_VERSION == 56
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert cols["rich_visuals"]["notnull"] == 1
@@ -7138,7 +7152,7 @@ class TestSchemaV52:
         async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 52") as cur:
             assert (await cur.fetchone())[0] == 1
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 55
+            assert (await cur.fetchone())[0] == 56
         await conn.close()
 
 
@@ -7148,7 +7162,7 @@ class TestSchemaV55:
     async def test_fresh_database_has_the_table_and_indexes(self, tmp_path) -> None:
         conn = await _open(tmp_path / "fresh55.db")
         await ensure_schema(conn)
-        assert CURRENT_VERSION == 55
+        assert CURRENT_VERSION == 56
         async with conn.execute("PRAGMA table_info(gleepglorp_fills)") as cur:
             cols = {r["name"] for r in await cur.fetchall()}
         assert "claim_token" in cols and "outcome" in cols and "kind" in cols
@@ -7177,4 +7191,275 @@ class TestSchemaV55:
             assert tuple(await cur.fetchone()) == (1, "sent")
         async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 55") as cur:
             assert (await cur.fetchone())[0] == 1
+        await conn.close()
+
+
+_V55_PROPOSALS_DDL = (
+    "CREATE TABLE gleepglorp_proposals ("
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,"
+    "    session_id TEXT NOT NULL,"
+    "    tool_call_id TEXT,"
+    "    kind TEXT NOT NULL CHECK (kind IN ('agent', 'rule', 'routine')),"
+    "    action TEXT NOT NULL CHECK (action IN ('create', 'change')),"
+    "    agent_name TEXT,"
+    "    target_id TEXT,"
+    "    target_key TEXT NOT NULL,"
+    "    changes TEXT NOT NULL,"
+    "    base TEXT,"
+    "    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN "
+    "('pending', 'applied', 'dismissed', 'withdrawn', 'failed')),"
+    "    result TEXT,"
+    "    untrusted INTEGER NOT NULL DEFAULT 0,"
+    "    untrusted_sources TEXT,"
+    "    created_at TEXT NOT NULL,"
+    "    resolved_at TEXT"
+    ")"
+)
+_V55_FILLS_DDL = (
+    "CREATE TABLE gleepglorp_fills ("
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,"
+    "    session_id TEXT NOT NULL,"
+    "    tool_call_id TEXT,"
+    "    kind TEXT NOT NULL,"
+    "    action TEXT NOT NULL CHECK (action IN ('create', 'change')),"
+    "    agent_name TEXT NOT NULL,"
+    "    target_key TEXT NOT NULL,"
+    "    changes TEXT NOT NULL,"
+    "    base TEXT,"
+    "    status TEXT NOT NULL DEFAULT 'sent' CHECK (status IN "
+    "('sent', 'applying', 'filled', 'partly_filled', 'not_filled', 'replaced')),"
+    "    outcome TEXT,"
+    "    claim_token TEXT,"
+    "    untrusted INTEGER NOT NULL DEFAULT 0,"
+    "    untrusted_sources TEXT,"
+    "    created_at TEXT NOT NULL,"
+    "    claimed_at TEXT,"
+    "    resolved_at TEXT"
+    ")"
+)
+
+
+class TestSchemaV56:
+    """Mission 36 F4 L1b: proposals lose the kind CHECK; fills gain target_id."""
+
+    PROPOSAL_STATUSES = ("pending", "applied", "dismissed", "withdrawn", "failed")
+    FILL_STATUSES = ("sent", "applying", "filled", "partly_filled", "not_filled", "replaced")
+
+    async def _to_v55_shape(self, conn, *, proposals: bool = True, fills: bool = True) -> None:
+        """Recreate the v55 table shapes by hand and rewind the version (the template is v56)."""
+        if proposals:
+            await conn.execute("DROP TABLE gleepglorp_proposals")
+            await conn.execute(_V55_PROPOSALS_DDL)
+            await conn.execute(
+                "CREATE INDEX idx_gleepglorp_proposals_session "
+                "ON gleepglorp_proposals (session_id, status)"
+            )
+            await conn.execute(
+                "CREATE INDEX idx_gleepglorp_proposals_agent ON gleepglorp_proposals (agent_name)"
+            )
+        if fills:
+            await conn.execute("DROP TABLE gleepglorp_fills")
+            await conn.execute(_V55_FILLS_DDL)
+            await conn.execute(
+                "CREATE INDEX idx_gleepglorp_fills_session ON gleepglorp_fills (session_id, status)"
+            )
+            await conn.execute(
+                "CREATE INDEX idx_gleepglorp_fills_agent ON gleepglorp_fills (agent_name)"
+            )
+        await conn.execute("DELETE FROM schema_version WHERE version >= 56")
+        await conn.commit()
+
+    async def _one(self, conn, sql: str, *args):
+        async with conn.execute(sql, args) as cur:
+            return (await cur.fetchone())[0]
+
+    async def _all(self, conn, sql: str):
+        async with conn.execute(sql) as cur:
+            return [tuple(r) for r in await cur.fetchall()]
+
+    async def test_fresh_database_shapes(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "fresh56.db")
+        await ensure_schema(conn)
+        assert CURRENT_VERSION == 56
+        sql = await self._one(
+            conn, "SELECT sql FROM sqlite_master WHERE name = 'gleepglorp_proposals'"
+        )
+        assert "CHECK (kind IN" not in sql
+        assert "CHECK (action IN ('create', 'change'))" in sql
+        assert "DEFAULT 'pending' CHECK (status IN" in sql
+        async with conn.execute("PRAGMA table_info(gleepglorp_fills)") as cur:
+            rows = await cur.fetchall()
+        names = [r["name"] for r in rows]
+        assert names[names.index("agent_name") + 1] == "target_id"
+        by_name = {r["name"]: r for r in rows}
+        assert by_name["agent_name"]["notnull"] == 0
+        assert by_name["target_id"]["notnull"] == 0
+        fills_sql = await self._one(
+            conn, "SELECT sql FROM sqlite_master WHERE name = 'gleepglorp_fills'"
+        )
+        assert "CHECK (action IN ('create', 'change'))" in fills_sql
+        assert "DEFAULT 'sent' CHECK (status IN" in fills_sql
+        rows = await self._all(conn, "SELECT name FROM sqlite_master WHERE type='index'")
+        idx = {r[0] for r in rows}
+        assert {
+            "idx_gleepglorp_proposals_session",
+            "idx_gleepglorp_proposals_agent",
+            "idx_gleepglorp_fills_session",
+            "idx_gleepglorp_fills_agent",
+        } <= idx
+        await conn.close()
+
+    async def _seed_v55(self, conn) -> None:
+        kinds = ("agent", "rule", "routine")
+        for i, status in enumerate(self.PROPOSAL_STATUSES):
+            await conn.execute(
+                "INSERT INTO gleepglorp_proposals (session_id, tool_call_id, kind, action, "
+                "agent_name, target_id, target_key, changes, base, status, result, untrusted, "
+                "untrusted_sources, created_at, resolved_at) "
+                "VALUES (?, ?, ?, 'change', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)",
+                (
+                    f"s{i}",
+                    f"tc{i}",
+                    kinds[i % 3],
+                    f"agent{i}",
+                    f"tid{i}",
+                    f"k{i}",
+                    '{"a": %d}' % i,
+                    '{"b": 1}',
+                    status,
+                    f"res{i}",
+                    '["src"]',
+                    f"c{i}",
+                    f"r{i}",
+                ),
+            )
+        for i, status in enumerate(self.FILL_STATUSES):
+            await conn.execute(
+                "INSERT INTO gleepglorp_fills (session_id, tool_call_id, kind, action, "
+                "agent_name, target_key, changes, base, status, outcome, claim_token, "
+                "untrusted, untrusted_sources, created_at, claimed_at, resolved_at) "
+                "VALUES (?, ?, ?, 'create', ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+                (
+                    f"s{i}",
+                    f"tc{i}",
+                    kinds[i % 3],
+                    f"agent{i}",
+                    f"k{i}",
+                    '{"a": 1}',
+                    '{"b": 2}',
+                    status,
+                    f"out{i}",
+                    f"tok{i}",
+                    '["src"]',
+                    f"c{i}",
+                    f"cl{i}",
+                    f"r{i}",
+                ),
+            )
+        # Delete the top row of each so sqlite_sequence sits above MAX(id).
+        await conn.execute("DELETE FROM gleepglorp_proposals WHERE id = 5")
+        await conn.execute("DELETE FROM gleepglorp_fills WHERE id = 6")
+        await conn.commit()
+
+    async def test_v55_rows_and_id_high_water_marks_survive(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v55.db")
+        await ensure_schema(conn)
+        await self._to_v55_shape(conn)
+        await self._seed_v55(conn)
+        p_before = await self._all(conn, "SELECT * FROM gleepglorp_proposals ORDER BY id")
+        f_before = await self._all(conn, "SELECT * FROM gleepglorp_fills ORDER BY id")
+        assert len(p_before) == 4 and len(f_before) == 5
+        await ensure_schema(conn)
+        assert await self._one(conn, "SELECT MAX(version) FROM schema_version") == 56
+        assert await self._all(conn, "SELECT * FROM gleepglorp_proposals ORDER BY id") == p_before
+        cols = (
+            "id, session_id, tool_call_id, kind, action, agent_name, target_key, changes, base, "
+            "status, outcome, claim_token, untrusted, untrusted_sources, created_at, "
+            "claimed_at, resolved_at"
+        )
+        assert await self._all(conn, f"SELECT {cols} FROM gleepglorp_fills ORDER BY id") == (
+            f_before
+        )
+        assert (
+            await self._one(
+                conn, "SELECT COUNT(*) FROM gleepglorp_fills WHERE target_id IS NOT NULL"
+            )
+            == 0
+        )
+        # The next insert is above the old high-water mark, not above MAX(id).
+        await conn.execute(
+            "INSERT INTO gleepglorp_proposals (session_id, kind, action, target_key, changes, "
+            "created_at) VALUES ('s', 'mcp_server', 'create', 'k', '{}', 't')"
+        )
+        await conn.execute(
+            "INSERT INTO gleepglorp_fills (session_id, kind, action, target_key, changes, "
+            "created_at) VALUES ('s', 'mcp_server', 'create', 'k', '{}', 't')"
+        )
+        assert await self._one(conn, "SELECT MAX(id) FROM gleepglorp_proposals") == 6
+        assert await self._one(conn, "SELECT MAX(id) FROM gleepglorp_fills") == 7
+        await conn.close()
+
+    async def test_replay_keeps_rows_and_a_post_v56_target_id(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "replay56.db")
+        await ensure_schema(conn)
+        await conn.execute(
+            "INSERT INTO gleepglorp_proposals (session_id, kind, action, target_key, changes, "
+            "created_at) VALUES ('s', 'mcp_server', 'change', 'k', '{}', 't')"
+        )
+        await conn.execute(
+            "INSERT INTO gleepglorp_fills (session_id, kind, action, agent_name, target_id, "
+            "target_key, changes, created_at) "
+            "VALUES ('s', 'mcp_server', 'change', NULL, 'srv-1', 'k', '{}', 't')"
+        )
+        await conn.execute("DELETE FROM schema_version WHERE version >= 54")
+        await conn.commit()
+        await ensure_schema(conn)
+        assert await self._one(conn, "SELECT kind FROM gleepglorp_proposals") == "mcp_server"
+        assert await self._one(conn, "SELECT target_id FROM gleepglorp_fills") == "srv-1"
+        assert await self._one(conn, "SELECT COUNT(*) FROM schema_version WHERE version = 56") == 1
+        await conn.close()
+
+    async def test_each_table_is_rebuilt_independently(self, tmp_path) -> None:
+        # Only the fills table is still v55-shaped (a crash after the proposals rebuild):
+        # the proposals table (already v56, holding a non-v55 kind) must survive untouched.
+        conn = await _open(tmp_path / "half56.db")
+        await ensure_schema(conn)
+        await conn.execute(
+            "INSERT INTO gleepglorp_proposals (session_id, kind, action, target_key, changes, "
+            "created_at) VALUES ('s', 'mcp_server', 'create', 'k', '{}', 't')"
+        )
+        await self._to_v55_shape(conn, proposals=False)
+        await conn.execute(
+            "INSERT INTO gleepglorp_fills (session_id, kind, action, agent_name, target_key, "
+            "changes, created_at) VALUES ('s', 'agent', 'create', 'a', 'agent:a', '{}', 't')"
+        )
+        await conn.commit()
+        await ensure_schema(conn)
+        assert await self._one(conn, "SELECT kind FROM gleepglorp_proposals") == "mcp_server"
+        assert await self._one(conn, "SELECT agent_name FROM gleepglorp_fills") == "a"
+        async with conn.execute("PRAGMA table_info(gleepglorp_fills)") as cur:
+            assert "target_id" in {r["name"] for r in await cur.fetchall()}
+        await conn.close()
+
+        # The mirror: only the proposals table is still v55-shaped.
+        conn = await _open(tmp_path / "half56b.db")
+        await ensure_schema(conn)
+        await conn.execute(
+            "INSERT INTO gleepglorp_fills (session_id, kind, action, agent_name, target_id, "
+            "target_key, changes, created_at) "
+            "VALUES ('s', 'mcp_server', 'create', NULL, 'x', 'k', '{}', 't')"
+        )
+        await self._to_v55_shape(conn, fills=False)
+        await conn.execute(
+            "INSERT INTO gleepglorp_proposals (session_id, kind, action, target_key, changes, "
+            "created_at) VALUES ('s', 'rule', 'create', 'k', '{}', 't')"
+        )
+        await conn.commit()
+        await ensure_schema(conn)
+        assert await self._one(conn, "SELECT target_id FROM gleepglorp_fills") == "x"
+        assert await self._one(conn, "SELECT kind FROM gleepglorp_proposals") == "rule"
+        sql = await self._one(
+            conn, "SELECT sql FROM sqlite_master WHERE name = 'gleepglorp_proposals'"
+        )
+        assert "CHECK (kind IN" not in sql
         await conn.close()

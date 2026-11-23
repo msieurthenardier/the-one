@@ -693,7 +693,12 @@ def _view_made(
                 why.append(f"{label} does not set {field_name}")
                 continue
             if "matches" in params:
-                shown = _display_text((p.get("display") or changes).get(field_name))
+                # The flattened display wins when it carries the field (agents, routines); a
+                # field it renders differently (a kind's table shown as "Header X") falls back
+                # to the stored changes.
+                display = p.get("display") or {}
+                source = display if field_name in display else changes
+                shown = _display_text(source.get(field_name))
                 if re.search(params["matches"], shown, re.IGNORECASE) is None:
                     why.append(f"{label}'s {field_name} does not match {params['matches']!r}")
                     continue

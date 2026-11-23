@@ -23,9 +23,18 @@
   var REASONS = {
     in_chats: 'You were in Chats when it arrived.',
     stay: 'You chose to stay on the page you were editing.',
-    editor_unavailable: 'The agent editor could not open.',
-    target_gone: 'That agent no longer exists.'
+    // The two kind-worded reasons: the fallback for a kind the client does not know; a registered
+    // kind words them in its `labels` (App.gleepglorpKinds).
+    editor_unavailable: 'The editor could not open.',
+    target_gone: 'That item no longer exists.'
   };
+  var KIND_LABEL = { editor_unavailable: 'editorUnavailable', target_gone: 'targetGone' };
+
+  function reasonText(v, reason) {
+    var kind = App.gleepglorpKinds.get(v.kind);
+    var own = kind && kind.labels && KIND_LABEL[reason] && kind.labels[KIND_LABEL[reason]];
+    return own || REASONS[reason];
+  }
   var HEADLINES = {
     sent: 'Filling the form…',
     applying: 'Filling the form…',
@@ -144,7 +153,7 @@
         kids.push(line({ 'data-testid': 'fill-receipt-kept' }, keptText(v)));
       } else if (v.status === 'not_filled') {
         var reason = reasonOf(v);
-        if (reason) kids.push(line({ 'data-testid': 'fill-receipt-reason' }, REASONS[reason]));
+        if (reason) kids.push(line({ 'data-testid': 'fill-receipt-reason' }, reasonText(v, reason)));
       }
       var fillNow = offersFillNow(v);
       if (fillNow && v.stale && v.stale.length) {

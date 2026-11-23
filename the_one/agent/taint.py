@@ -16,7 +16,7 @@ from the_one.agent.tool_names import (
     ROUTINE_TOOL_NAMES,
 )
 from the_one.db._notes import SOURCES_CAP
-from the_one.llm.base import Role
+from the_one.llm.base import Message, Role
 from the_one.time_zones import CURRENT_TIME_TOOL_NAME
 
 if TYPE_CHECKING:
@@ -94,6 +94,19 @@ def is_trusted_result(name: str, content: object) -> bool:
     return False
 
 
+def find_anchor(messages: list[Message], tool_call_id: str) -> int | None:
+    """The index of the nearest assistant message holding ``tool_call_id``, or ``None``.
+
+    The scan runs BACKWARDS: Ollama ids repeat across turns, so a forward search would find
+    the wrong message. Shared by :func:`compute_taint` and the outside-value guard.
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        m = messages[i]
+        if m.role == Role.ASSISTANT and any(tc.id == tool_call_id for tc in m.tool_calls):
+            return i
+    return None
+
+
 def compute_taint(
     agent: Agent | None, tool_call_id: str | None, turn: TurnContext | None
 ) -> tuple[bool, list[str]]:
@@ -124,12 +137,7 @@ def compute_taint(
     if agent is None or not tool_call_id:
         return True, [UNKNOWN_POSITION]
     messages = agent.messages
-    anchor: int | None = None
-    for i in range(len(messages) - 1, -1, -1):
-        m = messages[i]
-        if m.role == Role.ASSISTANT and any(tc.id == tool_call_id for tc in m.tool_calls):
-            anchor = i
-            break
+    anchor = find_anchor(messages, tool_call_id)
     if anchor is None:
         return True, [UNKNOWN_POSITION]
 

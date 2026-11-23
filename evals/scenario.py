@@ -63,7 +63,19 @@ _AGENT_KEYS = {
 BUILDERS = ("gleepglorp",)
 # The ``[agent]`` keys a builder scenario may not set (the assistant has none of them).
 _BUILDER_REFUSES = ("kb", "routines_enabled", "persona", "rules", "rich_visuals", "max_iterations")
-_APP_KEYS = {"agents", "mcp_servers", "secrets"}
+_APP_KEYS = {"agents", "mcp_servers", "secrets", "providers"}
+# The provider types a seeded ``[app.providers]`` row may take (the stored ``type`` values; the
+# seed never builds a live client, so any is inert).
+_PROVIDER_TYPES = (
+    "ollama",
+    "openai-compatible",
+    "openai",
+    "anthropic",
+    "mock",
+    "openrouter",
+    "anthropic-plan",
+    "anthropic-plan-token",
+)
 _MCP_TYPES = ("stdio", "streamable-http")
 _CLOCK_KEYS = {"instant", "zone", "host_zone"}
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -107,6 +119,23 @@ class AppMcp:
     url: str = ""
     headers: tuple[tuple[str, str], ...] = ()
     env: tuple[tuple[str, str], ...] = ()
+    # An explicit row id (``item = "ev-mcp-github"`` in a page line); "" keeps ``ev-mcp-{n}``.
+    id: str = ""
+
+
+@dataclass(frozen=True)
+class AppProvider:
+    """An ``llm_providers`` row (``LLMProviderConfig``). ``api_key`` is a fake, non-secret fixture
+    string (it is registered with the run's secret checks); ``config`` is the stored config
+    dict (``num_ctx``, ``thinking_enabled``, ``reasoning_effort``...). ``id`` is the literal row
+    id a page line names."""
+
+    id: str
+    name: str
+    type: str
+    base_url: str
+    api_key: str = ""
+    config: tuple[tuple[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -127,9 +156,10 @@ class AppSeed:
     agents: list[AppAgent] = field(default_factory=list)
     mcp_servers: list[AppMcp] = field(default_factory=list)
     secrets: list[AppSecret] = field(default_factory=list)
+    providers: list[AppProvider] = field(default_factory=list)
 
     def empty(self) -> bool:
-        return not (self.agents or self.mcp_servers or self.secrets)
+        return not (self.agents or self.mcp_servers or self.secrets or self.providers)
 
 
 @dataclass(frozen=True)
@@ -403,9 +433,21 @@ def _opt_str(path: Path, row: dict, key: str, field_name: str) -> str:
     return row[key]
 
 
+_ROW_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def _row_id(path: Path, row: dict, f: str) -> str:
+    """An optional explicit row id: a URL-safe token (it appears in a ``#library/...`` route)."""
+    rid = _opt_str(path, row, "id", f"{f}.id")
+    if rid and not _ROW_ID.match(rid):
+        raise _fail(path, f"{f}.id", "must be letters, digits, '.', '_' or '-'")
+    return rid
+
+
 def _parse_app(path: Path, app: Any) -> AppSeed:
-    """The ``[app]`` table: ``agents``, ``mcp_servers`` and ``secrets`` row arrays. String values
-    may hold ``{placeholders}`` (expanded from the variant's facts when seeded)."""
+    """The ``[app]`` table: ``agents``, ``mcp_servers``, ``providers`` and ``secrets`` row arrays.
+    String values may hold ``{placeholders}`` (expanded from the variant's facts when seeded).
+    An MCP server or provider may carry an explicit ``id`` (a page line names it)."""
     if not isinstance(app, dict):
         raise _fail(path, "app", "must be a table")
     for key in app:
@@ -423,7 +465,7 @@ def _parse_app(path: Path, app: Any) -> AppSeed:
                 _opt_str(path, row, "system_prompt", f"{f}.system_prompt"),
             )
         )
-    mcp_keys = {"name", "type", "command", "args", "url", "headers", "env"}
+    mcp_keys = {"id", "name", "type", "command", "args", "url", "headers", "env"}
     for i, row in enumerate(_app_rows(path, app, "mcp_servers", mcp_keys)):
         f = f"app.mcp_servers[{i}]"
         kind = row.get("type")
@@ -447,6 +489,29 @@ def _parse_app(path: Path, app: Any) -> AppSeed:
                 url,
                 _str_table(path, row.get("headers", {}), f"{f}.headers"),
                 _str_table(path, row.get("env", {}), f"{f}.env"),
+                _row_id(path, row, f),
+            )
+        )
+    prov_keys = {"id", "name", "type", "base_url", "api_key", "config"}
+    for i, row in enumerate(_app_rows(path, app, "providers", prov_keys)):
+        f = f"app.providers[{i}]"
+        kind = row.get("type")
+        if kind not in _PROVIDER_TYPES:
+            raise _fail(path, f"{f}.type", f"must be one of {', '.join(_PROVIDER_TYPES)}")
+        pid = _row_id(path, row, f)
+        if not pid:
+            raise _fail(path, f"{f}.id", "a seeded provider needs an id")
+        cfg = row.get("config", {})
+        if not isinstance(cfg, dict) or not all(isinstance(k, str) and k for k in cfg):
+            raise _fail(path, f"{f}.config", "must be a table")
+        seed.providers.append(
+            AppProvider(
+                pid,
+                row["name"],
+                kind,
+                _opt_str(path, row, "base_url", f"{f}.base_url"),
+                _opt_str(path, row, "api_key", f"{f}.api_key"),
+                tuple(cfg.items()),
             )
         )
     for i, row in enumerate(

@@ -15,7 +15,6 @@ from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import aiosqlite
@@ -54,7 +53,7 @@ from the_one.db._notes import (
     parse_notes_block,
     render_note_line_text,
 )
-from the_one.db._provider_types import PROVIDER_TYPE_LABELS
+from the_one.db._provider_types import CLAUDE_PROVIDER_TYPES, PROVIDER_TYPE_LABELS
 from the_one.db._rules import (
     RULE_MAX_CHARS,
     RULES_TOTAL_MAX_CHARS,
@@ -114,7 +113,14 @@ from the_one.knowledge.settings import (
 )
 from the_one.knowledge.walk import content_hash, is_filesystem_root
 from the_one.knowledge.watcher import get_manager as get_watch_manager
-from the_one.llm import anthropic_oauth, ollama_api, ollama_library, plan_credentials
+from the_one.llm import (
+    anthropic_oauth,
+    ollama_api,
+    ollama_library,
+    plan_credentials,
+    provider_service,
+)
+from the_one.mcp import service as mcp_service
 from the_one.mcp._era import forget_era
 from the_one.mcp._overrides import MCP_OVERRIDE_CREDENTIAL_KEYS, configured_names, missing_values
 from the_one.mcp.override_validation import validate_mcp_overrides
@@ -208,6 +214,28 @@ def _agent_write_errors() -> Iterator[None]:
         yield
     except AgentWriteError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from None
+
+
+@contextlib.contextmanager
+def _mcp_write_errors() -> Iterator[None]:
+    """Turn the MCP write service's refusals into the ``HTTPException`` the routes always
+    returned (Mission 36 F4 L4a)."""
+    try:
+        yield
+    except mcp_service.McpWriteError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
+    except mcp_service.McpSourceNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+
+
+async def _mcp_write_deps() -> mcp_service.McpWriteDeps:
+    """The MCP write service's dependencies. The getters are this module's own, called late
+    (so the tests that patch ``_agent_store`` or ``_secret_repo`` here still govern them)."""
+    return mcp_service.McpWriteDeps(
+        repo=await _mcp_repo(),
+        agent_store=lambda: _agent_store(),
+        secret_repo=lambda: _secret_repo(),
+    )
 
 
 def _checked_name(value: object) -> str:
@@ -465,10 +493,7 @@ async def _evict_changed_mcp_credentials(
 async def _drop_source_agent_tool_cache(mcp_repo: MCPSourceRepository, source_id: str) -> None:
     """Sortie 09 DD5/DD7: delete every agent's per-agent tool cache row for a source
     whose connection basis changed (Library edit, Reset connection). Never raises."""
-    try:
-        await AgentMcpToolCacheRepository(mcp_repo.conn).delete_for_source(source_id)
-    except Exception:
-        logger.warning("could not clear agent tool lists for %r", source_id, exc_info=False)
+    await mcp_service.drop_source_agent_tool_cache(mcp_repo, source_id)
 
 
 async def _evict_agent_connections(agent_name: str) -> None:
@@ -3199,131 +3224,6 @@ def _mcp_source_response(source: MCPSource) -> dict[str, Any]:
     return data
 
 
-def _validate_mcp_source_config(source: MCPSource) -> None:
-    """Transport-aware shape validation for MCPSource.config.
-
-    Raises HTTPException(422, detail=...) on shape mismatch. Validation
-    lives at the API layer so the error path returns a clean 422 with a
-    human-readable detail string; Pydantic's literal validation already
-    gates the ``type`` field at model validation time.
-
-    Stdio: config.command is required (non-empty string); config.args
-      must be a list[str] if present; config.cwd must be a string if
-      present; config.env must be a dict[str, str] if present.
-    Streamable-HTTP: config.url is required (non-empty string);
-      config.headers must be a dict[str, str] if present.
-
-    Stdio config.sandbox is optional and may carry
-    ``{writable_paths: list[str], network_allowed: bool}``; both fields
-    are optional within the sandbox sub-block. List-shape and bool-shape
-    are validated; absolute-path semantics are NOT enforced at the API
-    layer — the runtime (``BubblewrapSandbox.prepare_spawn``, F3 L3)
-    raises ``SandboxError`` when bwrap rejects the path at spawn
-    time. Streamable-HTTP sources silently ignore ``config.sandbox``
-    (the field is meaningless for non-spawning transports).
-    """
-    cfg = source.config
-
-    if source.type == "stdio":
-        command = cfg.get("command")
-        if not isinstance(command, str) or not command.strip():
-            raise HTTPException(
-                status_code=422,
-                detail="MCP source of type 'stdio' requires config.command (non-empty string).",
-            )
-        args = cfg.get("args", [])
-        if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
-            raise HTTPException(
-                status_code=422,
-                detail="MCP source config.args must be a list of strings.",
-            )
-        cwd = cfg.get("cwd")
-        if cwd is not None and not isinstance(cwd, str):
-            raise HTTPException(
-                status_code=422,
-                detail="MCP source config.cwd must be a string if present.",
-            )
-        env = cfg.get("env", {})
-        if not isinstance(env, dict) or not all(
-            isinstance(k, str) and isinstance(v, str) for k, v in env.items()
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="MCP source config.env must be a dict of string-to-string.",
-            )
-        sandbox = cfg.get("sandbox")
-        # IMPORTANT: use ``is not None`` (NOT a truthy check). Empty dict
-        # ``{}`` must pass through — the operator may post a sandbox
-        # sub-block with no fields, and both writable_paths and
-        # network_allowed are individually optional. Per F3 §4 + §12,
-        # unknown keys (e.g. namespace-flag fields ``pid_unshare``,
-        # ``ipc_unshare``, ``uts_unshare``) pass through untouched —
-        # ``SandboxProfile.from_dict`` (L2 lands) is responsible for
-        # type-checking advanced knobs at runtime construction time.
-        # Path-shape (absolute / no ``..``) is NOT enforced here per
-        # "trust the runtime" — bwrap will reject malformed paths at
-        # spawn time via ``SandboxError`` (L3 lands).
-        if sandbox is not None:
-            if not isinstance(sandbox, dict):
-                raise HTTPException(
-                    status_code=422,
-                    detail="MCP source config.sandbox must be a dict if present.",
-                )
-            if "writable_paths" in sandbox:
-                writable_paths = sandbox["writable_paths"]
-                if not isinstance(writable_paths, list) or not all(
-                    isinstance(p, str) for p in writable_paths
-                ):
-                    raise HTTPException(
-                        status_code=422,
-                        detail=(
-                            "MCP source config.sandbox.writable_paths must be a list of strings."
-                        ),
-                    )
-            if "network_allowed" in sandbox:
-                network_allowed = sandbox["network_allowed"]
-                # ``bool`` is a subclass of ``int`` in Python; the
-                # ``isinstance(value, bool)`` check (NOT ``int``) means
-                # a JSON ``1`` from a buggy client gets a 422.
-                if not isinstance(network_allowed, bool):
-                    raise HTTPException(
-                        status_code=422,
-                        detail=("MCP source config.sandbox.network_allowed must be a boolean."),
-                    )
-
-    elif source.type == "streamable-http":
-        url = cfg.get("url")
-        if not isinstance(url, str) or not url.strip():
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "MCP source of type 'streamable-http' requires config.url (non-empty string)."
-                ),
-            )
-        headers = cfg.get("headers", {})
-        if not isinstance(headers, dict) or not all(
-            isinstance(k, str) and isinstance(v, str) for k, v in headers.items()
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="MCP source config.headers must be a dict of string-to-string.",
-            )
-
-    else:
-        # Defensive exhaustiveness — Pydantic's Literal validator
-        # already rejects unknown types at MCPSource.model_validate
-        # time, so this branch is unreachable for properly-validated
-        # input. But if a future contributor adds a new transport
-        # literal to the model and forgets to extend this helper,
-        # that omission would silently permit any config shape. This
-        # raise locks the contract: a new transport must add a
-        # validation block here, or this raise fires.
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unsupported MCP source type: {source.type}",
-        )
-
-
 @router.get("/mcp-sources")
 async def list_mcp_sources(include_agent_surfaces: str | None = None) -> list[dict[str, Any]]:
     """DD3: per-agent self-configuration surface rows are hidden from the
@@ -3370,224 +3270,16 @@ async def get_mcp_source(source_id: str) -> dict[str, Any]:
 @router.post("/mcp-sources", status_code=201)
 async def create_mcp_source(request: Request) -> dict[str, Any]:
     data = await _read_json(request)
-    data["name"] = _checked_name(data.get("name"))
-    if "id" not in data:
-        data["id"] = uuid.uuid4().hex[:12]
-    try:
-        source = MCPSource.model_validate(data)
-    except ValidationError as e:
-        # ``include_context=False`` so the response stays JSON-encodable
-        # — ``model_validator`` paths populate ``ctx['error']`` with raw
-        # exceptions that aren't JSON-serializable.
-        raise HTTPException(status_code=422, detail=_validation_detail(e))
-    _reject_reserved_surface_name(source)
-    _validate_mcp_source_config(source)
-    repo = await _mcp_repo()
-    await repo.create(source)
+    with _mcp_write_errors():
+        source = await mcp_service.create_mcp_source(await _mcp_write_deps(), data)
     return _mcp_source_response(source)
-
-
-def _reject_reserved_surface_name(source: MCPSource) -> None:
-    """LD7 / AC8b: the literal name ``self_configuration_manage.
-    SURFACE_ROW_NAME`` ("self-configuration") is reserved for the platform-
-    managed self-configuration surface row — the name keys the surface's
-    prefixed tool names (``mcp__self-configuration__*``) and the API's
-    refusal of a per-agent override for it, so a same-named ordinary source
-    would collide with it. Surface rows themselves are created only by ``manage.enable`` (not
-    through this endpoint), so any request reaching here whose *name*
-    equals the constant is, by definition, an attempt to create/rename an
-    ordinary source into the reserved name — refused with 409, mirroring
-    the existing "cannot edit a marked row" guard.
-    """
-    if (
-        source.name == self_configuration_manage.SURFACE_ROW_NAME
-        and not self_configuration_manage.is_surface_row(source)
-    ):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"{source.name!r} is reserved for the self-configuration surface; "
-                "enable it from the owning agent's Self-configuration tab instead "
-                "of creating or renaming an MCP source to this name."
-            ),
-        )
-
-
-def _config_without_cache(source: MCPSource) -> dict[str, Any]:
-    return {k: v for k, v in (source.config or {}).items() if k != "_cache"}
 
 
 @router.put("/mcp-sources/{source_id}")
 async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
     data = await _read_json(request)
-    data["id"] = source_id
-    repo = await _mcp_repo()
-    try:
-        existing = await repo.get(source_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
-
-    # DD3 / AC10: a marked (self-configuration) row is not an ordinary MCP
-    # source — its name is derived from the owning agent's name (only
-    # `rename_agent` changes it) and its URL/secrets are platform-managed.
-    # Blocked outright rather than special-cased field-by-field.
-    if self_configuration_manage.is_surface_row(existing):
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"MCP source {source_id!r} is a self-configuration surface row; "
-                "manage it from the owning agent's Self-configuration tab."
-            ),
-        )
-
-    # Per-key __MASKED__ handling inside the secrets dict — a sentinel
-    # value preserves the corresponding existing stored value;
-    # non-sentinel values overwrite. Keys absent from the incoming
-    # secrets dict are dropped (REST PUT replace semantic, applied
-    # per-key — operator explicitly drops a secret by omitting its
-    # key). Note: ``_MASKED_API_KEY_SENTINEL`` is reused across the
-    # provider single-``api_key`` column and the per-key MCP secrets
-    # dict; the constant name is slightly misleading but renaming is a
-    # cosmetic refactor out of scope for this leg.
-    incoming_secrets = data.get("secrets")
-    if incoming_secrets is not None:
-        if not isinstance(incoming_secrets, dict):
-            raise HTTPException(
-                status_code=422,
-                detail="secrets must be a dict.",
-            )
-        resolved_secrets: dict[str, Any] = {}
-        for key, value in incoming_secrets.items():
-            if _looks_masked(value):
-                if key in existing.secrets:
-                    resolved_secrets[key] = existing.secrets[key]
-                # else: client sent __MASKED__ for a key we don't have;
-                # drop it silently — same as if the client had omitted
-                # the key entirely.
-            else:
-                resolved_secrets[key] = value
-        # F5 §5: preserve OAuth-managed keys from existing.secrets and
-        # silently drop any incoming-payload entries for those keys.
-        # Only ``MCPSourceTokenStorage`` (the OAuth flow) writes them;
-        # an operator PUT cannot overwrite them via the API. Applied
-        # AFTER the per-key __MASKED__ resolution so a client-sent
-        # ``access_token: "__MASKED__"`` doesn't fall through unhandled.
-        # Tests: ``tests/test_oauth_secrets_api.py``.
-        for key in _OAUTH_MANAGED_SECRET_KEYS:
-            if key in existing.secrets:
-                resolved_secrets[key] = existing.secrets[key]
-            elif key in resolved_secrets:
-                # Source has no managed key yet; incoming payload tried
-                # to set one. Drop it — only the OAuth flow may write
-                # these keys.
-                del resolved_secrets[key]
-        data["secrets"] = resolved_secrets
-
-    # F9 L1 (vibing): preserve the existing tools cache across PUT.
-    # The cache is server-managed (written by /test/connect after a
-    # successful list_tools); an operator PUT must not be able to seed
-    # or overwrite it. Mirrors the OAUTH_MANAGED_SECRET_KEYS preservation
-    # pattern above — the operator gets REST replace semantics for keys
-    # they own, but server-managed keys are pinned from `existing`.
-    incoming_config = data.get("config")
-    if isinstance(incoming_config, dict):
-        # Drop any operator-supplied _cache (poisoning attempt or
-        # innocent round-trip of the masked GET response).
-        incoming_config.pop("_cache", None)
-        existing_cache = (existing.config or {}).get("_cache")
-        if existing_cache is not None:
-            incoming_config["_cache"] = existing_cache
-        data["config"] = incoming_config
-
-    # ``model_copy(update=...)`` does NOT re-run field validators in
-    # Pydantic v2, so a malformed PUT (e.g. an unknown ``type`` literal)
-    # would silently bypass validation and corrupt the stored row.
-    # Round-trip through ``model_dump() | data → model_validate(...)``
-    # so the validator fires on the merged payload. Mirrors
-    # ``update_connector`` (M10 F2 L6). Squawk 0013.
-    try:
-        merged = existing.model_dump()
-        merged.update(data)
-        if "name" in data:
-            merged["name"] = _checked_name(merged["name"])
-        updated = MCPSource.model_validate(merged)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=_validation_detail(e))
-    # AC8b: `existing` is guaranteed non-surface at this point (a marked
-    # row was already refused above), so this only fires when the PUT
-    # would rename an ORDINARY source into the reserved constant name.
-    _reject_reserved_surface_name(updated)
-    _validate_mcp_source_config(updated)
-    # DD2: the row may now point at a different server. The same rule drops the
-    # remembered era (below) and the old server's last check and auth posture;
-    # every other _cache key (the tools cache) stays. An emptied _cache is
-    # removed, as Reset does (absence is the "never checked" state).
-    server_changed = updated.type != existing.type or (updated.config or {}).get("url") != (
-        existing.config or {}
-    ).get("url")
-    if server_changed and isinstance((updated.config or {}).get("_cache"), dict):
-        kept = {
-            k: v
-            for k, v in updated.config["_cache"].items()
-            if k not in ("last_check", "auth_posture", "protocol_fallback")
-        }
-        new_config = {k: v for k, v in updated.config.items() if k != "_cache"}
-        if kept:
-            new_config["_cache"] = kept
-        updated = updated.model_copy(update={"config": new_config})
-    await repo.update(updated)
-    forget_era(source_id)
-    # Sortie 09 DD7: a change of type, config (the `_cache` is server-managed) or
-    # secrets reaches every agent's next connection to this source.
-    if (
-        updated.type != existing.type
-        or _config_without_cache(updated) != _config_without_cache(existing)
-        or updated.secrets != existing.secrets
-    ):
-        from the_one.mcp._pool import _evict_all_for_source
-
-        try:
-            await _evict_all_for_source(source_id)
-        except Exception:
-            logger.warning("could not evict MCP connections for %r", source_id, exc_info=False)
-        await _drop_source_agent_tool_cache(repo, source_id)
-    # DD8: the rename carries into the attached agents' overrides and
-    # disabled tools. Runs after the row commit (write_transaction cannot
-    # nest); acquiring the store is guarded like update_knowledge_base's so
-    # a failure here is a WARNING, never a 500 after the rename committed.
-    if existing.name != updated.name:
-        from the_one.mcp.rename_references import carry_mcp_rename
-
-        try:
-            agent_store = await _agent_store()
-        except Exception:
-            logger.warning(
-                "MCP source %r rename: failed to acquire the agent store to carry "
-                "the rename; the source has already been renamed, but no agent "
-                "could be examined, so overrides and disabled_tools may still "
-                "reference the old name",
-                source_id,
-                exc_info=True,
-            )
-        else:
-            await carry_mcp_rename(
-                source_id, existing.name, updated.name, agent_store=agent_store, mcp_repo=repo
-            )
-        # Sortie 10 (DD3): a secret's allowed tools follow the rename too. Its own try
-        # (the carry never raises, but acquiring the repository can), so an agent-store
-        # failure above never skips it.
-        try:
-            from the_one.mcp.rename_references import carry_mcp_rename_into_secrets
-
-            await carry_mcp_rename_into_secrets(
-                existing.name, updated.name, secret_repo=await _secret_repo(), mcp_repo=repo
-            )
-        except Exception:
-            logger.warning(
-                "MCP source %r rename: failed to carry the rename into secrets' allowed tools",
-                source_id,
-                exc_info=True,
-            )
+    with _mcp_write_errors():
+        updated = await mcp_service.replace_mcp_source(await _mcp_write_deps(), source_id, data)
     return _mcp_source_response(updated)
 
 
@@ -5766,6 +5458,22 @@ async def _provider_repo() -> LLMProviderRepository:
     return LLMProviderRepository(conn, encryptor)
 
 
+@contextlib.contextmanager
+def _provider_write_errors() -> Iterator[None]:
+    """Turn the provider write service's refusals into the ``HTTPException`` the routes always
+    returned (Mission 36 F4 L5a)."""
+    try:
+        yield
+    except provider_service.ProviderWriteError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
+    except provider_service.ProviderNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+
+
+async def _provider_write_deps() -> provider_service.ProviderWriteDeps:
+    return provider_service.ProviderWriteDeps(repo=await _provider_repo())
+
+
 # ``_MASKED_API_KEY_SENTINEL`` is hoisted near ``_mask_secret_value`` so
 # all secret-bearing PUT handlers (MCP, connectors, providers) share one
 # definition above their first use site. See the block above
@@ -5775,40 +5483,11 @@ async def _provider_repo() -> LLMProviderRepository:
 # ``ollama`` is local-by-design and operators frequently point it at
 # ``http://localhost:11434`` or a LAN hostname / IP address
 # that is nonetheless trusted.
-_URL_VALIDATION_SKIPPED_TYPES = frozenset({"mock", "ollama"})
+_URL_VALIDATION_SKIPPED_TYPES = provider_service.URL_VALIDATION_SKIPPED_TYPES
 
-
-def _is_safe_provider_url(url: str) -> tuple[bool, str | None]:
-    """Validate an LLM provider ``base_url``.
-
-    Returns ``(True, None)`` for ``https://...`` always; for ``http://...``
-    only when the host is one of ``localhost``/``127.0.0.1``/``::1`` or ends
-    with ``.localdomain``. Any other scheme/host combination is rejected
-    with a human-readable explanation suitable for ``HTTPException.detail``.
-
-    Rationale: API keys for ``openai``/``anthropic``/``openai-compatible``
-    are sent via the ``Authorization: Bearer ...`` header. Routing these
-    over plaintext ``http://`` to a non-localhost host would leak the key
-    on-wire to anything tapping the LAN. Refusing at save time is cheaper
-    than detecting after exposure.
-    """
-    parsed = urlparse(url)
-    if parsed.scheme == "https":
-        return True, None
-    if parsed.scheme == "http":
-        host = (parsed.hostname or "").lower()
-        if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localdomain"):
-            return True, None
-        return (
-            False,
-            "Provider base_url uses http:// for a non-localhost host. "
-            "API keys would be sent in cleartext. Use https:// or restrict to localhost.",
-        )
-    return (
-        False,
-        f"Provider base_url scheme '{parsed.scheme}' not supported. "
-        "Use http:// (localhost only) or https://.",
-    )
+# The validator lives in the provider write service (Mission 36 F4 L5a); kept here under its
+# old name for the ``test`` route and the tests that import it.
+_is_safe_provider_url = provider_service.is_safe_provider_url
 
 
 def _mask_api_key(key: str | None) -> str | None:
@@ -5830,24 +5509,9 @@ _PLAN_OAUTH_MANAGED_KEYS = anthropic_oauth.OAUTH_MANAGED_SECRET_KEYS
 # every response (``_provider_response`` exposes ``token_set_at`` instead).
 _PLAN_TOKEN_MANAGED_KEYS = ("token_set_at",)
 
-_PLAN_TOKEN_TYPE = "anthropic-plan-token"
-_CLAUDE_PROVIDER_TYPES = ("anthropic", "anthropic-plan", _PLAN_TOKEN_TYPE)
-_PLAN_TOKEN_MISSING_DETAIL = "Paste a token from claude setup-token."
-_PLAN_TOKEN_API_KEY_DETAIL = (
-    "That is an Anthropic API key. Use the Anthropic provider type for API keys; "
-    "Claude Plan (Token) takes a token from `claude setup-token`."
-)
-
-
-def _check_plan_token(api_key: str | None) -> None:
-    """DD2 / DD4: require a token and refuse an Anthropic API key (422).
-
-    Never echoes the submitted value.
-    """
-    if not api_key:
-        raise HTTPException(status_code=422, detail=_PLAN_TOKEN_MISSING_DETAIL)
-    if api_key.startswith("sk-ant-api"):
-        raise HTTPException(status_code=422, detail=_PLAN_TOKEN_API_KEY_DETAIL)
+_PLAN_TOKEN_TYPE = provider_service.PLAN_TOKEN_TYPE
+# The Claude request-path types, derived from the defaults table (``db/_provider_types.py``).
+_CLAUDE_PROVIDER_TYPES = CLAUDE_PROVIDER_TYPES
 
 
 # In-process pending PKCE state for /oauth/start → /oauth/code, keyed by
@@ -5989,136 +5653,23 @@ async def get_provider(provider_id: str) -> dict[str, Any]:
 @router.post("/providers", status_code=201)
 async def create_provider(request: Request) -> dict[str, Any]:
     data = await _read_json(request)
-    if data.get("type") == "mock" and not settings.dev_mode:
-        raise HTTPException(
-            status_code=400,
-            detail="Mock provider type requires THE_ONE_DEV_MODE=true",
+    with _provider_write_errors():
+        provider = await provider_service.create_provider(
+            await _provider_write_deps(), data, dev_mode=settings.dev_mode
         )
-    data["name"] = _checked_name(data.get("name"))
-    if "id" not in data:
-        data["id"] = uuid.uuid4().hex[:12]
-    # DD-2 create direction: secrets are OAuth-managed — force-empty
-    # regardless of the client-supplied body. Token material enters ONLY
-    # via the /oauth/code exchange path.
-    data["secrets"] = {}
-    try:
-        provider = LLMProviderConfig.model_validate(data)
-    except ValidationError as e:
-        # Squawks 0112 / 0081: a missing field is a 422. ``include_input=False``
-        # keeps the submitted ``api_key`` out of the response.
-        raise HTTPException(status_code=422, detail=_validation_detail(e))
-    # Token plan type (sortie 03 DD2-DD4): runs on the validated (stripped)
-    # key, then stamps when it was set. The stamp is server-owned.
-    if provider.type == _PLAN_TOKEN_TYPE:
-        _check_plan_token(provider.api_key)
-        provider = provider.model_copy(update={"secrets": {"token_set_at": now_iso()}})
-    # Sortie 17 DD4: a new Claude provider starts with extended thinking on
-    # (new providers only; the route stamps, never the model or repository).
-    if provider.type in _CLAUDE_PROVIDER_TYPES and provider.config.get("thinking_enabled") is None:
-        provider = provider.model_copy(
-            update={"config": {**provider.config, "thinking_enabled": True}}
-        )
-    # URL safety: refuse non-https for non-localhost when the provider type
-    # actually transmits an API key (skips ``mock`` / ``ollama``).
-    if provider.type not in _URL_VALIDATION_SKIPPED_TYPES:
-        ok, msg = _is_safe_provider_url(provider.base_url)
-        if not ok:
-            raise HTTPException(status_code=422, detail=msg)
-    repo = await _provider_repo()
-    await repo.create(provider)
     return _provider_response(provider)
 
 
 @router.put("/providers/{provider_id}")
 async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
     data = await _read_json(request)
-    data["id"] = provider_id
-    repo = await _provider_repo()
-    try:
-        existing = await repo.get(provider_id)
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
-
-    # Gate mock-typed updates on dev_mode. Compare the resulting type so an
-    # update that doesn't change the type isn't accidentally rejected.
-    incoming_type = data.get("type", existing.type)
-    if incoming_type == "mock" and not settings.dev_mode:
-        raise HTTPException(
-            status_code=400,
-            detail="Mock provider type requires THE_ONE_DEV_MODE=true",
+    # The write runs in the provider write service on the row re-read inside the write
+    # transaction (so an OAuth refresh written meanwhile survives); the service evicts the
+    # cached plan credential source after the commit.
+    with _provider_write_errors():
+        updated = await provider_service.replace_provider(
+            await _provider_write_deps(), provider_id, data, dev_mode=settings.dev_mode
         )
-
-    # Sortie 03 DD2: did this request carry a freshly pasted key? Captured
-    # from the RAW body, before masked-key resolution erases the difference.
-    # A type change INTO the token type requires one.
-    raw_key = data.get("api_key")
-    fresh_key_supplied = (
-        isinstance(raw_key, str) and raw_key.strip() != "" and not _looks_masked(raw_key)
-    )
-
-    # Detect masked API key and preserve existing stored key
-    incoming_key = data.get("api_key")
-    if _looks_masked(incoming_key):
-        data["api_key"] = existing.api_key
-
-    # DD-2 / sortie 03 DD3, DD11: server-managed secret keys are never taken
-    # from the client. A dict is put into validation here; the real secrets
-    # (OAuth keys pinned from the stored row only for ``anthropic-plan``, the
-    # token stamp only for ``anthropic-plan-token``) are built below on the
-    # RESOLVED type, so a PUT can neither overwrite nor seed them and a PUT
-    # that omits ``secrets`` preserves them.
-    data["secrets"] = {}
-
-    # ``model_copy(update=...)`` does NOT re-run field validators in
-    # Pydantic v2, so a malformed PUT would silently bypass validation
-    # and corrupt the stored row. Round-trip through ``model_dump() |
-    # data → model_validate(...)`` so the validator fires on the merged
-    # payload. Mirrors ``update_connector`` (M10 F2 L6). Squawk 0013.
-    try:
-        merged = existing.model_dump()
-        merged.update(data)
-        if "name" in data:
-            merged["name"] = _checked_name(merged["name"])
-        updated = LLMProviderConfig.model_validate(merged)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=_validation_detail(e))
-
-    # Pin / force / check / stamp by the RESOLVED type (DD2-DD4, DD11).
-    resolved_secrets: dict[str, Any] = {}
-    overrides: dict[str, Any] = {}
-    if updated.type == "anthropic-plan":
-        for key in _PLAN_OAUTH_MANAGED_KEYS:
-            if key in existing.secrets:
-                resolved_secrets[key] = existing.secrets[key]
-        # The OAuth type never uses ``api_key``; do not leave a token
-        # behind, invisible and unclearable, under a type that ignores it.
-        overrides["api_key"] = None
-    elif updated.type == _PLAN_TOKEN_TYPE:
-        entering = existing.type != _PLAN_TOKEN_TYPE
-        if entering and not fresh_key_supplied:
-            raise HTTPException(status_code=422, detail=_PLAN_TOKEN_MISSING_DETAIL)
-        _check_plan_token(updated.api_key)
-        stamp = existing.secrets.get("token_set_at") if not entering else None
-        if not stamp or updated.api_key != existing.api_key:
-            stamp = now_iso()
-        resolved_secrets["token_set_at"] = stamp
-    overrides["secrets"] = resolved_secrets
-    updated = updated.model_copy(update=overrides)
-
-    # URL safety check on the RESOLVED base_url — i.e. after the
-    # model_dump()|data round-trip above has merged any
-    # ``__MASKED__``-preserved fields. This blocks the regression where a
-    # request that does not touch ``base_url`` would otherwise let an
-    # unsafe stored value survive an update.
-    if updated.type not in _URL_VALIDATION_SKIPPED_TYPES:
-        ok, msg = _is_safe_provider_url(updated.base_url)
-        if not ok:
-            raise HTTPException(status_code=422, detail=msg)
-    await repo.update(updated)
-    # DD-3 invalidation contract: a provider update evicts the cached plan
-    # credential source so the next consumer re-reads the stored row.
-    # No-op for non-plan types / uncached ids.
-    plan_credentials.evict_credential_source(provider_id)
     return _provider_response(updated)
 
 

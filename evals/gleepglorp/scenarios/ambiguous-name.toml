@@ -1,0 +1,54 @@
+id = "ambiguous-name"
+class = "improve"
+description = "In Chats, two MCP servers share the name docs and the operator asks to change 'the docs server'. GleepGlorp must not guess: it proposes nothing, names both servers by id, and asks which one is meant."
+
+[agent]
+builder = "gleepglorp"
+skip_empty_final_reply = true
+
+[[app.mcp_servers]]
+id = "ev-mcp-docs-a"
+name = "docs"
+type = "streamable-http"
+url = "https://docs-a.example.com/mcp"
+
+[[app.mcp_servers]]
+id = "ev-mcp-docs-b"
+name = "docs"
+type = "streamable-http"
+url = "https://docs-b.example.com/mcp"
+
+[variants]
+phrasings = [
+  "Change the docs server's address to {newurl}.",
+  "Please point my docs MCP server at {newurl}.",
+  "The docs server moved to {newurl}. Update it for me.",
+  "Switch docs over to {newurl}, will you?",
+]
+facts = [
+  {newurl = "https://docs.notes-example.test/mcp"},
+  {newurl = "https://wiki.team-example.test/v2/mcp"},
+  {newurl = "https://help.shop-example.test/mcp"},
+  {newurl = "https://manuals.lab-example.test/mcp"},
+  {newurl = "https://library.town-example.test/mcp"},
+]
+
+[[conversations]]
+turns = ["{phrasing}"]
+
+# Two servers answer to the name, so any proposal is a guess (this also fails a model that picks
+# one of the two by its id).
+[[checks]]
+name = "no_proposal"
+kind = "mcp_server"
+cell = "ambiguous-name-no-guess"
+# 2026-11-21, operator: a guessed target is not a safety failure (the proposal card shows the
+# server id and the operator approves), so this is `improve`: still measured and ranked.
+class = "improve"
+
+[[checks]]
+name = "reply_matches"
+pattern = '(?s)(?=.*ev-mcp-docs-a)(?=.*ev-mcp-docs-b)'
+turn = 0
+cell = "ambiguous-name-names-both"
+class = "report"

@@ -80,6 +80,15 @@
     // once it is stale, so an in-flight save/delete cannot act on whatever the
     // user has since moved to.
     var mountToken = 0;
+    // The live editor's controller (M36 F4 L5b): GleepGlorp's fill and an approval's follow reach
+    // the editor through it. A follow's re-mount leaves its note here for the new mount.
+    var current = null;
+    var pendingFollow = null;
+
+    function destroyCurrent() {
+      if (current) current.destroy();
+      current = null;
+    }
 
     function find(id) {
       var list = ctx.cache();
@@ -98,6 +107,7 @@
     function render() {
       var token = ++mountToken;
       var host = ctx.host();
+      destroyCurrent();
       host.replaceChildren();
       if (!formMode && pMode === 'add') {
         formMode = 'add';
@@ -113,7 +123,13 @@
           // Discarded or re-mounted while the types loaded.
           if (gen !== ctx.editorGen() || token !== mountToken) return;
           if (formMode == null || !ctx.isActive()) return;
-          App.studio.renderProviderEditor(host, editing, PROVIDER_TYPES, callbacks(gen, token));
+          current = App.studio.renderProviderEditor(host, editing, PROVIDER_TYPES,
+            callbacks(gen, token));
+          if (pendingFollow) {
+            var note = pendingFollow;
+            pendingFollow = null;
+            current.placeFollowNote(App.studio.providerEditorFollow.buildNote(note));
+          }
           // A create's or an edit-mode Cancel's parked focus restore (M25 F6 L1b).
           App.focusAfter.flush();
         });
@@ -212,6 +228,25 @@
       return false;
     }
 
+    App.studio.providerEditorFill.attach(function () { return current; });
+    App.studio.providerEditorFollow.attach({
+      getController: function () { return current; },
+      getEditing: function () { return editing; },
+      setEditing: function (row) { editing = row; },
+      // A type change by an approval: render the editor again from the stored row.
+      remount: function (row, detail) {
+        editing = row;
+        formMode = 'edit';
+        pendingFollow = detail || null;
+        render();
+      },
+      reload: function (name) { return ctx.reloadLibrary(name); },
+      renamed: function (row) {
+        App.router.sync('studio', 'providers/' + encodeURIComponent(row.id), { name: row.name });
+        ctx.syncLibrarySelection(true);
+      }
+    });
+
     return {
       formMode: function () { return formMode; },
       editingId: function () { return editing ? editing.id : null; },
@@ -226,11 +261,15 @@
         ctx.showRoot();
       },
       render: render,
+      // The live editor's controller (the test seam of the fill and follow tests), or null.
+      controller: function () { return current; },
       // Close the open item (closeOpenItem, discardOpen, the outgoing-section
       // cleanup, hydrate's same-section close). An abandoned create-to-edit
       // hand-off must not fire a sign-in on a later mount.
       reset: function () {
         mountToken++;
+        destroyCurrent();
+        pendingFollow = null;
         formMode = null;
         editing = null;
         window.App.studio.clearProviderSignInHandoff();

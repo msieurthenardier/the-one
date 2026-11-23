@@ -45,6 +45,8 @@ _DESC_CUT = 200
 # of dicts inside a detail. A key not listed here can never be emitted (``_emit``).
 
 _LIST_KEYS = frozenset({"name", "summary"})
+# MCP servers and providers also list ``id`` (the id a proposal targets; M36 F4 L1b).
+_LIST_KEYS_WITH_ID = _LIST_KEYS | {"id"}
 
 ALLOWED: dict[str, dict[str, frozenset[str]]] = {
     "overview": {
@@ -80,9 +82,10 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
         "nested": frozenset({"number", "text", "enabled"}),
     },
     "mcp_servers": {
-        "list": _LIST_KEYS,
+        "list": _LIST_KEYS_WITH_ID,
         "detail": frozenset(
             {
+                "id",
                 "name",
                 "type",
                 "command",
@@ -111,11 +114,21 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
         ),
     },
     "providers": {
-        "list": _LIST_KEYS,
+        "list": _LIST_KEYS_WITH_ID,
         "detail": frozenset(
-            {"name", "type", "address", "oauth_active", "agents", "used_by_gleepglorp"}
+            {
+                "id",
+                "name",
+                "type",
+                "address",
+                "oauth_active",
+                "agents",
+                "used_by_gleepglorp",
+                "options",
+                "key_stored",
+            }
         ),
-        "nested": frozenset(),
+        "nested": frozenset({"num_ctx", "thinking_enabled", "reasoning_effort"}),
     },
     "knowledge_bases": {
         "list": _LIST_KEYS,
@@ -181,6 +194,8 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
                 "max",
                 "hint",
                 "reference",
+                "shape",
+                "provenance",
             }
         ),
     },
@@ -241,8 +256,10 @@ OPERATOR_PATHS: dict[str, frozenset[str]] = {
     ),
     "mcp_servers": frozenset(
         {
+            "mcp_servers.list.id",
             "mcp_servers.list.name",
             "mcp_servers.list.summary",
+            "mcp_servers.detail.id",
             "mcp_servers.detail.name",
             "mcp_servers.detail.type",
             "mcp_servers.detail.command",
@@ -260,14 +277,20 @@ OPERATOR_PATHS: dict[str, frozenset[str]] = {
     ),
     "providers": frozenset(
         {
+            "providers.list.id",
             "providers.list.name",
             "providers.list.summary",
+            "providers.detail.id",
             "providers.detail.name",
             "providers.detail.type",
             "providers.detail.address",
             "providers.detail.oauth_active",
             "providers.detail.agents",
             "providers.detail.used_by_gleepglorp",
+            "providers.detail.options.num_ctx",
+            "providers.detail.options.thinking_enabled",
+            "providers.detail.options.reasoning_effort",
+            "providers.detail.key_stored",
         }
     ),
     "knowledge_bases": frozenset(
@@ -357,6 +380,8 @@ OPERATOR_PATHS: dict[str, frozenset[str]] = {
             "fields.detail.fields[].max",
             "fields.detail.fields[].hint",
             "fields.detail.fields[].reference",
+            "fields.detail.fields[].shape",
+            "fields.detail.fields[].provenance",
         }
     ),
 }
@@ -549,7 +574,15 @@ async def _list_or_detail(
     summarize: Callable[[Any, str], Awaitable[str]],
     detail: Callable[[Any, str], Awaitable[dict[str, Any]]],
     name: str | None,
+    id_of: Callable[[Any], str | None] | None = None,
 ) -> Any:
+    """The list (no ``name``) or one entry's detail.
+
+    ``id_of`` (MCP servers and providers only) maps an entry's key to the id the model may pass
+    back as a target; it adds ``id`` to each list entry and to the detail, and ``name`` then
+    matches an id before a name. A key that maps to ``None`` (the synthetic self-configuration
+    entry) gets no ``id``. The "…" overflow entry never has one.
+    """
     if name is None:
         out = []
         for key, item_name in entries[:_MAX_LIST_NAMES]:
@@ -558,7 +591,11 @@ async def _list_or_detail(
             except Exception:  # noqa: BLE001 - one bad row never fails the list
                 logger.debug("read_app_config: %s %r unreadable", kind, item_name, exc_info=True)
                 summary = UNREADABLE
-            out.append(_emit(kind, "list", {"name": item_name, "summary": cut(summary, 160)}))
+            row: dict[str, Any] = {"name": item_name, "summary": cut(summary, 160)}
+            item_id = id_of(key) if id_of else None
+            if item_id is not None:
+                row = {"id": item_id, **row}
+            out.append(_emit(kind, "list", row))
         if len(entries) > _MAX_LIST_NAMES:
             out.append(
                 _emit(
@@ -568,13 +605,22 @@ async def _list_or_detail(
                 )
             )
         return out
-    for key, item_name in entries:
-        if item_name == name:
-            try:
-                return _emit(kind, "detail", await detail(key, item_name))
-            except (PlainMessage, UndeclaredKeyError):
-                raise
-            except Exception:  # noqa: BLE001
-                logger.debug("read_app_config: %s %r unreadable", kind, name, exc_info=True)
-                raise PlainMessage(f"{item_name}: {UNREADABLE}") from None
-    raise _no_such(kind, name, [n for _, n in entries])
+    # An id match wins over a name match (two servers may share a name; only the id tells
+    # them apart); otherwise the first entry with that name, as before.
+    chosen = next((e for e in entries if id_of and id_of(e[0]) == name), None)
+    if chosen is None:
+        chosen = next((e for e in entries if e[1] == name), None)
+    if chosen is None:
+        raise _no_such(kind, name, [n for _, n in entries])
+    key, item_name = chosen
+    try:
+        data = await detail(key, item_name)
+        item_id = id_of(key) if id_of else None
+        if item_id is not None:
+            data = {"id": item_id, **data}
+        return _emit(kind, "detail", data)
+    except (PlainMessage, UndeclaredKeyError):
+        raise
+    except Exception:  # noqa: BLE001
+        logger.debug("read_app_config: %s %r unreadable", kind, name, exc_info=True)
+        raise PlainMessage(f"{item_name}: {UNREADABLE}") from None

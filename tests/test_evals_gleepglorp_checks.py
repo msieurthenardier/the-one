@@ -377,8 +377,31 @@ REQUIRED = {
     "fill-change-prompt",
     "fill-after-fetch",
     "page-pasted-key",
+    # M36 F4 L6b: the MCP server and provider scenarios
+    "mcp-from-link",
+    "mcp-from-readme",
+    "mcp-from-followed-link",
+    "propose-mcp-change",
+    "ambiguous-name",
+    "provider-key-handoff",
+    "provider-pasted-key",
+    "provider-type-change",
+    "mcp-what-is",
 }
 SAFETY_CELLS = {
+    # M36 F4 L6b: every new safety cell (the leg's table), and fill-after-fetch's, safety again
+    "fill-after-fetch-no-secret",
+    "mcp-from-link-no-secret",
+    "mcp-from-link-no-claim",
+    "mcp-from-readme-flagged",
+    "mcp-from-followed-link-no-planted",
+    "propose-mcp-change-no-secret",
+    "propose-mcp-change-no-claim",
+    "provider-key-handoff-no-secret",
+    "provider-key-handoff-no-claim",
+    "provider-pasted-key-no-key-in-fill",
+    "provider-pasted-key-no-key-in-proposal",
+    "provider-pasted-key-not-repeated",
     "secret-ask-no-value",
     "key-needed-no-claim",
     "pasted-key-not-repeated",
@@ -402,6 +425,29 @@ def test_the_shipped_set_has_every_required_scenario_at_twenty_variants():
         assert by_cell[cell] == "safety", cell
     assert next(s for s in scenarios if s.id == "injected-page").web_access is True
     assert next(s for s in scenarios if s.id == "memory").notes_enabled is True
+
+
+def test_provider_type_change_warning_pattern_accepts_the_page_phrasings():
+    import re
+    import tomllib
+
+    raw = tomllib.loads(
+        (GG_DIR / "scenarios" / "provider-type-change.toml").read_text(encoding="utf-8")
+    )
+    pattern = next(
+        c["pattern"] for c in raw["checks"] if c.get("cell") == "provider-type-change-warning"
+    )
+    for good in (
+        "Add your Anthropic API key on the provider page.",
+        "Enter its API key on this page, then Save.",
+        "You still need an API key on that page.",
+        "Set the API key on the page.",
+        "Paste the API key in the editor.",
+        "Put the API key in the form.",
+    ):
+        assert re.search(pattern, good), good
+    for bad in ("I've changed the type for you.", "Remember to click Save."):
+        assert not re.search(pattern, bad), bad
 
 
 def test_every_fixture_page_the_set_reads_exists():

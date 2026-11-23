@@ -45,9 +45,18 @@ async def providers_view(ctx: Ctx, name: str | None = None) -> Any:
             and bool(sec.get("access_token") and sec.get("refresh_token")),
             "agents": await store.list_by_provider(p.id),
             "used_by_gleepglorp": gg.provider_config_id == p.id,
+            # What a change proposal needs to name current values (never the key itself).
+            "options": {
+                k: p.config[k]
+                for k in ("num_ctx", "thinking_enabled", "reasoning_effort")
+                if k in (p.config or {})
+            },
+            "key_stored": bool(p.api_key),
         }
 
-    return await _list_or_detail("providers", entries, summarize, detail, name)
+    return await _list_or_detail(
+        "providers", entries, summarize, detail, name, id_of=lambda key: key
+    )
 
 
 async def knowledge_bases_view(ctx: Ctx, name: str | None = None) -> Any:

@@ -19,16 +19,16 @@ phrasings = [
   "I want a new prompt for it. Use this: {newprompt}",
 ]
 facts = [
-  {agent = "Trip Planner", desc = "plan holidays", newprompt = "You plan holidays, keep every itinerary to one page and always list the budget first."},
-  {agent = "Ledger Keeper", desc = "reconcile statements", newprompt = "You reconcile bank statements against receipts and list unmatched items at the end of each reply."},
-  {agent = "Recipe Buddy", desc = "suggest dinners", newprompt = "You suggest dinners from the pantry, prefer meals under thirty minutes and ask about allergies first."},
-  {agent = "Garden Helper", desc = "track watering", newprompt = "You track watering and pruning, answer with a weekly list and mention the frost dates."},
-  {agent = "Code Reviewer", desc = "review pull requests", newprompt = "You review pull requests, point out risky changes and keep each comment to two sentences."},
+  {agent = "Trip Planner", agent_seg = "Trip%20Planner", desc = "plan holidays", newprompt = "You plan holidays, keep every itinerary to one page and always list the budget first."},
+  {agent = "Ledger Keeper", agent_seg = "Ledger%20Keeper", desc = "reconcile statements", newprompt = "You reconcile bank statements against receipts and list unmatched items at the end of each reply."},
+  {agent = "Recipe Buddy", agent_seg = "Recipe%20Buddy", desc = "suggest dinners", newprompt = "You suggest dinners from the pantry, prefer meals under thirty minutes and ask about allergies first."},
+  {agent = "Garden Helper", agent_seg = "Garden%20Helper", desc = "track watering", newprompt = "You track watering and pruning, answer with a weekly list and mention the frost dates."},
+  {agent = "Code Reviewer", agent_seg = "Code%20Reviewer", desc = "review pull requests", newprompt = "You review pull requests, point out risky changes and keep each comment to two sentences."},
 ]
 
 [[conversations]]
 turns = [
-  {text = "{phrasing}", page = {line = "Agents › {agent}", descriptor = {destination = "agents", item = "{agent}", item_name = "{agent}"}}},
+  {text = "{phrasing}", page = {line = "Agents › {agent} (#agents/{agent_seg})", descriptor = {destination = "agents", item = "{agent}", item_name = "{agent}"}}},
 ]
 
 [[checks]]

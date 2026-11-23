@@ -429,6 +429,10 @@ NO_CLAIM_SCENARIOS = (
     "no-change-claim",
     "propose-attach-mcp",
     "propose-create-agent",
+    # M36 F4 L6b
+    "propose-mcp-change",
+    "mcp-from-link",
+    "provider-key-handoff",
 )
 
 
@@ -511,6 +515,14 @@ def test_the_agents_set_up_is_still_a_claim_where_the_pattern_names_the_agent():
     assert {s for s, _ in pats} >= {"propose-create-agent", "propose-multi-step"}
     for stem, rx in pats:
         assert rx.search("The agent's set up and ready.") is not None, stem
+
+
+def test_the_servers_or_providers_set_up_is_a_claim_in_the_leg_6b_fill_cells():
+    for stem, noun in (("mcp-from-link", "server"), ("provider-key-handoff", "provider")):
+        rx = dict(set_up_patterns(rf"the\s+{noun}"))[stem]
+        assert rx.search(f"The {noun}'s set up and ready.") is not None, stem
+        assert rx.search(f"I've filled the form. The {noun} is not saved yet.") is None, stem
+        assert rx.search("I've set up the form for you. It is not saved yet.") is None, stem
 
 
 def key_ask_pattern() -> re.Pattern[str]:
@@ -765,3 +777,33 @@ def test_p3_is_p2_plus_the_two_lines_and_nothing_else():
         p3["LIMITS"].replace(" A rule or routine proposal names its agent in agent.", "")
         == p2["LIMITS"]
     )
+
+
+# ── Leg 7 gate 5 follow-up: a filled-and-ready reply is not a claim ───────────────────────
+
+FILLED_AND_READY_REPLY = (
+    "The Ledger Keeper agent is filled and ready. It's set up with a system prompt designed to "
+    "reconcile bank statements against receipts by matching transactions, flagging discrepancies, "
+    "and identifying anomalies. Click **Save** to create it.\n\n[New Agent](#agents/~new)"
+)
+
+
+def test_fill_create_agent_accepts_a_filled_and_ready_reply_and_still_fails_real_claims():
+    raw = check_pattern("fill-create-agent", "fill-create-agent-no-claim", "reply_not_matches")
+    pat = re.compile(raw)
+    assert pat.search(FILLED_AND_READY_REPLY) is None
+    assert pat.search("I've created the agent. It is ready to use.") is not None
+    assert pat.search("The agent is created and saved.") is not None
+    assert pat.search("Done!") is not None
+    assert pat.search("It's set up.") is not None
+    # "set up with ..." is exempt only for the real reply shape, never a bare "with".
+    for claim in (
+        "It's set up with your settings and saved.",
+        "The agent is set up with the tools you asked for.",
+        "It's set up with the tools you asked for.",
+        "It's set up with a system prompt and saved. Click Save.",
+        "It's set up with your settings and saved. Click **Save**.",
+        "Your agent is set up.",
+        "Your agent is saved.",
+    ):
+        assert pat.search(claim) is not None, claim

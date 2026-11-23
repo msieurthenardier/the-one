@@ -21,7 +21,6 @@
   var BUSY_TEXT = 'Wait for GleepGlorp to finish.';
   var BUSY_REFUSED = 'GleepGlorp is still working. Try again when it finishes.';
   var UNREACHABLE = "Couldn't reach the app. Try again.";
-  var AGENT_TABS = { rule: 'rules-and-notes', routine: 'routines' };
   var APPROVE_KINDS = { approve: true, retry: true, anyway: true };
   var uid = 0;
 
@@ -65,12 +64,53 @@
     return fmtValue(view.changes[key]);
   }
 
+  // An MCP server's `env` and `headers` arrive as nested {row name: value} objects and show one
+  // table row per key ("Header Accept", "Env LOG_LEVEL"). The stored keys stay `headers` and
+  // `env` (fieldKeys, appliedByApproval); only the table flattens them.
+  var ROWS_LABELS = { headers: 'Header', env: 'Env' };
+
+  function isRows(view, key) {
+    var v = (view.changes || {})[key];
+    return !!ROWS_LABELS[key] && !!v && typeof v === 'object' && !Array.isArray(v);
+  }
+
+  // The value a row has now: header names match case-insensitively, env names exactly; an
+  // absent row reads undefined (shown as "None").
+  function nowRowValue(view, key, row) {
+    var rows = view.base ? view.base[key] : null;
+    if (!rows || typeof rows !== 'object') return undefined;
+    if (Object.prototype.hasOwnProperty.call(rows, row)) return rows[row];
+    if (key !== 'headers') return undefined;
+    var folded = row.toLowerCase();
+    for (var k in rows) {
+      if (Object.prototype.hasOwnProperty.call(rows, k) && k.toLowerCase() === folded) return rows[k];
+    }
+    return undefined;
+  }
+
   function tableRows(view, two) {
-    return fieldKeys(view).map(function (k) {
+    var out = [];
+    fieldKeys(view).forEach(function (k) {
+      if (isRows(view, k)) {
+        Object.keys(view.changes[k]).forEach(function (r) {
+          var rr = { label: ROWS_LABELS[k] + ' ' + r, proposed: fmtValue(view.changes[k][r]) };
+          if (two) rr.now = fmtValue(nowRowValue(view, k, r));
+          out.push(rr);
+        });
+        return;
+      }
       var row = { label: view.labels[k], proposed: valueFor(view, k, 'proposed'), mono: k === 'llm_model' };
       if (two) row.now = valueFor(view, k, 'now');
-      return row;
+      out.push(row);
     });
+    return out;
+  }
+
+  // How many values the proposal sets: one per field, one per row of a rows field.
+  function valueCount(view) {
+    return fieldKeys(view).reduce(function (n, k) {
+      return n + (isRows(view, k) ? Object.keys(view.changes[k]).length : 1);
+    }, 0);
   }
 
   function symDiff(a, b) {
@@ -190,12 +230,18 @@
       return App.ui.util.el('div', { className: 'chat-proposal-head' }, kids);
     }
 
-    function openAgentLink(view) {
-      if (!view.agent_name) return null;
-      var spec = { destination: 'agents', id: view.agent_name };
-      if (AGENT_TABS[view.kind]) spec.tab = AGENT_TABS[view.kind];
+    // The kind's link to the item the proposal changed, or null (no link: an unknown kind, or a
+    // view with nothing to open). Its spec, text and testid come from App.gleepglorpKinds.
+    function linkSpecOf(view) {
+      var kind = App.gleepglorpKinds.get(view.kind);
+      return (kind && kind.openLink && kind.openLink(view)) || null;
+    }
+
+    function openLink(view) {
+      var l = linkSpecOf(view);
+      if (!l) return null;
       return App.ui.util.el('a', {
-        href: App.router.href(spec), 'data-testid': 'proposal-open-agent', text: 'Open agent'
+        href: App.router.href(l.spec), 'data-testid': l.testid, text: l.text
       });
     }
 
@@ -218,7 +264,7 @@
         [App.ui.util.icon('check'), 'Applied']);
       var parts = [state, App.ui.util.el('span', { text: (v.result && v.result.summary) || v.title }),
         App.ui.util.el('span', { className: 'chat-proposal-time', text: fmtTime(v.resolved_at || v.created_at) })];
-      var link = openAgentLink(v);
+      var link = openLink(v);
       if (link) parts.push(link);
       return [line(v, parts), details(v)];
     }
@@ -235,12 +281,10 @@
       var reason;
       if (v.status === 'withdrawn' && v.result && v.result.reason === 'replaced') {
         reason = 'replaced by the proposal below.';
-      } else if (v.kind === 'rule' && v.action === 'change') {
-        reason = 'the rule no longer exists.';
-      } else if (v.kind === 'routine' && v.action === 'change') {
-        reason = 'the routine no longer exists.';
       } else {
-        reason = 'the agent no longer exists.';
+        var kind = App.gleepglorpKinds.get(v.kind);
+        reason = kind && kind.labels && kind.labels.withdrawnGone
+          ? kind.labels.withdrawnGone(v) : 'the item no longer exists.';
       }
       return [line(v, [App.ui.util.el('span', { text: 'Withdrawn · ' + v.title + ': ' + reason })])];
     }
@@ -263,7 +307,7 @@
       return b;
     }
 
-    function foot(e, buttons, note) {
+    function foot(e, buttons, note, warnings) {
       var waitId = 'proposal-wait-' + (++uid);
       var wait = App.ui.util.el('p', { className: 'chat-proposal-wait', id: waitId, text: BUSY_TEXT });
       wait.hidden = true;
@@ -271,14 +315,23 @@
       buttons.forEach(function (b) { b.setAttribute('aria-describedby', waitId); });
       var kids = buttons.slice();
       if (note) kids.push(App.ui.util.el('span', { className: 'chat-proposal-foot-note', text: note }));
+      // What the operator should know before approving (an MCP server's saved sign-in, a first
+      // download): each warning is a plain line of the footer.
+      (warnings || []).forEach(function (w) {
+        kids.push(App.ui.util.el('p', {
+          className: 'chat-proposal-warning', 'data-testid': 'proposal-warning', text: w
+        }));
+      });
       kids.push(wait);
       return App.ui.util.el('div', { className: 'chat-proposal-foot' }, kids);
     }
 
     function footNote(v) {
       if (v.action === 'create') return 'Other settings keep their defaults.';
-      var n = fieldKeys(v).length;
-      return n === 1 ? 'Only this field changes.' : 'Only these ' + n + ' fields change.';
+      var n = valueCount(v);
+      var rows = fieldKeys(v).some(function (k) { return isRows(v, k); });
+      var noun = rows ? 'value' : 'field';
+      return n === 1 ? 'Only this ' + noun + ' changes.' : 'Only these ' + n + ' ' + noun + 's change.';
     }
 
     // A spacing wrapper (the status and banner controls carry no margin of their own).
@@ -350,7 +403,7 @@
       var note = noticeNode(e);
       if (note) kids.push(note);
       var dismiss = button(e, 'dismiss', { variant: 'secondary', label: 'Dismiss', testid: 'proposal-dismiss' });
-      kids.push(foot(e, [primary, dismiss], state === 'stale' ? null : footNote(v)));
+      kids.push(foot(e, [primary, dismiss], state === 'stale' ? null : footNote(v), v.warnings));
       return kids;
     }
 
@@ -553,7 +606,10 @@
       return function () {
         if (!e.el) return null;
         var s = stateOf(e);
-        if (s === 'applied' || s === 'withdrawn') return e.el.querySelector('[data-testid="proposal-open-agent"]');
+        if (s === 'applied' || s === 'withdrawn') {
+          var l = linkSpecOf(e.view);
+          return l ? e.el.querySelector('[data-testid="' + l.testid + '"]') : null;
+        }
         if (s === 'dismissed') return ctx.composer.input;
         if (s === 'failed') return e.el.querySelector('[data-testid="proposal-try-again"]');
         if (s === 'stale') return e.el.querySelector('[data-testid="proposal-approve-anyway"]');
@@ -570,6 +626,7 @@
       App.approvals.record({
         kind: view.kind,
         agent: view.agent_name,
+        target_id: view.target_id,
         fields: fieldKeys(view),
         items: null,
         session_id: sid,
@@ -581,7 +638,7 @@
       if (Object.keys(items).length) {
         resolveItems(items).then(function (resolved) {
           App.approvals.record({
-            kind: view.kind, agent: view.agent_name, fields: [], items: resolved,
+            kind: view.kind, agent: view.agent_name, target_id: view.target_id, fields: [], items: resolved,
             session_id: sid, proposal_id: view.id, at: view.resolved_at
           });
         });

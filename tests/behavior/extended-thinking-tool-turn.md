@@ -21,7 +21,7 @@ is the acceptance gate for Mission 16's extended-thinking criterion.
 ## Preconditions
 
 - The app is running and reachable on a **dedicated dev instance, non-default port**
-  (e.g. `:8485`) with a scratch data directory — never the operator's default `:8484`
+  (`:{PORT}`: 8486 or higher, assigned per run; never 8484 or 8485) with a scratch data directory — never the operator's default `:8484`
   instance (see CLAUDE.md's "Behavior-test credential convention" safety rule).
 - An **Anthropic API key** is stored in the credential store.
 - **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's

@@ -88,22 +88,42 @@ def _entropy(text: str) -> float:
     return -sum((c / n) * math.log2(c / n) for c in counts.values())
 
 
-def looks_like_key(text: str) -> bool:
-    """The key-shape rules (prefix + tail, or a long high-entropy run) on one string."""
+def looks_like_key(text: str, *, relaxed: bool = False) -> bool:
+    """The key-shape rules (prefix + tail, or a long high-entropy run) on one string.
+
+    ``relaxed`` skips the hex-run and entropy heuristics (never the prefix rule): for an
+    address or command field, where a digest or an id in a path is not a key.
+    """
     if _PREFIX_RE.search(text):
         return True
+    if relaxed:
+        return False
     scanned = _UUID_RE.sub(" ", text)
     if _HEX_RUN_RE.search(scanned):
         return True
     return any(_entropy(run) >= KEY_MIN_ENTROPY for run in _RUN_RE.findall(scanned))
 
 
-async def check(conn: Any, enc: Any, changes: Any) -> str | None:
-    """A refusal sentence when ``changes`` holds a stored secret or a key-shaped string."""
+async def check(
+    conn: Any, enc: Any, changes: Any, *, relaxed: frozenset[str] = frozenset()
+) -> str | None:
+    """A refusal sentence when ``changes`` holds a stored secret or a key-shaped string.
+
+    ``relaxed`` names stored keys of ``changes`` whose values skip the key-shape
+    **heuristics** (the hex-run and entropy rules, see :func:`looks_like_key`): a kind's
+    address and command fields (``Kind.relaxed_guard_keys``). The stored-secret containment
+    and the token-prefix rule still apply to every value, and a key that is not named here
+    keeps every rule.
+    """
     texts = _strings(changes)
     if not texts:
         return None
-    if any(looks_like_key(t) for t in texts):
+    if isinstance(changes, dict) and relaxed:
+        for key, value in changes.items():
+            skip = key in relaxed
+            if any(looks_like_key(t, relaxed=skip) for t in _strings(value)):
+                return REFUSAL
+    elif any(looks_like_key(t) for t in texts):
         return REFUSAL
     leaves = secret_leaves(await gather_corpora(conn, enc, strict=False))
     if leaves and any(leaf in t for t in texts for leaf in leaves):

@@ -11,7 +11,7 @@ from _routine_tools_env import asst, call, done, make_agent, run_turn
 from tests._gleepglorp_seed import seed
 from the_one.agent._context import TurnContext, current_turn
 from the_one.agent.taint import TRUSTED_TOOL_NAMES
-from the_one.gleepglorp.proposals import shape
+from the_one.gleepglorp import kinds
 from the_one.gleepglorp.proposals.store import GleepGlorpProposalRepository
 from the_one.gleepglorp.proposals.tool import PROPOSE_CHANGE_TOOL_NAME, ProposeChangeTool
 from the_one.tools.base import Tool
@@ -63,9 +63,9 @@ def test_shape_of_the_tool() -> None:
     schema = t.to_schema()
     assert schema["name"] == "propose_change" == PROPOSE_CHANGE_TOOL_NAME
     props = schema["parameters"]["properties"]
-    assert props["kind"]["enum"] == ["agent", "rule", "routine"]
+    assert props["kind"]["enum"] == ["agent", "rule", "routine", "mcp_server", "provider"]
     assert props["action"]["enum"] == ["create", "change"]
-    assert set(props) == {"kind", "action", "agent", "rule", "routine", "changes"}
+    assert set(props) == {"kind", "action", "agent", "rule", "routine", "target", "changes"}
     assert schema["parameters"]["required"] == ["kind", "action", "changes"]
     assert isinstance(t, Tool)
 
@@ -73,10 +73,13 @@ def test_shape_of_the_tool() -> None:
 def test_the_description_stays_thin() -> None:
     text = ProposeChangeTool.description
     assert len(text) <= 520, len(text)
-    # Every field name of every kind is named once, in one short line each.
-    for specs in shape.SPECS.values():
-        for f in specs:
-            assert f.name.split("_")[0] in text, f.name
+    # Every kind is named; its fields are read from the fields kind of read_app_config, not
+    # listed here.
+    for kind in kinds.REGISTRY:
+        assert kind.name in text, kind.name
+    assert "read_app_config kind=fields name=<kind>" in text
+    for field in ("system_prompt", "enabled_tools", "notes_enabled", "headers", "schedule"):
+        assert field not in text, field
 
 
 def test_the_description_token_budget() -> None:
@@ -159,7 +162,7 @@ async def test_it_never_raises_into_the_loop(world, tool, monkeypatch) -> None:
     async def boom(*_a, **_k):
         raise RuntimeError("explodes")
 
-    monkeypatch.setattr(shape, "normalize", boom)
+    monkeypatch.setattr(kinds, "normalize", boom)
     assert await propose(tool, **rule_new()) == "Could not record that proposal right now."
 
 

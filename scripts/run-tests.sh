@@ -20,7 +20,7 @@ set -euo pipefail
 
 # --- Per-area browser test lanes (F5; re-mapped to destinations in M25 F2) ---
 # `--lane <lane>` runs just one slice of the browser suite. The canonical lanes
-# are chats, chats-transcript, chats-widgets, agents, agent-tabs, agent-routines, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-chat, contracts-widget, contracts-widget-lifecycle, contracts-controls and shared.
+# are chats, chats-transcript, chats-widgets, gleepglorp, agents, agent-tabs, agent-routines, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-chat, contracts-widget, contracts-widget-lifecycle, contracts-controls and shared.
 # Aliases (kept for muscle memory and older docs):
 #   chat = chats + chats-transcript + chats-widgets, studio = agents + agent-tabs + agent-routines + library + knowledge + mcp + mcp-connection,
 #   system = settings + settings-tools + providers,
@@ -56,8 +56,8 @@ set -euo pipefail
 # parent SIGKILLed before its first child has started its watchdog (well under a
 # second) can leak that one child's pytest group.
 
-LANE_LIST="chats|chats-transcript|chats-widgets|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|shared"
-CANON_LANES=(chats chats-transcript chats-widgets agents agent-tabs agent-routines library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-widget contracts-widget-lifecycle contracts-controls shared)
+LANE_LIST="chats|chats-transcript|chats-widgets|gleepglorp|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|shared"
+CANON_LANES=(chats chats-transcript chats-widgets gleepglorp agents agent-tabs agent-routines library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-widget contracts-widget-lifecycle contracts-controls shared)
 
 # Per-lane wall-clock budgets in seconds (M35 F1 L1: contracts-chat re-budgeted 90 to 120 s when the two chart contract files joined it, measured 83 s solo on a host at load 1.2-2.4, not a quiet --parallel 3 reading, so M35's closing gate re-measures it; earlier: M33 F3 leg 8 --parallel 3 run, start load 1.11, total 1885 s, 17 lanes: routing 720 and agents 630 re-budgeted for headroom; others within 15%; earlier: re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
@@ -65,24 +65,25 @@ CANON_LANES=(chats chats-transcript chats-widgets agents agent-tabs agent-routin
 # other test process on the host (no other lanes, no unit suite, no other session's tests); a solo
 # `--lane` run or a loaded host measures something else and must not move a budget.
 declare -A BUDGET=(
-  [chats]=420
+  [chats]=540   # M36 F4 L8, 2026-11-23, wall 427 s, quiet --parallel 3 (was 420)
   [chats-transcript]=540   # M35 F1 closing gate quiet-host: measured 430 s
   [chats-widgets]=240   # M35 F2 L6 provisional (widgets in chat flow tests); re-measured at the closing gate
-  [agents]=630   # M33 F3 leg 8 quiet-host gate: measured 499 s
-  [agent-tabs]=600   # sortie 10 debrief quiet-host gate (ba5ff7ee): measured 466 s
-  [agent-routines]=300   # M33 F4 closing gate: measured 236 s
-  [library]=480   # sortie 10 debrief quiet-host gate (ba5ff7ee): measured 379 s
+  [gleepglorp]=690   # M36 F4 L8, 2026-11-23, wall 541 s, quiet --parallel 3 (was 360 provisional)
+  [agents]=780   # M36 F4 L8, 2026-11-23, wall 603 s, quiet --parallel 3 (was 630, measured 499 s)
+  [agent-tabs]=750   # M36 F4 L8, 2026-11-23, wall 598 s, quiet --parallel 3 (was 600, measured 466 s)
+  [agent-routines]=360   # M36 F4 L8, 2026-11-23, wall 279 s, quiet --parallel 3 (was 300, measured 236 s)
+  [library]=570   # M36 F4 L8, 2026-11-23, wall 440 s, quiet --parallel 3 (was 480, measured 379 s)
   [knowledge]=420
-  [mcp]=330
+  [mcp]=450   # M36 F4 L8, 2026-11-23, wall 350 s, quiet --parallel 3 (was 330)
   [mcp-connection]=390
-  [routing]=720   # M33 F3 leg 8 quiet-host gate: measured 555 s
+  [routing]=810   # M36 F4 L8, 2026-11-23, wall 643 s, quiet --parallel 3 (was 720, measured 555 s)
   [settings]=360
   [settings-tools]=330
   [providers]=420
   [contracts-overlay]=240   # M35 F1 closing gate quiet-host: measured 192 s
-  [contracts-chat]=150   # M35 F1 closing gate quiet-host: measured 100 s
+  [contracts-chat]=180   # M36 F4 L8, 2026-11-23, wall 140 s, quiet --parallel 3 (was 150, measured 100 s)
   [contracts-widget]=300   # M35 F2 L3 provisional (widget frame and card contract files); re-measured at the closing gate
-  [contracts-widget-lifecycle]=300   # M35 F2 L5 provisional (lifecycle and hang guard contract files); re-measured at the closing gate
+  [contracts-widget-lifecycle]=150   # M36 F4 L8, 2026-11-23, wall 105 s, quiet --parallel 3 (was 300 provisional)
   [contracts-controls]=540   # M35 F1 closing gate quiet-host: measured 425 s
   [shared]=420
 )
@@ -196,8 +197,16 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
                       'test_flow_chat_time_zone.py' 'test_flow_chat_routine_marker.py' 'test_flow_markdown_chat.py' \
                       'test_flow_streaming.py' 'test_flow_context_overlay_thresholds.py' \
                       'test_flow_usage_restore.py' 'test_flow_chat_transcript_library.py' \
-                      'test_flow_chat_drafts.py' 'test_flow_chat_charts.py' 'test_flow_chat_turn_work.py' 'test_flow_chat_turn_work_states.py' \
-                      'test_flow_chat_gleepglorp.py' 'test_flow_chat_proposals.py')
+                      'test_flow_chat_drafts.py' 'test_flow_chat_charts.py' 'test_flow_chat_turn_work.py' 'test_flow_chat_turn_work_states.py')
+# GleepGlorp lane (M36 F4 L1b): the drawer, fill and proposal-card flow tests, an explicit list.
+# The two chat files (test_flow_chat_gleepglorp.py, test_flow_chat_proposals.py) match the chats
+# globs and sat in `chats-transcript` until now; `chats` and `chats-transcript` no longer carry
+# them. The `chat` alias still expands `chats_pat`, so it still runs them.
+gleepglorp_pat=('test_flow_gleepglorp_drawer_chat.py' 'test_flow_gleepglorp_drawer_shell.py' \
+                'test_flow_gleepglorp_fill.py' 'test_flow_chat_gleepglorp.py' \
+                'test_flow_chat_proposals.py' 'test_flow_gleepglorp_kinds.py' \
+                'test_flow_gleepglorp_fill_mcp.py' 'test_flow_gleepglorp_follow_mcp.py' \
+                'test_flow_gleepglorp_fill_provider.py' 'test_flow_gleepglorp_follow_provider.py')
 # Chats-widgets (M35 F2 L6): the widgets-in-chat flow tests, an explicit list kept out of `chats`
 # and `chats-transcript` (which sat at 430 s of 540 s at Flight 1). `chats` is `chats_pat` MINUS
 # this list and the transcript list.
@@ -278,7 +287,7 @@ agents_files() {
 # Files matching the chats globs minus the chats-transcript list, sorted.
 chats_files() {
   comm -23 <(expand_lane "${chats_pat[@]}" | sort -u) \
-           <(expand_lane "${chats_transcript_pat[@]}" "${chats_widgets_pat[@]}" | sort -u)
+           <(expand_lane "${chats_transcript_pat[@]}" "${chats_widgets_pat[@]}" "${gleepglorp_pat[@]}" | sort -u)
 }
 
 # Files matching the settings globs minus the settings-tools list, sorted.
@@ -300,6 +309,7 @@ resolve_lane() {
     chats)         mapfile -t lane_files < <(chats_files) ;;
     chats-transcript) mapfile -t lane_files < <(expand_lane "${chats_transcript_pat[@]}" | sort -u) ;;
     chats-widgets) mapfile -t lane_files < <(expand_lane "${chats_widgets_pat[@]}" | sort -u) ;;
+    gleepglorp)    mapfile -t lane_files < <(expand_lane "${gleepglorp_pat[@]}" | sort -u) ;;
     chat)          mapfile -t lane_files < <(expand_lane "${chats_pat[@]}" | sort -u) ;;
     agents)        mapfile -t lane_files < <(agents_files) ;;
     agent-tabs)    mapfile -t lane_files < <(expand_lane "${agent_tabs_pat[@]}" | sort -u) ;;
@@ -326,7 +336,7 @@ resolve_lane() {
       # carries no @pytest.mark.browser tests).
       local _assigned _all f
       mapfile -t _assigned < <(
-        expand_lane "${chats_pat[@]}" "${studio_pat[@]}" "${routing_pat[@]}" \
+        expand_lane "${chats_pat[@]}" "${gleepglorp_pat[@]}" "${studio_pat[@]}" "${routing_pat[@]}" \
                     "${settings_all_pat[@]}" "${providers_pat[@]}" "${contracts_all_pat[@]}" \
                     'test_visual_snapshots.py' | sort -u)
       mapfile -t _all < <(for f in "$browser_dir/"test_*.py; do printf '%s\n' "$f"; done | sort -u)

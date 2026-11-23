@@ -8,15 +8,19 @@
 // second: the server's `config_changed` frame (to every socket) and the applied proposal in the
 // approve response (the window that clicked Approve).
 //
-// detail: {kind: 'agent' | 'rule' | 'routine', agent, fields: [stored field names], session_id,
-//          proposal_id, at, items?: {tools|mcp_source_ids|kb_ids: [item ids]}}
+// detail: {kind: a registered App.gleepglorpKinds name, agent (the agent kinds) | target_id (an
+//          id-targeted kind), fields: [stored field names], session_id, proposal_id, at,
+//          items?: {tools|mcp_source_ids|kb_ids: [item ids]}}
 //   items names which tiles moved (the proposal view's base against its changes); it is merged
 //   even for a proposal id already seen, and App.approvals.itemsFor(name) reads it back.
 //
-//   App.approvals.record(detail)   -> false for a proposal already seen, else true: merges the
-//       change into the agent's record (fields keyed by stored name; a rule or routine kind is
-//       recorded under 'rules' / 'routines'), invalidates the agents store and emits
-//       CONFIG_CHANGED on the document (the Studio event bus's transport) for listeners.
+//   App.approvals.record(detail)   -> false for an unknown kind, an unrecordable detail or a
+//       proposal already seen, else true: merges the change into the record the kind's recordKey
+//       names (an agent kind: the agent's, fields keyed by stored name, a rule or routine under
+//       'rules' / 'routines'; an id-targeted kind: byTarget[kind][id]), invalidates the kind's
+//       store and emits CONFIG_CHANGED on the document (the Studio event bus's transport) for
+//       listeners. The event carries `agent` for an agent kind and `target_id` when there is one.
+//   App.approvals.forTarget(kind, id) -> {field: {at, session_id}} for an id-targeted kind
 //   App.approvals.forAgent(name)   -> {field: {at, session_id}} (a copy; {} when none)
 //   App.approvals.clear(name)      -> empties that agent's record
 //   App.approvals.CONFIG_CHANGED   -> the event name
@@ -26,8 +30,8 @@
 
   var CONFIG_CHANGED = 'approvals-config-changed';
   var SEEN_CAP = 200;
-  var KIND_KEYS = { rule: 'rules', routine: 'routines' };
   var byAgent = {};
+  var byTarget = {}; // kind -> target id -> {field: {at, session_id}}
   var itemsByAgent = {};
   var seen = [];
 
@@ -49,20 +53,35 @@
   }
 
   function record(detail) {
-    if (!detail || !detail.agent) return false;
+    if (!detail) return false;
+    var kind = App.gleepglorpKinds.get(detail.kind);
+    var where = kind && kind.recordKey ? kind.recordKey(detail) : null;
+    if (!where) return false;
+    var isAgent = where.scope === 'agent';
     // The socket frame may arrive first with fields only: a repeat still merges its items.
-    mergeItems(detail.agent, detail.items);
+    if (isAgent) mergeItems(where.id, detail.items);
     if (detail.proposal_id !== undefined && detail.proposal_id !== null &&
         !remember(detail.proposal_id)) return false;
     var at = detail.at || new Date().toISOString();
-    var rec = byAgent[detail.agent] || (byAgent[detail.agent] = {});
-    var keys = KIND_KEYS[detail.kind] ? [KIND_KEYS[detail.kind]] : (detail.fields || []);
+    var rec;
+    if (isAgent) {
+      rec = byAgent[where.id] || (byAgent[where.id] = {});
+    } else {
+      var kindRec = byTarget[detail.kind] || (byTarget[detail.kind] = {});
+      rec = kindRec[where.id] || (kindRec[where.id] = {});
+    }
+    var keys = where.fields || detail.fields || [];
     keys.forEach(function (f) { rec[f] = { at: at, session_id: detail.session_id || null }; });
-    try { App.store.invalidate('agents'); } catch (e) { /* the store is eager; belt and braces */ }
+    if (kind.store) {
+      try { App.store.invalidate(kind.store); } catch (e) { /* the store is eager; belt and braces */ }
+    }
     var event = {
-      kind: detail.kind, agent: detail.agent, fields: (detail.fields || []).slice(),
+      kind: detail.kind, fields: (detail.fields || []).slice(),
       session_id: detail.session_id || null, proposal_id: detail.proposal_id, at: at
     };
+    if (isAgent) event.agent = where.id;
+    if (detail.target_id !== undefined && detail.target_id !== null) event.target_id = detail.target_id;
+    else if (!isAgent) event.target_id = where.id;
     if (window.App.studio && App.studio.eventBus) App.studio.eventBus.emit(CONFIG_CHANGED, event);
     else document.dispatchEvent(new CustomEvent(CONFIG_CHANGED, { detail: event }));
     return true;
@@ -70,6 +89,14 @@
 
   function forAgent(name) {
     var rec = byAgent[name] || {};
+    var out = {};
+    Object.keys(rec).forEach(function (k) { out[k] = { at: rec[k].at, session_id: rec[k].session_id }; });
+    return out;
+  }
+
+  // {field: {at, session_id}} for an id-targeted (non-agent) kind's item (a copy; {} when none).
+  function forTarget(kind, id) {
+    var rec = (byTarget[kind] || {})[id] || {};
     var out = {};
     Object.keys(rec).forEach(function (k) { out[k] = { at: rec[k].at, session_id: rec[k].session_id }; });
     return out;
@@ -86,6 +113,7 @@
   function clear(name) { delete byAgent[name]; delete itemsByAgent[name]; }
 
   window.App.approvals = {
-    CONFIG_CHANGED: CONFIG_CHANGED, record: record, forAgent: forAgent, itemsFor: itemsFor, clear: clear
+    CONFIG_CHANGED: CONFIG_CHANGED, record: record, forAgent: forAgent, forTarget: forTarget,
+    itemsFor: itemsFor, clear: clear
   };
 })();

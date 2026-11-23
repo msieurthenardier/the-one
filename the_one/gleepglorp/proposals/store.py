@@ -20,6 +20,7 @@ import aiosqlite
 
 from the_one.db._write_lock import write_transaction
 from the_one.db.models import now_iso
+from the_one.gleepglorp.status_rows import get_row, list_for_session_rows, loads
 
 OPEN_STATUSES = ("pending", "failed")
 STATUSES = ("pending", "applied", "dismissed", "withdrawn", "failed")
@@ -73,13 +74,8 @@ class Proposal:
     resolved_at: str | None
 
 
-def _loads(raw: Any, default: Any = None) -> Any:
-    if raw is None:
-        return default
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        return default
+_TABLE = "gleepglorp_proposals"
+_loads = loads
 
 
 def _row(row: Any) -> Proposal:
@@ -144,8 +140,14 @@ class GleepGlorpProposalRepository:
 
         An open proposal that is ``failed``, or has the same ``target_key``, is marked
         ``withdrawn`` (``result = {"reason": "replaced", "by": new_id}``) and the new row is
-        inserted; any other open proposal refuses the insert with :class:`ProposalOpen`.
+        inserted; any other open proposal refuses the insert with :class:`ProposalOpen`. A kind
+        the registry does not know is refused with ``ValueError`` (the table has no kind CHECK
+        since schema v56; the registry is the gate).
         """
+        from the_one.gleepglorp import kinds
+
+        if new.kind not in kinds.KINDS:
+            raise ValueError(f"unsupported proposal kind: {new.kind!r}")
         async with write_transaction(self.conn):
             async with self.conn.execute(
                 f"SELECT {_COLS} FROM gleepglorp_proposals "  # noqa: S608
@@ -194,19 +196,10 @@ class GleepGlorpProposalRepository:
         return new_id
 
     async def get(self, proposal_id: int) -> Proposal | None:
-        async with self.conn.execute(
-            f"SELECT {_COLS} FROM gleepglorp_proposals WHERE id = ?",  # noqa: S608
-            (proposal_id,),
-        ) as cur:
-            row = await cur.fetchone()
-        return _row(row) if row else None
+        return await get_row(self.conn, _TABLE, _COLS, _row, proposal_id)
 
     async def list_for_session(self, session_id: str) -> list[Proposal]:
-        async with self.conn.execute(
-            f"SELECT {_COLS} FROM gleepglorp_proposals WHERE session_id = ? ORDER BY id",  # noqa: S608
-            (session_id,),
-        ) as cur:
-            return [_row(r) for r in await cur.fetchall()]
+        return await list_for_session_rows(self.conn, _TABLE, _COLS, _row, session_id)
 
     async def open_for_session(self, session_id: str) -> Proposal | None:
         async with self.conn.execute(
@@ -240,6 +233,8 @@ _ID_FIELDS = {
     "kb_ids": "knowledge_bases",
 }
 REMOVED = "(removed)"
+# The stored ``rows`` fields (``FieldSpec.rows``) and the word each row is shown under.
+ROWS_LABELS = {"headers": "Header", "env": "Env"}
 
 
 def _display(values: dict[str, Any] | None, names: dict[str, dict[str, str]]) -> Any:
@@ -266,8 +261,21 @@ async def _name_map(conn: aiosqlite.Connection) -> dict[str, dict[str, str]]:
 
 
 async def display_values(conn: aiosqlite.Connection, values: dict[str, Any]) -> dict[str, Any]:
-    """``values`` (stored field names) with each id shown as the name it has now."""
-    return _display(values, await _name_map(conn)) or {}
+    """``values`` (stored field names) with each id shown as the name it has now.
+
+    A ``{name: value}`` rows field (``headers``, ``env``) is shown as one entry per key,
+    ``"Header Accept"`` and ``"Env LOG_LEVEL"``.
+    """
+    shown = _display(values, await _name_map(conn)) or {}
+    out: dict[str, Any] = {}
+    for key, value in shown.items():
+        label = ROWS_LABELS.get(key)
+        if label is not None and isinstance(value, dict):
+            for row, row_value in value.items():
+                out[f"{label} {row}"] = row_value
+        else:
+            out[key] = value
+    return out
 
 
 _NEXT_RUNS_SHOWN = 3
@@ -304,8 +312,13 @@ async def _card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any
     """``title``, ``target_gone`` and, for a routine, the schedule text and next runs."""
     from the_one import time_zones
     from the_one.db.repositories import AgentRuleRepository
+    from the_one.gleepglorp import kinds
     from the_one.gleepglorp.view_core import _agent_names
     from the_one.routines.repository import AgentRoutineRepository
+
+    kind = kinds.find(p.kind)
+    if kind is not None and kind.card_extras is not None:
+        return await kind.card_extras(conn, p)
 
     agent = p.agent_name or ""
     q = _quoted(agent)
@@ -362,17 +375,28 @@ async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, An
     now, or ``"(removed)"`` when it no longer exists) and ``labels`` (the card text for each
     field, keyed by stored field name). ``base`` is ``None`` for a create.
     """
-    from the_one.gleepglorp.proposals import shape
+    from the_one.gleepglorp import kinds
 
     names = await _name_map(conn)
     extra = await _card_extras(conn, p)
+    warnings: list[str] = []
+    kind = kinds.find(p.kind)
+    # Only an open card is warned about: a closed one never describes the current state as if
+    # it were the proposal's.
+    if kind is not None and kind.warnings is not None and p.status in OPEN_STATUSES:
+        from the_one.config import settings
+        from the_one.encryption import get_encryptor
+
+        warnings = await kind.warnings(conn, get_encryptor(settings.data_dir), p)
     return {
         **extra,
         "id": p.id,
         "kind": p.kind,
         "action": p.action,
         "agent_name": p.agent_name,
-        "target_id": p.target_id,
+        # A create's id exists only once applied: the apply records it in ``result``.
+        "target_id": p.target_id or (p.result or {}).get("target_id"),
+        "warnings": warnings,
         "status": p.status,
         "result": p.result,
         "untrusted": p.untrusted,
@@ -382,5 +406,5 @@ async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, An
         "tool_call_id": p.tool_call_id,
         "changes": _display(p.changes, names),
         "base": _display(p.base, names),
-        "labels": {f.stored: f.label for f in shape.SPECS.get(p.kind, ())},
+        "labels": {f.stored: f.label for f in kinds.SPECS.get(p.kind, ())},
     }

@@ -23,18 +23,18 @@ POSTing.
 
 ## Preconditions
 
-- the-one is running host-native and reachable on `http://localhost:8485` (the mission dev
-  instance), with `THE_ONE_DEV_MODE=true`. Verify with an **active probe**:
-  `GET http://localhost:8485/api/providers/types` returns 200.
+- the-one is running host-native and reachable on `http://localhost:{PORT}` (a dedicated dev instance on a dedicated non-default
+  port, 8486 or higher, assigned per run; never 8484 or 8485), with `THE_ONE_DEV_MODE=true`. Verify with an **active probe**:
+  `GET http://localhost:{PORT}/api/providers/types` returns 200.
 - **No pre-seeded provider is required** — the provider under test is created through the API by
   this flow's setup step and deleted by teardown. To keep the run deterministic, use a
   distinctive name (`SPC-test-provider`); if a prior partial run left a provider by that name,
   delete it before Step 1 (`GET /api/providers` → find by name → `DELETE /api/providers/{id}`).
-- A **chrome-devtools** browser apparatus is attached to 8485 for the UI-editing steps. **Never
-  touch 8484.**
+- A **chrome-devtools** browser apparatus is attached to `{PORT}` for the UI-editing steps. **Never
+  touch 8484 or 8485.**
 - An `http` apparatus (curl via Bash, or an equivalent MCP) for the API setup/verification steps.
 - **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
-  "Behavior-test credential convention" — read the long-lived credential from 8485's
+  "Behavior-test credential convention" — read the long-lived credential from the `{PORT}` instance's
   data directory, mint a handoff URL for the Step-4 browser navigation (single-use;
   re-mint if navigating again), and attach `Authorization: Bearer <credential>` to the
   `curl` calls.
@@ -54,7 +54,7 @@ POSTing.
 | 1 | (Setup, no judgment) Probe `GET /api/providers/types` for 200. If a provider named `SPC-test-provider` already exists (`GET /api/providers`), `DELETE` it. Via the API, `POST /api/providers` with `{"name": "SPC-test-provider", "type": "openai-compatible", "base_url": "https://example.invalid/v1", "api_key": "sk-test-not-real"}`. | (empty) |
 | 2 | (Setup, no judgment) Via the API, `PUT /api/providers/{id}` (the id from Step 1) with `{"config": {"response_format": "json_object", "stop": ["END"]}}`. | (empty) |
 | 3 | (Setup, no judgment) `GET /api/providers/{id}` and confirm the response's `config` contains `response_format: "json_object"` and `stop: ["END"]` — establishes the out-of-band baseline the rest of the test protects. | (empty) |
-| 4 | Open a fresh chrome-devtools page at `http://localhost:8485/#library` with an `ignoreCache` hard-reload. Click the `SPC-test-provider` row's name link in the Model providers group to open its editor (it opens in the detail pane beside the list). | The provider editor opens in edit mode for `SPC-test-provider`: the **Reasoning effort** field-group is visible (its select is bound to `config.reasoning_effort`), showing **"Provider default"** selected (the field was never set). The primary button reads **Save** and is disabled (no unsaved changes). |
+| 4 | Open a fresh chrome-devtools page at `http://localhost:{PORT}/#library` with an `ignoreCache` hard-reload. Click the `SPC-test-provider` row's name link in the Model providers group to open its editor (it opens in the detail pane beside the list). | The provider editor opens in edit mode for `SPC-test-provider`: the **Reasoning effort** field-group is visible (its select is bound to `config.reasoning_effort`), showing **"Provider default"** selected (the field was never set). The primary button reads **Save** and is disabled (no unsaved changes). |
 | 5 | In the Reasoning effort select, choose **"high"**. | The select shows "high" selected; the **Save** button is now enabled (the form is dirty). |
 | 6 | Click **Save**. | The save succeeds (no error flash). The Save button returns to disabled (no unsaved changes); the Reasoning effort select still shows "high". |
 | 7 | Via the API, `GET /api/providers/{id}` and inspect the `config` object. | `config.reasoning_effort` is `"high"` (the UI-edited field), AND `config.response_format` is still `"json_object"`, AND `config.stop` is still `["END"]` — all three keys survive the UI-triggered save together. |

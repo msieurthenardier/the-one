@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from typing import Any
+from urllib.parse import quote
 
 VALUE_FAULT = "value: "
 """Prefix of the error of a value fault (the message is kept, the page dropped)."""
@@ -158,9 +159,66 @@ def _create_name(descriptor: dict[str, Any]) -> str | None:
     return CREATE_NAMES.get(key or "")
 
 
-def build_line(descriptor: dict[str, Any], resolved_name: str | None = None) -> str:
-    """The line for a validated descriptor, labels joined with `` › ``. ``resolved_name`` is
-    the item's stored name; without it the sanitised ``item_name``, then the segment."""
+def _enc(value: str) -> str:
+    """One route segment, as ``router.js`` ``enc`` writes it: ``encodeURIComponent`` (which
+    leaves ``A-Za-z0-9 - _ . ! ~ * ' ( )`` alone), then a leading ``~`` escaped as ``%7E`` so it
+    never reads as the reserved ``~new``. ``tests/test_gleepglorp_page.py`` pins it against the
+    client source."""
+    s = quote(str(value), safe="!~*'()")
+    return "%7E" + s[1:] if s.startswith("~") else s
+
+
+def _route(descriptor: dict[str, Any], resolved_id: str | None) -> str | None:
+    """The app hash route of the open page (without ``#``), built only from values the server
+    resolved, or ``None`` when no valid route exists (an item that did not resolve, a Library
+    group alone, which redirects)."""
+    dest = descriptor["destination"]
+    section = descriptor.get("section")
+    if dest == "settings":
+        # Never the item: a settings item is the client's own text. A section is required.
+        return f"settings/{_enc(section)}" if section else None
+    if dest == "agents":
+        if descriptor.get("create"):
+            return "agents/~new"
+        if not descriptor.get("item"):
+            return "agents"
+        if not resolved_id:
+            return None
+        route = f"agents/{_enc(resolved_id)}"
+        tab = descriptor.get("tab")
+        return f"{route}/{_enc(tab)}" if tab else route
+    if not section:
+        return None
+    if descriptor.get("create"):
+        return f"library/{_enc(section)}/~new"
+    if descriptor.get("item") and resolved_id:
+        return f"library/{_enc(section)}/{_enc(resolved_id)}"
+    return None
+
+
+def build_line(
+    descriptor: dict[str, Any],
+    resolved_name: str | None = None,
+    resolved_id: str | None = None,
+) -> str:
+    """The line for a validated descriptor, labels joined with `` › `` and then, where the
+    page has a valid route, `` (#route)``.
+
+    ``resolved_name`` is the item's stored name; without it the sanitised ``item_name``, then
+    the segment. ``resolved_id`` is the item's id as the server resolved it; the route names an
+    item only with it. The cap cuts the label, never the route; a route longer than the cap on
+    its own is left out. The chat client hides the route suffix from the operator."""
+    label = _label(descriptor, resolved_name)
+    route = _route(descriptor, resolved_id)
+    suffix = f" (#{route})" if route else ""
+    if len(suffix) > LINE_CAP:
+        suffix = ""
+    if len(label) + len(suffix) > LINE_CAP:
+        label = label[: max(LINE_CAP - len(suffix), 1) - 1].rstrip() + "…"
+    return label + suffix
+
+
+def _label(descriptor: dict[str, Any], resolved_name: str | None) -> str:
     dest = descriptor["destination"]
     parts = [DESTINATIONS[dest]]
     section = descriptor.get("section")
@@ -183,24 +241,22 @@ def build_line(descriptor: dict[str, Any], resolved_name: str | None = None) -> 
             parts.append(name)
         if dest == "agents" and descriptor.get("tab"):
             parts.append(TAB_LABELS[descriptor["tab"]])
-    line = _SEP.join(parts)
-    if len(line) > LINE_CAP:
-        line = line[: LINE_CAP - 1].rstrip() + "…"
-    return line
+    return _SEP.join(parts)
 
 
-async def _stored_name(conn: Any, descriptor: dict[str, Any]) -> str | None:
-    """The stored name of the open item, or None when it does not resolve."""
+async def _resolve_item(conn: Any, descriptor: dict[str, Any]) -> tuple[str | None, str | None]:
+    """``(stored name, id)`` of the open item, or ``(None, None)`` when it does not resolve.
+    An agent's id is its name; a settings item has a name (its own text) and no id."""
     dest = descriptor["destination"]
     item = descriptor.get("item")
     if not item or descriptor.get("create"):
-        return None
+        return None, None
     if dest == "settings":
-        return item
+        return item, None
     if dest == "agents":
         async with conn.execute("SELECT name FROM agents WHERE name = ?", (item,)) as cur:
             row = await cur.fetchone()
-        return row[0] if row else None
+        return (row[0], row[0]) if row else (None, None)
     from the_one.config import settings
     from the_one.db.repositories import (
         ConnectorRepository,
@@ -225,17 +281,22 @@ async def _stored_name(conn: Any, descriptor: dict[str, Any]) -> str | None:
         elif section == "secrets":
             found = await SecretRepository(conn, enc).get(item)
         else:
-            return None
+            return None, None
     name = getattr(found, "name", None)
-    return name if isinstance(name, str) and name else None
+    if not (isinstance(name, str) and name):
+        return None, None
+    found_id = getattr(found, "id", None)
+    return name, found_id if isinstance(found_id, str) and found_id else item
 
 
 async def resolve_page(conn: Any, descriptor: dict[str, Any]) -> dict[str, Any]:
     """Resolve a validated descriptor into ``{"line", "descriptor"}``. A repository error or
-    an unknown id falls back to ``item_name``, then the segment, and never fails the turn."""
-    resolved: str | None = None
+    an unknown id falls back to ``item_name``, then the segment (and no item route), and never
+    fails the turn."""
+    name: str | None = None
+    item_id: str | None = None
     try:
-        resolved = await _stored_name(conn, descriptor)
+        name, item_id = await _resolve_item(conn, descriptor)
     except Exception:  # noqa: BLE001 - a lookup failure must not fail the turn
-        resolved = None
-    return {"line": build_line(descriptor, resolved), "descriptor": descriptor}
+        name, item_id = None, None
+    return {"line": build_line(descriptor, name, item_id), "descriptor": descriptor}

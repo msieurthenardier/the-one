@@ -44,8 +44,8 @@ exact input that produced `shell(command="echo Hello there!")` in the post-landi
 ## Preconditions
 
 - A `the-one` instance is running and reachable (`POST /api/chat` confirmed at the
-  configured URL, default `http://localhost:8485`). Note: the harness may override the port;
-  the actual dev instance runs on port 8485.
+  configured URL, `http://localhost:{PORT}`). `{PORT}` is a dedicated non-default port, 8486 or
+  higher, assigned per run; never 8484 or 8485.
 - Local **Ollama** is reachable with **gemma3:4b** pulled; an agent is configured to use the
   Ollama **gemma3:4b** provider/model and has the built-in **shell** tool enabled. **If no
   such agent exists in the environment, the Executor creates one via the admin API first**

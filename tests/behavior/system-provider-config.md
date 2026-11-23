@@ -29,26 +29,26 @@ the editor surfaces.
 
 ## Preconditions
 
-- the-one is running host-native and reachable on `http://localhost:8485` (the mission dev
-  instance), with `THE_ONE_DEV_MODE=true`. Dev mode is what makes the `mock` provider type
+- the-one is running host-native and reachable on `http://localhost:{PORT}` (a dedicated dev instance on a dedicated non-default
+  port, 8486 or higher, assigned per run; never 8484 or 8485), with `THE_ONE_DEV_MODE=true`. Dev mode is what makes the `mock` provider type
   *available* in the create dropdown (the backend rejects mock creates with HTTP 400 when
   dev mode is off). Verify with an **active probe** (decay-prone precondition):
-  `GET http://localhost:8485/api/providers/types` returns a list that includes
+  `GET http://localhost:{PORT}/api/providers/types` returns a list that includes
   `{"value":"mock", ...}`. If it does not, dev mode is off and the test cannot proceed.
 - **No pre-seeded provider is required** — the mock provider under test is *created through
   the UI* by this flow and deleted by it. To keep the run deterministic, use a distinctive
   name (`Mock (system-provider-config)`); if a prior partial run left a provider by that
   name, delete it before Step 2 (`GET /api/providers` → find by name → `DELETE
   /api/providers/{id}`).
-- A **chrome-devtools** browser apparatus is attached to 8485 — used because this is a
+- A **chrome-devtools** browser apparatus is attached to `{PORT}` — used because this is a
   multi-step create-and-drive flow that needs a fresh page with an `ignoreCache` reload
   after each mutation (goldfinch wedges on this flow and cannot force an ignore-cache
   reload). Screenshots + a11y snapshots are the primary rendered-state evidence; CDP
-  `evaluate`/focus is supplementary. **Never touch 8484.**
+  `evaluate`/focus is supplementary. **Never touch 8484 or 8485.**
 - Not mid-edit on any provider. Record the operator's theme preference before Step 2 and
   restore it on teardown (theme is per-origin `localStorage`, shared across tabs).
 - **Credential**: this instance is gated (Mission 20 Flight 1). Follow CLAUDE.md's
-  "Behavior-test credential convention" — read the long-lived credential from 8485's
+  "Behavior-test credential convention" — read the long-lived credential from the `{PORT}` instance's
   data directory, mint a handoff URL for the Step-2 browser navigation (single-use;
   re-mint if navigating again), and attach `Authorization: Bearer <credential>` to the
   `curl` calls.
@@ -69,7 +69,7 @@ the editor surfaces.
 | # | Actions | Expected Results |
 |---|---------|------------------|
 | 1 | (Setup, no judgment) Probe `GET /api/providers/types` and confirm it includes `mock`. Open a fresh chrome-devtools page and hard-reload with `ignoreCache` to defeat static-asset cache. If a provider named `Mock (system-provider-config)` already exists (`GET /api/providers`), `DELETE` it. | (empty) |
-| 2 | Navigate to `http://localhost:8485/#library` (Library in the rail). | The Library list is showing, with **Model providers** as its first group (one `provider-card` row per provider in A–Z order: the name, a quiet lowercase type badge and its usage value, for example "0 agents"; or the group's empty line when there are none) and an **Add** menu (`library-add-btn`) in the list header. The Library start page shows in the detail pane. No error banner, and no provider editor open. |
+| 2 | Navigate to `http://localhost:{PORT}/#library` (Library in the rail). | The Library list is showing, with **Model providers** as its first group (one `provider-card` row per provider in A–Z order: the name, a quiet lowercase type badge and its usage value, for example "0 agents"; or the group's empty line when there are none) and an **Add** menu (`library-add-btn`) in the list header. The Library start page shows in the detail pane. No error banner, and no provider editor open. |
 | 3 | Open the Add menu (`library-add-btn`) and choose **Model provider** (`library-add-provider`). | The hash is `#library/providers/~new`. The provider editor opens in **create mode** in the detail pane beside the list, with the breadcrumb "Library / Model providers" ("Library" a link) and the one `h1` as the editor title: <ul><li>the **Connection** section shows a stacked **Name** `.field-group` (label above input) and a **Type** `.field-group`;</li><li>the **Create** button (`save-provider-btn`) is present and **disabled** (nothing entered yet).</li></ul> |
 | 4 | Type the Name `Mock (system-provider-config)`; select **Type = "Mock (dev)"**. | The Name field shows the typed text; the Type control shows "Mock (dev)" selected; because `mock` is cred-less, the **Base URL and API Key rows are hidden** — the visible form is Name + Type only; the **Create** button (`save-provider-btn`) is now **enabled**. |
 | 5 | Click **Create** (`save-provider-btn`). | The create succeeds: a "Provider created" toast appears and no error flash. The editor settles into **edit mode** for the new provider: the primary button now reads **Save** and is disabled (no unsaved changes), and the **Test** (`test-connection-btn`) and **Delete provider** (`delete-provider-btn`) buttons are now present. The new row is in the Model providers group, and the editor's model list is headed "Available models" with its line of help (`provider-models-help`), "Each of your Agents chooses one of these in its Model section.", the word Agents being the link. |

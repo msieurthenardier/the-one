@@ -511,7 +511,13 @@ def test_destroy_is_idempotent(app_clean: str, page: Page) -> None:
           return keys;
         }"""
     )
-    assert result == ["destroy", "runTest", "setBusy", "setError"]
+    # The original four, then the handles a GleepGlorp fill and an approval's follow use (M36 F4 L4b).
+    assert result == [
+        "alive", "baseline", "checkDirty", "destroy", "el", "fill", "id", "isCreate", "key",
+        "onIdle", "placeFollowNote", "placeNote", "placeTableNote", "ready", "rebase", "rowKind",
+        "rowState", "runTest", "saving", "setBusy", "setError", "setField", "setRows", "setType",
+        "storedCommand", "values",
+    ]  # fmt: skip
     assert errors == []
 
 

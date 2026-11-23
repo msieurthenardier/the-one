@@ -173,8 +173,11 @@ at `9fea53cd`; each flight design re-verifies them.
     form is filled, not saved.
   - This works for every editor in scope: agents (prompt, description, model,
     tools, rules, MCP servers, knowledge bases), MCP servers, model providers,
-    knowledge bases, connectors, routines, Library secrets (name, description
-    and allowed tools, never values) and app settings.
+    knowledge bases, routines, Library secrets (name, description
+    and allowed tools, never values) and app settings. *(Amended 2026-11-21,
+    operator, during Flight 4: connectors are out of scope for fills and
+    proposals, because the operator will rework connectors after this
+    mission. GleepGlorp's existing read-only view of connectors stays.)*
   - *(Behavior-test-backed: an MCP server set up from a pasted link.)*
 - [ ] **GleepGlorp proposes; the operator approves.**
   - Asked in a chat to create or change something, GleepGlorp answers with a
@@ -391,6 +394,34 @@ Taken with the operator on 2026-11-19, at Flight 3 planning:
 - **No corner button or drawer in Chats.**
 - **GleepGlorp's prompt cap rises from 450 to 550 tokens.**
 
+Taken with the operator on 2026-11-21, at Flight 4 planning:
+
+- **The mission's Flight 4 is split.** Flight 4 does the groundwork plus MCP
+  servers and model providers. Flight 5 covers knowledge bases, connectors,
+  Library secrets' metadata, tool configs and app settings. Alignment becomes
+  Flight 6.
+- **Outside values are blocked in code.**
+  - GleepGlorp may fill or propose a command, link or address.
+  - After it has read outside content, such a value must come from the
+    operator. Text the operator typed counts for any field. A page whose
+    address the operator typed (including the same repository's raw README on
+    GitHub) counts only for the address and command fields, such as an MCP
+    server's URL and command or a provider's base URL. A link inside free
+    text, such as an agent's prompt, must be typed by the operator.
+  - A provider's type may be changed by fill or proposal, with a warning when
+    the change clears the key or signs the provider out. A stored key never
+    follows a type change to another key-taking service: a proposal of that
+    change is refused with a handoff, and a fill clears the key field for the
+    operator to fill.
+  - Anything else is refused by the tool. GleepGlorp quotes the value for the
+    operator to type.
+- **A drawer request about another item** opens that item's editor and fills
+  it. The leave guard applies.
+- **No connectors** (operator, 2026-11-21, during Flight 4 Leg 1a). GleepGlorp
+  gets no proposals, fills or write service for connectors, because the
+  operator will rework connectors after this mission. Its existing read-only
+  connector view and page awareness stay.
+
 ## Open Questions
 
 - **The overlay's chat instance.** *(Resolved at Flight 3 planning: the chat
@@ -444,7 +475,7 @@ Taken with the operator on 2026-11-19, at Flight 3 planning:
   *(Split 2026-11-19, operator: this flight is "The GleepGlorp drawer and
   form filling". It covers the drawer, the chat running twice, page awareness,
   filling proven on the agent editor, the prompt, and the n=20 baseline.)*
-- [ ] **Flight 4: The other kinds.** Before adding kinds, finish Flight 2's
+- [x] **Flight 4: The other kinds.** Before adding kinds, finish Flight 2's
   refactor:
   - the `ApplyError` protocol;
   - `shape.py` split by kind;
@@ -460,6 +491,16 @@ Taken with the operator on 2026-11-19, at Flight 3 planning:
   Extend the evals. Outcome: "here's the link to the MCP server I want, set
   it up" fills the MCP editor, and every editor in scope can be filled or
   changed by proposal.
-- [ ] **Flight 5 *(optional)*: Alignment.** A hands-on session to tune
+  *(Split 2026-11-21, operator: this flight is "MCP servers and model
+  providers": the groundwork, a code-level block on outside commands and
+  links, and the two kinds. The other five kinds move to Flight 5.)*
+- [ ] **Flight 5: The remaining kinds.** *(Connectors removed 2026-11-21,
+  operator: they are reworked after this mission.)* Knowledge bases, Library
+  secrets' metadata, tool configs and app settings, on Flight 4's registry:
+  each with its write service, proposals and, where the editor has a Save,
+  its fill seam (the date and time page saves on choice, so it takes
+  proposals only). Outcome: every editor in scope can be filled or changed
+  by proposal.
+- [ ] **Flight 6 *(optional)*: Alignment.** A hands-on session to tune
   GleepGlorp's prompt, tone and overlay feel with the operator, against the
   evals and the real app.
