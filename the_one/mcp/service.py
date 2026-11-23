@@ -310,9 +310,15 @@ def _prune_cache_on_server_change(before: MCPSource, after: MCPSource) -> MCPSou
     """The row may now point at a different server: drop the old server's last check, auth
     posture and protocol fallback from ``_cache`` (every other key stays); an emptied
     ``_cache`` is removed (absence is the "never checked" state)."""
-    server_changed = after.type != before.type or (after.config or {}).get("url") != (
-        before.config or {}
-    ).get("url")
+    before_cfg = before.config or {}
+    after_cfg = after.config or {}
+    server_changed = after.type != before.type or after_cfg.get("url") != before_cfg.get("url")
+    if not server_changed and before.type == after.type == "stdio":
+        # A local-command server's identity is its command and arguments (squawk 0382);
+        # env and sandbox are not part of it.
+        server_changed = after_cfg.get("command") != before_cfg.get("command") or (
+            after_cfg.get("args") or []
+        ) != (before_cfg.get("args") or [])
     if server_changed and isinstance((after.config or {}).get("_cache"), dict):
         kept = {
             k: v
@@ -410,65 +416,71 @@ async def create_mcp_source(
 async def replace_mcp_source(deps: McpWriteDeps, source_id: str, data: dict[str, Any]) -> MCPSource:
     """The route's PUT: replace the row with the body, preserving what the operator may not
     write (masked secrets per key, OAuth-managed keys, the server-managed ``_cache``)."""
-    repo = deps.repo
-    data = dict(data)
-    data["id"] = source_id
-    try:
-        existing = await repo.get(source_id)
-    except KeyError:
-        raise McpSourceNotFound(source_id) from None
+    incoming = dict(data)
+    incoming["id"] = source_id
 
-    # A marked (self-configuration) row is not an ordinary MCP source: blocked outright.
-    reject_surface_row(existing)
+    # The row is re-read under the write lock, so an OAuth refresh or a ``merge_cache``
+    # written a moment ago is pinned, not overwritten (squawk 0400). ``mutate`` is sync, may
+    # run once only, and works on copies so the caller's dicts are never changed.
+    def mutate(existing: MCPSource) -> MCPSource:
+        data = dict(incoming)
 
-    # Per-key __MASKED__ handling inside the secrets dict: a sentinel value preserves the
-    # stored value; a key absent from the incoming dict is dropped (replace semantic).
-    incoming_secrets = data.get("secrets")
-    if incoming_secrets is not None:
-        if not isinstance(incoming_secrets, dict):
-            raise McpWriteError(422, "secrets must be a dict.")
-        resolved_secrets: dict[str, Any] = {}
-        for key, value in incoming_secrets.items():
-            if looks_masked(value):
+        # A marked (self-configuration) row is not an ordinary MCP source: blocked outright.
+        reject_surface_row(existing)
+
+        # Per-key __MASKED__ handling inside the secrets dict: a sentinel value preserves the
+        # stored value; a key absent from the incoming dict is dropped (replace semantic).
+        incoming_secrets = data.get("secrets")
+        if incoming_secrets is not None:
+            if not isinstance(incoming_secrets, dict):
+                raise McpWriteError(422, "secrets must be a dict.")
+            resolved_secrets: dict[str, Any] = {}
+            for key, value in incoming_secrets.items():
+                if looks_masked(value):
+                    if key in existing.secrets:
+                        resolved_secrets[key] = existing.secrets[key]
+                    # else: a mask for a key we don't have is dropped, as if omitted.
+                else:
+                    resolved_secrets[key] = value
+            # OAuth-managed keys: only the OAuth flow writes them. Applied AFTER the mask
+            # resolution so a client-sent ``access_token: "__MASKED__"`` doesn't fall through.
+            for key in OAUTH_MANAGED_SECRET_KEYS:
                 if key in existing.secrets:
                     resolved_secrets[key] = existing.secrets[key]
-                # else: a mask for a key we don't have is dropped, as if omitted.
-            else:
-                resolved_secrets[key] = value
-        # OAuth-managed keys: only the OAuth flow writes them. Applied AFTER the mask
-        # resolution so a client-sent ``access_token: "__MASKED__"`` doesn't fall through.
-        for key in OAUTH_MANAGED_SECRET_KEYS:
-            if key in existing.secrets:
-                resolved_secrets[key] = existing.secrets[key]
-            elif key in resolved_secrets:
-                del resolved_secrets[key]
-        data["secrets"] = resolved_secrets
+                elif key in resolved_secrets:
+                    del resolved_secrets[key]
+            data["secrets"] = resolved_secrets
 
-    # The tools cache is server-managed: an operator PUT can neither seed nor overwrite it.
-    incoming_config = data.get("config")
-    if isinstance(incoming_config, dict):
-        incoming_config.pop("_cache", None)
-        existing_cache = (existing.config or {}).get("_cache")
-        if existing_cache is not None:
-            incoming_config["_cache"] = existing_cache
-        data["config"] = incoming_config
+        # The tools cache is server-managed: an operator PUT can neither seed nor overwrite it.
+        incoming_config = data.get("config")
+        if isinstance(incoming_config, dict):
+            incoming_config = dict(incoming_config)
+            incoming_config.pop("_cache", None)
+            existing_cache = (existing.config or {}).get("_cache")
+            if existing_cache is not None:
+                incoming_config["_cache"] = existing_cache
+            data["config"] = incoming_config
 
-    # ``model_copy(update=...)`` does not re-run validators in Pydantic v2: round-trip
-    # through ``model_validate`` so a malformed PUT cannot corrupt the stored row.
+        # ``model_copy(update=...)`` does not re-run validators in Pydantic v2: round-trip
+        # through ``model_validate`` so a malformed PUT cannot corrupt the stored row.
+        try:
+            merged = existing.model_dump()
+            merged.update(data)
+            if "name" in data:
+                merged["name"] = checked_name(merged["name"])
+            updated = MCPSource.model_validate(merged)
+        except ValidationError as e:
+            raise McpWriteError(422, validation_detail(e)) from None
+        reject_reserved_surface_name(updated)
+        validate_mcp_source_config(updated)
+        return _prune_cache_on_server_change(existing, updated)
+
     try:
-        merged = existing.model_dump()
-        merged.update(data)
-        if "name" in data:
-            merged["name"] = checked_name(merged["name"])
-        updated = MCPSource.model_validate(merged)
-    except ValidationError as e:
-        raise McpWriteError(422, validation_detail(e)) from None
-    reject_reserved_surface_name(updated)
-    validate_mcp_source_config(updated)
-    updated = _prune_cache_on_server_change(existing, updated)
-    await repo.update(updated)
-    await _after_write(deps, existing, updated)
-    return updated
+        before, after = await deps.repo.update_in_txn(source_id, mutate)
+    except KeyError:
+        raise McpSourceNotFound(source_id) from None
+    await _after_write(deps, before, after)
+    return after
 
 
 # ── Change (a proposal) ──────────────────────────────────────────────────

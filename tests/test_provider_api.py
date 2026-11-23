@@ -340,6 +340,22 @@ class TestProviderAPI:
             got = await client.get(f"/api/providers/{resp.json()['id']}")
             assert got.json()["config"]["thinking_enabled"] is expected
 
+    async def test_create_with_a_duplicate_client_id_is_a_409(self, client: AsyncClient) -> None:
+        """Squawk 0402: a plain 409, and the stored row is unchanged."""
+        body = {
+            "id": "dup1",
+            "name": "A",
+            "type": "ollama",
+            "base_url": "http://localhost:11434/v1",
+        }
+        first = await client.post("/api/providers", json=body)
+        assert first.status_code == 201, first.text
+        resp = await client.post("/api/providers", json={**body, "name": "B"})
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"] == "A model provider with id dup1 already exists."
+        got = await client.get("/api/providers/dup1")
+        assert got.json()["name"] == "A"
+
     async def test_create_non_claude_config_untouched(self, client: AsyncClient) -> None:
         resp = await client.post(
             "/api/providers",

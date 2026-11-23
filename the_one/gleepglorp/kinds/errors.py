@@ -92,11 +92,18 @@ def _is_gone(exc: BaseException, p: Proposal) -> bool:
         return exc.status == 404
     if isinstance(exc, (McpSourceNotFound, ProviderNotFound)):
         return True
+    from the_one.gleepglorp import kinds  # lazy: ``kinds`` imports this module
+
+    kind = kinds.find(p.kind)
+    if kind is None:
+        return False
     if isinstance(exc, KeyError):
-        return True
-    # agent_rules and agent_routines have a foreign key to agents.
-    return isinstance(exc, sqlite3.IntegrityError) and (
-        p.action == "create" and p.kind in ("rule", "routine")
+        return kind.keyerror_is_gone
+    # An agent-owned kind (rules, routines) has a foreign key to agents.
+    return (
+        isinstance(exc, sqlite3.IntegrityError)
+        and p.action == "create"
+        and kind.addressing == "agent-owned"
     )
 
 

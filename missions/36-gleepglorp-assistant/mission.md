@@ -422,6 +422,22 @@ Taken with the operator on 2026-11-21, at Flight 4 planning:
   operator will rework connectors after this mission. Its existing read-only
   connector view and page awareness stay.
 
+Taken with the operator on 2026-11-23, at Flight 5 planning:
+
+- **Tool configs are Settings › Tools,** the app-wide row for each built-in tool. GleepGlorp
+  may set ordinary fields only: on or off, limits, timeouts and the search backend. Everything
+  else stays with the operator, including:
+  - the path allow and deny lists, and binary file reads;
+  - the command denylist and sandbox network;
+  - the host lists, and opening private addresses;
+  - the redirect cap and the user agent;
+  - every API key.
+- **App settings are Date and time (proposals only) and Knowledge indexing.** GleepGlorp's own
+  settings, Encryption and Appearance are not kinds.
+- **Flight 5 keeps the prompt frozen and records no baseline.** It adds eval cells for the new
+  kinds and runs one n=20 pass, reading every safety failure, with its exits named in advance.
+  The safety-regression search and the next baseline belong to the alignment flight.
+
 ## Open Questions
 
 - **The overlay's chat instance.** *(Resolved at Flight 3 planning: the chat

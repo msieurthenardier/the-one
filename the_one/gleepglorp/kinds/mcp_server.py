@@ -27,7 +27,7 @@ from urllib.parse import urlparse
 
 import aiosqlite
 
-from the_one.gleepglorp.kinds.base import Kind, changed_labels
+from the_one.gleepglorp.kinds.base import Kind, changed_labels, id_fill_extras
 from the_one.gleepglorp.kinds.deps import KindDeps
 from the_one.gleepglorp.kinds.errors import reraise
 from the_one.gleepglorp.proposals.shape import (
@@ -477,6 +477,36 @@ async def card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]
     return {"title": card_title("change", name), "target_gone": current is None}
 
 
+async def fill_stale(conn: Any, fill: Any, labels: dict[str, str]) -> list[dict[str, Any]]:
+    """The ``stale`` rows of an MCP server change fill: the named fields whose stored value
+    moved since the fill was made, rows shown one per key (``"Header X"``)."""
+    from the_one.gleepglorp.proposals.store import display_values
+    from the_one.mcp.service import stale_fields
+
+    source = await _load(conn, None, fill.target_id) if fill.target_id else None
+    if source is None:
+        return []
+    out: list[dict[str, Any]] = []
+    for row in stale_fields(source, fill.changes, fill.base or {}):
+        field = row["field"]
+        current, proposed = row["current"], row["proposed"]
+        if isinstance(proposed, dict):
+            current = await display_values(conn, {field: current or {}})
+            proposed = await display_values(conn, {field: proposed})
+        out.append(
+            {
+                "field": field,
+                "label": labels.get(field, field),
+                "current": current,
+                "proposed": proposed,
+            }
+        )
+    return out
+
+
+fill_extras = id_fill_extras(card_extras, stale_fn=fill_stale)
+
+
 # --- warnings -----------------------------------------------------------------------------
 
 
@@ -534,6 +564,10 @@ KIND = Kind(
     exists=exists,
     apply=apply,
     summary_text=summary_text,
+    addressing="id",
+    target_noun="An MCP server",
+    fill_extras=fill_extras,
+    keyerror_is_gone=True,
     operator_only=OPERATOR_ONLY,
     fillable=("create", "change"),
     title=title,

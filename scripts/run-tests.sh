@@ -20,10 +20,10 @@ set -euo pipefail
 
 # --- Per-area browser test lanes (F5; re-mapped to destinations in M25 F2) ---
 # `--lane <lane>` runs just one slice of the browser suite. The canonical lanes
-# are chats, chats-transcript, chats-widgets, gleepglorp, agents, agent-tabs, agent-routines, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-chat, contracts-widget, contracts-widget-lifecycle, contracts-controls and shared.
+# are chats, chats-transcript, chats-widgets, gleepglorp-chat, gleepglorp-fill, gleepglorp-kinds, agents, agent-tabs, agent-routines, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-chat, contracts-widget, contracts-widget-lifecycle, contracts-controls and shared.
 # Aliases (kept for muscle memory and older docs):
 #   chat = chats + chats-transcript + chats-widgets, studio = agents + agent-tabs + agent-routines + library + knowledge + mcp + mcp-connection,
-#   system = settings + settings-tools + providers,
+#   system = settings + settings-tools + providers, gleepglorp = gleepglorp-chat + gleepglorp-fill + gleepglorp-kinds,
 #   contracts = contracts-overlay + contracts-chat + contracts-widget + contracts-widget-lifecycle + contracts-controls.
 # chats/agents/agent-tabs/library/mcp/settings-tools/providers are basename-glob buckets or explicit file
 # lists over tests/browser/ (`agents` is the old studio globs MINUS the library,
@@ -56,8 +56,8 @@ set -euo pipefail
 # parent SIGKILLed before its first child has started its watchdog (well under a
 # second) can leak that one child's pytest group.
 
-LANE_LIST="chats|chats-transcript|chats-widgets|gleepglorp|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|shared"
-CANON_LANES=(chats chats-transcript chats-widgets gleepglorp agents agent-tabs agent-routines library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-widget contracts-widget-lifecycle contracts-controls shared)
+LANE_LIST="chats|chats-transcript|chats-widgets|gleepglorp-chat|gleepglorp-fill|gleepglorp-kinds|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|shared"
+CANON_LANES=(chats chats-transcript chats-widgets gleepglorp-chat gleepglorp-fill gleepglorp-kinds agents agent-tabs agent-routines library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-widget contracts-widget-lifecycle contracts-controls shared)
 
 # Per-lane wall-clock budgets in seconds (M35 F1 L1: contracts-chat re-budgeted 90 to 120 s when the two chart contract files joined it, measured 83 s solo on a host at load 1.2-2.4, not a quiet --parallel 3 reading, so M35's closing gate re-measures it; earlier: M33 F3 leg 8 --parallel 3 run, start load 1.11, total 1885 s, 17 lanes: routing 720 and agents 630 re-budgeted for headroom; others within 15%; earlier: re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
@@ -68,7 +68,9 @@ declare -A BUDGET=(
   [chats]=540   # M36 F4 L8, 2026-11-23, wall 427 s, quiet --parallel 3 (was 420)
   [chats-transcript]=540   # M35 F1 closing gate quiet-host: measured 430 s
   [chats-widgets]=240   # M35 F2 L6 provisional (widgets in chat flow tests); re-measured at the closing gate
-  [gleepglorp]=690   # M36 F4 L8, 2026-11-23, wall 541 s, quiet --parallel 3 (was 360 provisional)
+  [gleepglorp-chat]=330   # M36 F5 L1b provisional (split of gleepglorp, 541 s / 167 tests); re-measured at the closing gate
+  [gleepglorp-fill]=210   # M36 F5 L1b provisional (split of gleepglorp, 541 s / 167 tests); re-measured at the closing gate
+  [gleepglorp-kinds]=210   # M36 F5 L1b provisional (split of gleepglorp, 541 s / 167 tests); re-measured at the closing gate
   [agents]=780   # M36 F4 L8, 2026-11-23, wall 603 s, quiet --parallel 3 (was 630, measured 499 s)
   [agent-tabs]=750   # M36 F4 L8, 2026-11-23, wall 598 s, quiet --parallel 3 (was 600, measured 466 s)
   [agent-routines]=360   # M36 F4 L8, 2026-11-23, wall 279 s, quiet --parallel 3 (was 300, measured 236 s)
@@ -94,7 +96,7 @@ usage: run-tests.sh [--lane LANE [--list]] [--parallel N [--plan]] [pytest args.
 
   (no flags)          run pytest with the given args
   --lane LANE         run one browser lane ($LANE_LIST;
-                      aliases: chat, studio, system, contracts)
+                      aliases: chat, studio, system, contracts, gleepglorp)
   --list              with --lane: print the lane's files and exit
   --parallel N        run every browser lane, at most N at a time (N >= 1),
                       longest budget first; per-lane logs and junit files go to
@@ -202,11 +204,14 @@ chats_transcript_pat=('test_flow_chat_composer.py' 'test_flow_chat_image_attach.
 # The two chat files (test_flow_chat_gleepglorp.py, test_flow_chat_proposals.py) match the chats
 # globs and sat in `chats-transcript` until now; `chats` and `chats-transcript` no longer carry
 # them. The `chat` alias still expands `chats_pat`, so it still runs them.
-gleepglorp_pat=('test_flow_gleepglorp_drawer_chat.py' 'test_flow_gleepglorp_drawer_shell.py' \
-                'test_flow_gleepglorp_fill.py' 'test_flow_chat_gleepglorp.py' \
-                'test_flow_chat_proposals.py' 'test_flow_gleepglorp_kinds.py' \
-                'test_flow_gleepglorp_fill_mcp.py' 'test_flow_gleepglorp_follow_mcp.py' \
-                'test_flow_gleepglorp_fill_provider.py' 'test_flow_gleepglorp_follow_provider.py')
+# M36 F5 L1b (DD13): split into three canonical lanes; `gleepglorp` stays an alias of their union.
+# `gleepglorp-kinds` is globs, so each later kind's fill and follow files join without an edit
+# here (`test_flow_gleepglorp_fill.py` and `test_flow_gleepglorp_kinds.py` match neither glob).
+gleepglorp_chat_pat=('test_flow_gleepglorp_drawer_chat.py' 'test_flow_gleepglorp_drawer_shell.py' \
+                     'test_flow_chat_gleepglorp.py' 'test_flow_chat_proposals.py')
+gleepglorp_fill_pat=('test_flow_gleepglorp_fill.py' 'test_flow_gleepglorp_kinds.py')
+gleepglorp_kinds_pat=('test_flow_gleepglorp_fill_*.py' 'test_flow_gleepglorp_follow_*.py')
+gleepglorp_pat=("${gleepglorp_chat_pat[@]}" "${gleepglorp_fill_pat[@]}" "${gleepglorp_kinds_pat[@]}")
 # Chats-widgets (M35 F2 L6): the widgets-in-chat flow tests, an explicit list kept out of `chats`
 # and `chats-transcript` (which sat at 430 s of 540 s at Flight 1). `chats` is `chats_pat` MINUS
 # this list and the transcript list.
@@ -309,6 +314,9 @@ resolve_lane() {
     chats)         mapfile -t lane_files < <(chats_files) ;;
     chats-transcript) mapfile -t lane_files < <(expand_lane "${chats_transcript_pat[@]}" | sort -u) ;;
     chats-widgets) mapfile -t lane_files < <(expand_lane "${chats_widgets_pat[@]}" | sort -u) ;;
+    gleepglorp-chat) mapfile -t lane_files < <(expand_lane "${gleepglorp_chat_pat[@]}" | sort -u) ;;
+    gleepglorp-fill) mapfile -t lane_files < <(expand_lane "${gleepglorp_fill_pat[@]}" | sort -u) ;;
+    gleepglorp-kinds) mapfile -t lane_files < <(expand_lane "${gleepglorp_kinds_pat[@]}" | sort -u) ;;
     gleepglorp)    mapfile -t lane_files < <(expand_lane "${gleepglorp_pat[@]}" | sort -u) ;;
     chat)          mapfile -t lane_files < <(expand_lane "${chats_pat[@]}" | sort -u) ;;
     agents)        mapfile -t lane_files < <(agents_files) ;;
@@ -549,7 +557,7 @@ fi
 # ---------------------------------------------------------------------------
 if [[ -n "$lane" ]]; then
   if ! resolve_lane "$lane"; then
-    echo "run-tests.sh: unknown lane '$lane' (want: $LANE_LIST; aliases: chat|studio|system|contracts)" >&2
+    echo "run-tests.sh: unknown lane '$lane' (want: $LANE_LIST; aliases: chat|studio|system|contracts|gleepglorp)" >&2
     exit 2
   fi
 

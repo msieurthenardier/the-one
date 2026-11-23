@@ -21,7 +21,7 @@ import httpx
 import pytest
 from browser import _nav
 from browser._credential_registry import auth_headers_for
-from browser._mcp_editor import _hold_requests, _install_counter, _wait_held
+from browser._mcp_editor import _count, _hold_requests, _install_counter, _wait_held
 from browser.seeders import seed_gleepglorp_proposal
 from browser.test_flow_agent_editor_follows_approval import _visit_chats
 from browser.test_flow_chat_proposals import _card, _in, _open, _seed, _world
@@ -351,6 +351,87 @@ def test_a_type_change_by_approval_leaves_a_dirty_editor_alone_and_cancel_shows_
     expect(page.locator(TYPE)).to_have_value("ollama", timeout=8000)
     expect(page.locator(NAME)).to_have_value("Claude")
     expect(page.locator(UNSAVED)).to_have_text("")
+
+
+ERROR_ROW = ".ui-editor-error-row"
+TYPE_CHANGED = "This provider's type changed; Cancel to see it"
+
+
+def _type_proposal(w: Any, pid: str, *, to: str, was: str) -> int:
+    return seed_gleepglorp_proposal(
+        w.data,
+        w.sid,
+        kind="provider",
+        agent_name=None,
+        target_id=pid,
+        changes={"type": to},
+        base={"type": was},
+    )
+
+
+def test_save_is_refused_after_a_type_change_by_approval_until_cancel_squawk_0401(
+    app_with_data_dir: tuple[str, Any], page: Page
+) -> None:
+    """A dirty editor whose provider's type was changed by an approval must not send the old type
+    back: Save shows the note's sentence in the error line and sends nothing; Cancel re-mounts on
+    the new type and Save works there."""
+    w = _world(app_with_data_dir)
+    _install_counter(page)
+    pid = _anthropic(w.base)
+    prop = _type_proposal(w, pid, to="ollama", was="anthropic")
+    _visit_chats(page, w.base)
+    _nav.set_route(page, f"library/providers/{_nav.seg(pid)}")
+    expect(page.locator(SAVE)).to_be_visible(timeout=10000)
+    page.locator(NAME).fill("Mine")
+    assert _approve_proposal(w.base, prop).status_code == 200
+    expect(page.locator(NOTE)).to_have_text(TYPE_CHANGED, timeout=8000)
+    expect(page.locator(ERROR_ROW)).to_have_text("")
+    page.locator(SAVE).click()
+    expect(page.locator(ERROR_ROW)).to_have_text(TYPE_CHANGED)
+    expect(page.locator(ERROR_ROW)).to_have_attribute("role", "alert")
+    page.wait_for_timeout(400)
+    assert _count(page, "PUT", f"/api/providers/{pid}") == 0
+    assert _get(w.base, pid)["type"] == "ollama"
+    assert _get(w.base, pid)["name"] == "Claude"
+    expect(page.locator(UNSAVED)).to_have_text("Unsaved changes")
+    expect(page.locator(NAME)).to_have_value("Mine")
+    page.locator(CANCEL).click()
+    expect(page.locator(TYPE)).to_have_value("ollama", timeout=8000)
+    expect(page.locator(ERROR_ROW)).to_have_text("")
+    page.locator(NAME).fill("Mine now")
+    page.locator(SAVE).click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+    assert _count(page, "PUT", f"/api/providers/{pid}") == 1
+    stored = _get(w.base, pid)
+    assert stored["type"] == "ollama" and stored["name"] == "Mine now"
+
+
+def test_a_later_approval_that_changes_the_type_back_lifts_the_save_block_squawk_0401(
+    app_with_data_dir: tuple[str, Any], page: Page
+) -> None:
+    w = _world(app_with_data_dir)
+    _install_counter(page)
+    pid = _anthropic(w.base)
+    first = _type_proposal(w, pid, to="ollama", was="anthropic")
+    back = _type_proposal(w, pid, to="anthropic", was="ollama")
+    _visit_chats(page, w.base)
+    _nav.set_route(page, f"library/providers/{_nav.seg(pid)}")
+    expect(page.locator(SAVE)).to_be_visible(timeout=10000)
+    page.locator(NAME).fill("Mine")
+    assert _approve_proposal(w.base, first).status_code == 200
+    expect(page.locator(NOTE)).to_have_text(TYPE_CHANGED, timeout=8000)
+    page.locator(SAVE).click()
+    expect(page.locator(ERROR_ROW)).to_have_text(TYPE_CHANGED)
+    # The type goes back to the one the editor shows: the follow rebases and Save is allowed.
+    assert _approve_proposal(w.base, back).status_code == 200
+    expect(page.locator(NOTE)).not_to_have_text(TYPE_CHANGED, timeout=8000)
+    expect(page.locator(NOTE)).to_contain_text("Changed by a change you approved")
+    page.locator(SAVE).click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+    expect(page.locator(ERROR_ROW)).to_have_text("")
+    assert _count(page, "PUT", f"/api/providers/{pid}") == 1
+    stored = _get(w.base, pid)
+    assert stored["type"] == "anthropic" and stored["name"] == "Mine"
 
 
 # ── The card ─────────────────────────────────────────────────────────────────

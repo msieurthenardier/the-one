@@ -348,6 +348,43 @@ async def test_create_provider_on_commit_failure_rolls_back(world) -> None:
         await world.repo.get("c1")
 
 
+_OLLAMA = {"name": "O", "type": "ollama", "base_url": "http://localhost:11434/v1"}
+
+
+async def test_create_with_an_existing_client_id_is_a_409_and_the_row_is_unchanged(world) -> None:
+    """Squawk 0402."""
+    await svc.create_provider(world.deps, {"id": "c1", **_OLLAMA}, dev_mode=False)
+    with pytest.raises(svc.ProviderWriteError) as e:
+        await svc.create_provider(
+            world.deps, {"id": "c1", **_OLLAMA, "name": "Other"}, dev_mode=False
+        )
+    assert e.value.status == 409
+    assert e.value.detail == "A model provider with id c1 already exists."
+    assert (await world.repo.get("c1")).name == "O"
+
+
+async def test_a_409_create_rolls_the_on_commit_mark_back(world) -> None:
+    await svc.create_provider(world.deps, {"id": "c1", **_OLLAMA}, dev_mode=False)
+    marked: list[str] = []
+
+    async def mark(conn):
+        await conn.execute("UPDATE llm_providers SET name='MARKED' WHERE id='c1'")
+        marked.append("ran")
+
+    with pytest.raises(svc.ProviderWriteError) as e:
+        await svc.create_provider(
+            world.deps, {"id": "c1", **_OLLAMA}, dev_mode=False, on_commit=mark
+        )
+    assert e.value.status == 409
+    assert (await world.repo.get("c1")).name == "O"
+
+
+async def test_create_without_an_id_still_generates_one(world) -> None:
+    a = await svc.create_provider(world.deps, dict(_OLLAMA), dev_mode=False)
+    b = await svc.create_provider(world.deps, dict(_OLLAMA), dev_mode=False)
+    assert a.id != b.id
+
+
 async def test_replace_provider_unknown_id_is_not_found_before_the_mock_gate(world) -> None:
     with pytest.raises(svc.ProviderNotFound):
         await svc.replace_provider(world.deps, "nope", {"type": "mock"}, dev_mode=False)

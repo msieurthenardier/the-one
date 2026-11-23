@@ -30,9 +30,12 @@ from the_one.gleepglorp.proposals.shape import (
     _ref_entries,
     _resolve_one,
 )
-from the_one.gleepglorp.proposals.store import Proposal
+from the_one.gleepglorp.proposals.store import Proposal, _quoted
 from the_one.gleepglorp.view_core import _agent_names
 from the_one.naming import NameRuleError, check_agent_name
+
+#: The ``fill_form`` refusal for ``notes_enabled`` (re-exported by ``fill.tool``).
+NO_NOTES = "notes_enabled can't be filled: notes save at once and are not a form field."
 
 _DESCRIPTION_MAX = 1000
 _PROMPT_MAX = 20000
@@ -92,7 +95,7 @@ AGENT_FIELDS: tuple[FieldSpec, ...] = (
         ref="kb",
     ),
     FieldSpec("rich_visuals", "boolean", "Rich visuals", "rich_visuals"),
-    FieldSpec("notes_enabled", "boolean", "Notes", "notes_enabled"),
+    FieldSpec("notes_enabled", "boolean", "Notes", "notes_enabled", fill_refused=NO_NOTES),
     FieldSpec("max_iterations", "integer", "Step limit", "max_iterations", min=1, max=200),
     FieldSpec(
         "chat_history_retention_days",
@@ -274,6 +277,52 @@ async def summary_text(p: Proposal, zone: Any) -> dict[str, Any]:
     return {"summary": text, "agent": agent, "fields": labels}
 
 
+async def card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]:
+    """The proposal card's ``title`` and ``target_gone`` (a change whose agent is gone)."""
+    agent = p.agent_name or ""
+    gone = False
+    if p.action == "change":
+        gone = agent not in await _agent_names(conn)
+    title = f"{'Create' if p.action == 'create' else 'Change'} agent {_quoted(agent)}"
+    return {"title": title, "target_gone": gone}
+
+
+async def fill_extras(conn: Any, fill: Any, labels: dict[str, str]) -> dict[str, Any]:
+    """The fill view's ``title``, ``target_gone``, ``stale`` and ``clears_key`` for an agent.
+
+    The title is the fill card's (``KIND.card``), not the proposal card's: an agent create with
+    no name reads ``Create agent “None”``. ``stale`` lists the fields whose stored value moved
+    since the fill was made (a change whose agent still exists and has a base).
+    """
+    from the_one.gleepglorp.proposals.store import display_values
+
+    gone = False
+    stale: list[dict[str, Any]] = []
+    if fill.action == "change" and fill.agent_name is not None:
+        gone = fill.agent_name not in await _agent_names(conn)
+        if not gone and fill.base:
+            current = await agent_base(conn, None, fill.agent_name, list(fill.base))
+            moved = [f for f in fill.base if current.get(f) != fill.base[f]]
+            if moved:
+                cur = await display_values(conn, {f: current[f] for f in moved})
+                prop = await display_values(conn, {f: fill.changes.get(f) for f in moved})
+                stale = [
+                    {
+                        "field": f,
+                        "label": labels.get(f, f),
+                        "current": cur[f],
+                        "proposed": prop[f],
+                    }
+                    for f in moved
+                ]
+    return {
+        "title": KIND.card(fill.action, fill.agent_name),
+        "target_gone": gone,
+        "stale": stale,
+        "clears_key": False,
+    }
+
+
 KIND = Kind(
     name="agent",
     label="agent",
@@ -283,6 +332,10 @@ KIND = Kind(
     exists=exists,
     apply=apply,
     summary_text=summary_text,
+    addressing="agent",
+    card_extras=card_extras,
+    fill_extras=fill_extras,
+    keyerror_is_gone=True,
     operator_only=OPERATOR_ONLY,
     fillable=("create", "change"),
     resolve_target=resolve_target,

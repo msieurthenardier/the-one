@@ -14,7 +14,7 @@ from the_one.gleepglorp.kinds.base import Kind, changed_labels
 from the_one.gleepglorp.kinds.deps import KindDeps
 from the_one.gleepglorp.kinds.errors import reraise
 from the_one.gleepglorp.proposals.shape import FieldSpec, Normalized, ShapeError, _bad, _check_int
-from the_one.gleepglorp.proposals.store import Proposal
+from the_one.gleepglorp.proposals.store import Proposal, _quoted
 
 RULE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("text", "text", "Rule", "text", create_required=True),
@@ -143,6 +143,25 @@ async def summary_text(p: Proposal, zone: Any) -> dict[str, Any]:
     return {"summary": text, "agent": agent, "fields": labels}
 
 
+async def card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]:
+    """The proposal card's ``title`` (a change names the rule's position) and ``target_gone``
+    (the agent, or for a change the rule, no longer exists)."""
+    from the_one.db.repositories import AgentRuleRepository
+    from the_one.gleepglorp.view_core import _agent_names
+
+    agent = p.agent_name or ""
+    q = _quoted(agent)
+    gone = agent not in await _agent_names(conn)
+    if p.action == "create":
+        title = f"Add a rule to {q}"
+    else:
+        rules = await AgentRuleRepository(conn).list_for_agent(agent) if not gone else []
+        pos = next((i for i, r in enumerate(rules, 1) if r.id == p.target_id), None)
+        gone = gone or pos is None
+        title = f"Change rule {pos} of {q}" if pos else f"Change a rule of {q}"
+    return {"title": title, "target_gone": gone}
+
+
 KIND = Kind(
     name="rule",
     label="rule",
@@ -152,4 +171,7 @@ KIND = Kind(
     exists=exists,
     apply=apply,
     summary_text=summary_text,
+    addressing="agent-owned",
+    card_extras=card_extras,
+    keyerror_is_gone=True,
 )

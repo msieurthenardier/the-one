@@ -17,6 +17,7 @@ from the_one.agent.taint import compute_taint
 from the_one.gleepglorp import kinds, outside
 from the_one.gleepglorp.fill.events import push_fill_changed, push_fill_requested
 from the_one.gleepglorp.fill.store import GleepGlorpFillRepository, NewFill, fill_view
+from the_one.gleepglorp.kinds.agent import NO_NOTES  # noqa: F401 - re-export; lives with its field
 from the_one.gleepglorp.proposals import guard, shape
 from the_one.tools.base import Tool
 
@@ -29,7 +30,6 @@ NEEDS_PAGE = (
     "Filling works only when the operator asks from the drawer on an app page. "
     "Propose the change with propose_change instead."
 )
-NO_NOTES = "notes_enabled can't be filled: notes save at once and are not a form field."
 FAILED = "Could not fill the form right now."
 
 
@@ -113,8 +113,12 @@ class FillFormTool(Tool):
 
         if kind not in kinds.FILLABLE:
             raise shape.ShapeError(f"Only these kinds can be filled: {', '.join(kinds.FILLABLE)}.")
-        if kind == "agent" and isinstance(changes, dict) and "notes_enabled" in changes:
-            return NO_NOTES
+        if isinstance(changes, dict):
+            # A field the kind says no fill may carry (agent: notes_enabled): its own sentence.
+            refused = {s.name: s.fill_refused for s in kinds.SPECS[kind] if s.fill_refused}
+            for key in changes:
+                if key in refused:
+                    return refused[key]
         conn = await get_connection()
         eff = await time_zones.load_effective_zone(conn)
         enc = get_encryptor(settings.data_dir)

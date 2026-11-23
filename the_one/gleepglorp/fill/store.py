@@ -223,75 +223,7 @@ class GleepGlorpFillRepository:
 # --- the view (the contract Leg 6's client reads) --------------------------------------
 
 
-async def _mcp_stale(
-    conn: aiosqlite.Connection, fill: Fill, labels: dict[str, str]
-) -> list[dict[str, Any]]:
-    """The ``stale`` rows of an MCP server change fill: the named fields whose stored value
-    moved since the fill was made, rows shown one per key (``"Header X"``)."""
-    from the_one.gleepglorp.kinds import mcp_server
-    from the_one.gleepglorp.proposals.store import display_values
-    from the_one.mcp.service import stale_fields
-
-    source = await mcp_server._load(conn, None, fill.target_id) if fill.target_id else None
-    if source is None:
-        return []
-    out: list[dict[str, Any]] = []
-    for row in stale_fields(source, fill.changes, fill.base or {}):
-        field = row["field"]
-        current, proposed = row["current"], row["proposed"]
-        if isinstance(proposed, dict):
-            current = await display_values(conn, {field: current or {}})
-            proposed = await display_values(conn, {field: proposed})
-        out.append(
-            {
-                "field": field,
-                "label": labels.get(field, field),
-                "current": current,
-                "proposed": proposed,
-            }
-        )
-    return out
-
-
 PENDING_STATUSES = ("sent", "applying", "not_filled")
-
-
-async def _clears_key(conn: aiosqlite.Connection, fill: Fill) -> bool:
-    """Whether the fill clears the editor's key field: a provider change whose type differs from
-    the stored type and which leaves a key-taking type, whichever type it enters. Into a type
-    with no key row (ollama, anthropic-plan) the key is cleared as the apply would; between
-    key-taking types it is cleared so the old key is never sent to the new service."""
-    if fill.kind != "provider" or fill.action != "change" or not fill.target_id:
-        return False
-    new_type = (fill.changes or {}).get("type")
-    base_type = (fill.base or {}).get("type")
-    if not new_type or new_type == base_type:
-        return False
-    from the_one.llm import provider_service
-
-    return base_type is not None and provider_service.takes_key(base_type)
-
-
-async def _provider_stale(
-    conn: aiosqlite.Connection, fill: Fill, labels: dict[str, str]
-) -> list[dict[str, Any]]:
-    """The ``stale`` rows of a provider change fill: the named fields whose stored value moved
-    since the fill was made, labelled and in display form (an absent option reads ``None``)."""
-    from the_one.gleepglorp.kinds import provider
-    from the_one.llm.provider_service import stale_fields
-
-    source = await provider._load(conn, None, fill.target_id) if fill.target_id else None
-    if source is None:
-        return []
-    return [
-        {
-            "field": row["field"],
-            "label": labels.get(row["field"], row["field"]),
-            "current": row["current"],
-            "proposed": row["proposed"],
-        }
-        for row in stale_fields(source, fill.changes, fill.base or {})
-    ]
 
 
 async def fill_view(conn: aiosqlite.Connection, fill: Fill) -> dict[str, Any]:
@@ -304,41 +236,13 @@ async def fill_view(conn: aiosqlite.Connection, fill: Fill) -> dict[str, Any]:
     when read. ``target_gone``: a change's agent no longer exists.
     """
     from the_one.gleepglorp import kinds
-    from the_one.gleepglorp.kinds.agent import agent_base
     from the_one.gleepglorp.proposals.store import display_values
-    from the_one.gleepglorp.view_core import _agent_names
 
     labels = {f.stored: f.label for f in kinds.SPECS.get(fill.kind, ())}
-    gone = False
-    stale: list[dict[str, Any]] = []
-    if fill.action == "change" and fill.agent_name is not None:
-        gone = fill.agent_name not in await _agent_names(conn)
-        if not gone and fill.base:
-            current = await agent_base(conn, None, fill.agent_name, list(fill.base))
-            moved = [f for f in fill.base if current.get(f) != fill.base[f]]
-            if moved:
-                cur = await display_values(conn, {f: current[f] for f in moved})
-                prop = await display_values(conn, {f: fill.changes.get(f) for f in moved})
-                stale = [
-                    {
-                        "field": f,
-                        "label": labels.get(f, f),
-                        "current": cur[f],
-                        "proposed": prop[f],
-                    }
-                    for f in moved
-                ]
     kind = kinds.get(fill.kind)
-    title = kind.card(fill.action, fill.agent_name)
-    if kind.card_extras is not None:
-        # An id-targeted kind (the MCP server): the name and existence come from a lookup by id.
-        extras = await kind.card_extras(conn, fill)  # type: ignore[arg-type]
-        title = extras.get("title", title)
-        gone = bool(extras.get("target_gone", False))
-        if fill.kind == "mcp_server" and fill.action == "change" and not gone and fill.base:
-            stale = await _mcp_stale(conn, fill, labels)
-        if fill.kind == "provider" and fill.action == "change" and not gone and fill.base:
-            stale = await _provider_stale(conn, fill, labels)
+    # The kind's own title, existence, stale rows and key-clearing (``Kind.fill_extras``).
+    assert kind.fill_extras is not None  # a stored fill is of a fillable kind
+    extras = await kind.fill_extras(conn, fill, labels)
     warnings: list[str] = []
     if kind.warnings is not None and fill.status in PENDING_STATUSES:
         from the_one.config import settings
@@ -366,13 +270,13 @@ async def fill_view(conn: aiosqlite.Connection, fill: Fill) -> dict[str, Any]:
         "changes": await display_values(conn, fill.changes),
         "base": await display_values(conn, fill.base) if fill.base is not None else None,
         "labels": labels,
-        "title": title,
+        "title": extras["title"],
         "field_count": len(fill.changes),
-        "target_gone": gone,
-        "stale": stale,
+        "target_gone": extras["target_gone"],
+        "stale": extras["stale"],
         "warnings": warnings,
         # A fill that moves a provider's type away from a key-taking type (or to a keyless one)
         # tells the editor to empty its key field: a key never follows a provider to another
         # service (M36 F4 L5b). Computed here from the stored type.
-        "clears_key": await _clears_key(conn, fill),
+        "clears_key": extras["clears_key"],
     }

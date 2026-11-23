@@ -14,15 +14,11 @@
 //     type."), and a type the operator chose differently is kept, with the key untouched;
 //   - a key-taking type a fill writes leaves the key for the operator (a note says so).
 //
-// Module level (the drawer's applier, js/gleepglorp-drawer/fill.js, reads these through the
-// kind's spec in provider-kinds.js):
-//   attach(getController)   the section gives the live editor controller accessor
-//   whenSettled(key, {timeoutMs}) -> Promise<boolean>  true once the editor for `key` ('create'
-//                           or 'edit:{id}') is mounted with its type list, the router is on it and
-//                           no Save is in flight; false at the timeout (default 10000 ms;
-//                           `window.__ggFillSettleTimeoutMs` is read only in dev mode) or at once
-//                           when the type list did not load. It never waits for the models panel.
-//   isOpen(key), apply(view) -> Promise<{unavailable, written, kept}>
+// The module level (attach, whenSettled, isOpen, apply: the drawer's applier,
+// js/gleepglorp-drawer/fill.js, reads them through the kind's spec in provider-kinds.js), the
+// note bookkeeping and the write bookkeeping are shared with the MCP fill:
+// areas/shared/gleepglorp-fill-core.js (App.gleepglorpFill). whenSettled never waits for the
+// models panel. This module holds what is the provider editor's.
 //
 // Per controller (provider-editor-controller.js calls create(controller) once):
 //   handle: apply(view), redraw() (draws the notes; idempotent), clear(), destroy()
@@ -37,71 +33,16 @@
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
-  var NOTE_TESTID = 'provider-filled-note';
+  var core = App.gleepglorpFill;
+  var same = core.same;
+  var has = core.has;
+
   var ALLOWED = ['name', 'type', 'base_url', 'num_ctx', 'thinking_enabled', 'reasoning_effort'];
   var FIELDS = ['name', 'base_url', 'num_ctx', 'thinking_enabled', 'reasoning_effort'];
   var NOTE_ORDER = ['name', 'type', 'base_url', 'num_ctx', 'thinking_enabled', 'reasoning_effort'];
   var TOKEN_TYPE = 'anthropic-plan-token';
-  var DEFAULT_TIMEOUT_MS = 10000;
-  var POLL_MS = 25;
 
-  function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
-  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
-
-  var getController = function () { return null; };
-
-  function attach(fn) { getController = fn; }
-
-  function activeFill() {
-    var ctl = getController();
-    return ctl && ctl.fill ? ctl.fill : null;
-  }
-
-  function routeIsEditor_(key) {
-    var cur = App.router && App.router.current && App.router.current();
-    if (!cur || cur.destination !== 'library') return false;
-    var segs = String(cur.route).split('/');
-    if (segs[1] !== 'providers') return false;
-    if (key === 'create') return segs[2] === '~new';
-    try { return decodeURIComponent(segs[2] || '') === key.slice(5); } catch (e) { return false; }
-  }
-
-  function timeoutMs_(opts) {
-    var seam = window.__ggFillSettleTimeoutMs;
-    if (App.config && App.config.dev_mode && typeof seam === 'number') return seam;
-    return (opts && opts.timeoutMs) || DEFAULT_TIMEOUT_MS;
-  }
-
-  function isOpen(key) {
-    var f = activeFill();
-    return !!f && f.key === key && routeIsEditor_(key);
-  }
-
-  function whenSettled(key, opts) {
-    var limit = timeoutMs_(opts);
-    var t0 = Date.now();
-    return new Promise(function (resolve) {
-      function later() { setTimeout(check, POLL_MS); }
-      function state() {
-        var f = activeFill();
-        if (!f || f.key !== key || !routeIsEditor_(key)) return 'wait';
-        if (!f.ctl.ready()) return 'failed'; // mounted without its type list
-        return f.ctl.saving() ? 'wait' : 'ok';
-      }
-      function check() {
-        if (Date.now() - t0 >= limit) { resolve(false); return; }
-        var s = state();
-        if (s === 'failed') { resolve(false); return; }
-        if (s !== 'ok') { later(); return; }
-        // Re-checked after a microtask: a mount that starts in the same turn counts.
-        Promise.resolve().then(function () {
-          if (state() === 'ok') resolve(true);
-          else later();
-        });
-      }
-      check();
-    });
-  }
+  var mod = core.module({ routeIs: core.libraryRoute('providers') });
 
   // ── The per-controller handle ─────────────────────────────────────
 
@@ -109,44 +50,8 @@
     // What the fills wrote in this mount: {at, values: {name|type|...: value}, key: null |
     // 'enter' | 'check'} (key: the note under the key row).
     var record = null;
-    // The notes drawn now: [{id, controls}], each id on its controls' aria-describedby
-    // (appended, never replacing) and removed again exactly when the note goes (SC 1.3.1).
-    var placed = [];
-    var drawnSig = null;
-    var noteSeq = 0;
     var dead = false;
-
-    function removeNotes_() {
-      placed.forEach(function (entry) {
-        entry.controls.forEach(function (c) {
-          var ids = (c.getAttribute('aria-describedby') || '').split(/\s+/).filter(function (x) {
-            return x && x !== entry.id;
-          });
-          if (ids.length) c.setAttribute('aria-describedby', ids.join(' '));
-          else c.removeAttribute('aria-describedby');
-        });
-      });
-      placed = [];
-      drawnSig = null;
-      var old = ctl.el.querySelectorAll('[data-testid="' + NOTE_TESTID + '"]');
-      for (var i = 0; i < old.length; i++) old[i].parentNode.removeChild(old[i]);
-    }
-
-    function buildNote_(field, text) {
-      var p = document.createElement('p');
-      p.id = 'provider-filled-note-' + (++noteSeq);
-      p.className = 'agent-filled-note';
-      p.setAttribute('data-testid', 'provider-filled-note');
-      p.setAttribute('data-field', field);
-      p.appendChild(App.ui.icon('bot', { size: 'sm' }));
-      p.appendChild(document.createTextNode(' ' + text));
-      return p;
-    }
-
-    function whenText_() {
-      var t = record && record.at ? new Date(record.at) : null;
-      return t && !isNaN(t.getTime()) ? ' · ' + App.time.formatClock(t) : '';
-    }
+    var notes = core.notes(ctl, { testid: 'provider-filled-note', skipIfUnchanged: true });
 
     function keyText_(cur) {
       if (record.key === 'check') return 'Check the key for this type.';
@@ -164,7 +69,7 @@
       var rv = record.values;
       NOTE_ORDER.forEach(function (k) {
         if (has(rv, k) && same(cur[k], rv[k]) && (k === 'name' || k === 'type' || ctl.shows(k))) {
-          out.push({ field: k, text: 'Filled by GleepGlorp' + whenText_() });
+          out.push({ field: k, text: 'Filled by GleepGlorp' + notes.whenText(record) });
         }
       });
       if (record.key && ctl.shows('api_key')) {
@@ -179,49 +84,20 @@
     // Draw the notes (idempotent, and a no-op while the wanted set is what is drawn).
     function redraw() {
       if (dead) return;
-      var list = wanted_();
-      var sig = JSON.stringify(list);
-      if (sig === drawnSig) return;
-      removeNotes_();
-      list.forEach(function (n) {
-        var el = buildNote_(n.field, n.text);
-        var controls = ctl.placeNote(n.field, el);
-        var entry = { id: el.id, controls: controls };
-        controls.forEach(function (c) {
-          var ids = (c.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
-          if (ids.indexOf(entry.id) === -1) ids.push(entry.id);
-          c.setAttribute('aria-describedby', ids.join(' '));
-        });
-        placed.push(entry);
-      });
-      drawnSig = sig;
+      notes.redraw(wanted_());
     }
 
     function clear() {
       record = null;
-      removeNotes_();
+      notes.removeAll();
     }
 
     // ── The write ────────────────────────────────────────────────────
 
     function apply(view) {
-      var isCreate = view.action === 'create';
-      var key = isCreate ? 'create' : 'edit:' + view.target_id;
-      if (dead || ctl.key !== key || !ctl.alive() || !ctl.ready() || ctl.saving()) {
-        return Promise.resolve({ unavailable: true });
-      }
-      var vals = {};
-      var ignored = [];
-      Object.keys(view.values || {}).forEach(function (k) {
-        if (ALLOWED.indexOf(k) === -1) ignored.push(k);
-        else vals[k] = view.values[k];
-      });
-      if (ignored.length) {
-        // eslint-disable-next-line no-console
-        console.warn('GleepGlorp fill ' + view.id + ': ignored keys outside the allowlist: ' +
-          ignored.join(', '));
-      }
-      return Promise.resolve(write_(vals, !!view.clears_key, isCreate));
+      var prep = core.prepare(ctl, view, { allowed: ALLOWED, dead: dead });
+      if (!prep) return Promise.resolve({ unavailable: true });
+      return Promise.resolve(write_(prep.vals, !!view.clears_key, prep.isCreate));
     }
 
     function write_(vals, clearsKey, isCreate) {
@@ -230,12 +106,10 @@
       if (!record) record = { at: null, values: {}, key: null };
       record.at = new Date().toISOString();
       var rv = record.values;
-      var written = [];
-      var kept = [];
-      function keep(k) { if (kept.indexOf(k) === -1) kept.push(k); }
-      function wrote(k) { if (written.indexOf(k) === -1) written.push(k); }
-      // The operator's: differs from the baseline AND from what a fill wrote there.
-      function operatorScalar(k) { return !same(c[k], b[k]) && !same(c[k], rv[k]); }
+      var w = core.writer(c, b, rv);
+      var keep = w.keep;
+      var wrote = w.wrote;
+      var operatorScalar = w.operatorScalar;
 
       // 1. The type. One the operator chose differently (or one the list does not offer) is
       // kept: the fill neither changes it nor clears the key.
@@ -284,13 +158,7 @@
       } else if (typeWritten && takesKey) {
         record.key = typed ? 'check' : 'enter';
       }
-      return finish_(written, kept);
-    }
-
-    function finish_(written, kept) {
-      ctl.checkDirty();
-      redraw();
-      return { unavailable: false, written: written, kept: kept };
+      return w.finish(ctl, redraw);
     }
 
     return {
@@ -305,13 +173,10 @@
 
   window.App.studio.providerEditorFill = {
     create: create,
-    attach: attach,
-    whenSettled: whenSettled,
-    isOpen: isOpen,
-    apply: function (view) {
-      var f = activeFill();
-      return f ? f.apply(view) : Promise.resolve({ unavailable: true });
-    },
+    attach: mod.attach,
+    whenSettled: mod.whenSettled,
+    isOpen: mod.isOpen,
+    apply: mod.apply,
     ALLOWED: ALLOWED
   };
 })();

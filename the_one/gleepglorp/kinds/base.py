@@ -42,6 +42,14 @@ ResolveTargetFn = Callable[..., Awaitable[tuple[str, str]]]
 WarningsFn = Callable[..., Awaitable[list[str]]]
 #: ``card_extras(conn, p) -> {"title": ..., "target_gone": ..., ...}``
 CardExtrasFn = Callable[..., Awaitable[dict[str, Any]]]
+#: ``fill_extras(conn, fill, labels) -> {"title", "target_gone", "stale", "clears_key"}``: the four
+#: values ``fill_view`` cannot read off the stored fill (``labels`` maps stored field -> label).
+FillExtrasFn = Callable[..., Awaitable[dict[str, Any]]]
+
+#: How a tool call names the target of a kind: ``agent`` (an agent, with ``target`` as an alias
+#: of ``agent``), ``agent-owned`` (an agent plus a rule position or routine name), ``id`` (one
+#: row named by ``target``, an id or a name) or ``page`` (a page's settings, no target at all).
+ADDRESSINGS = ("agent", "agent-owned", "id", "page")
 
 
 def changed_labels(fields: tuple[FieldSpec, ...], p: Proposal) -> list[str]:
@@ -58,6 +66,48 @@ def default_title(p: Proposal) -> str:
 def default_card_title(kind: str, action: str, agent_name: str | None) -> str:
     quoted = f"“{agent_name}”"
     return f"{'Create' if action == 'create' else 'Change'} {kind} {quoted}"
+
+
+def id_fill_extras(
+    card_extras: CardExtrasFn,
+    stale_fn: Callable[..., Awaitable[list[dict[str, Any]]]] | None = None,
+    clears_key_fn: Callable[..., Awaitable[bool]] | None = None,
+) -> FillExtrasFn:
+    """The ``fill_extras`` of an id-targeted kind: title and ``target_gone`` come from the
+    kind's ``card_extras`` (a lookup by id); ``stale`` from ``stale_fn(conn, fill, labels)``,
+    only for a change with a base whose target is still there; ``clears_key`` from
+    ``clears_key_fn(conn, fill)`` (``False`` without one)."""
+
+    async def fill_extras(conn: Any, fill: Any, labels: dict[str, str]) -> dict[str, Any]:
+        extras = await card_extras(conn, fill)
+        gone = bool(extras.get("target_gone", False))
+        stale: list[dict[str, Any]] = []
+        if stale_fn is not None and fill.action == "change" and not gone and fill.base:
+            stale = await stale_fn(conn, fill, labels)
+        clears_key = await clears_key_fn(conn, fill) if clears_key_fn is not None else False
+        return {
+            "title": extras["title"],
+            "target_gone": gone,
+            "stale": stale,
+            "clears_key": clears_key,
+        }
+
+    return fill_extras
+
+
+def validate_kind(k: Any) -> None:
+    """Raise ``ValueError`` when a kind breaks a registry rule: ``card_extras`` set, a
+    ``fill_extras`` for every fillable kind, ``addressing`` one of :data:`ADDRESSINGS` and a
+    ``target_noun`` for an ``"id"`` kind. Run by ``Kind.__post_init__`` and the registry test."""
+    name = getattr(k, "name", "?")
+    if getattr(k, "card_extras", None) is None:
+        raise ValueError(f"kind {name!r} needs card_extras")
+    if getattr(k, "fillable", ()) and getattr(k, "fill_extras", None) is None:
+        raise ValueError(f"kind {name!r} is fillable and needs fill_extras")
+    if getattr(k, "addressing", None) not in ADDRESSINGS:
+        raise ValueError(f"kind {name!r} needs addressing, one of {', '.join(ADDRESSINGS)}")
+    if k.addressing == "id" and not getattr(k, "target_noun", ""):
+        raise ValueError(f"kind {name!r} is addressed by id and needs target_noun")
 
 
 @dataclass(frozen=True)
@@ -80,6 +130,11 @@ class Kind:
     exists: ExistsFn
     apply: ApplyFn
     summary_text: SummaryFn
+    #: One of :data:`ADDRESSINGS`; ``target_args`` reads it (required).
+    addressing: str
+    #: ``card_extras(conn, p) -> {title, target_gone, ...}``: the proposal card's title,
+    #: ``target_gone`` and any kind-specific keys (required, ``validate_kind``).
+    card_extras: CardExtrasFn
     operator_only: tuple[str, ...] = ()
     fillable: tuple[str, ...] = ()
     actions: tuple[str, ...] = ("create", "change")
@@ -91,15 +146,30 @@ class Kind:
     #: pending and failed proposals only). A kind whose sentences do not mention approval ignores
     #: ``mode``.
     warnings: WarningsFn | None = None
-    #: ``card_extras(conn, p) -> {title, target_gone, ...}``: replaces the store's built-in
-    #: card extras (agent, rule, routine) for a kind that sets it.
-    card_extras: CardExtrasFn | None = None
+    #: ``target_noun``: the sentence subject of an ``"id"`` kind's refusal of ``agent`` (``"An
+    #: MCP server"``). Required for ``"id"`` kinds; "a" or "an" cannot be derived from a label.
+    target_noun: str = ""
+    #: ``fill_extras(conn, fill, labels) -> {title, target_gone, stale, clears_key}``. Required
+    #: for a fillable kind (``validate_kind``); ``None`` for a kind that is not fillable.
+    fill_extras: FillExtrasFn | None = None
+    #: ``operator_only_message(names) -> sentence``: the refusal for a change naming an
+    #: ``operator_only`` field, in place of the generic unknown-field one.
+    operator_only_message: Callable[[list[str]], str] | None = None
+    #: ``action_refused(action, mode) -> sentence``: the refusal for an action the kind does not
+    #: allow (``actions`` for a proposal, ``fillable`` for a fill), in place of the generic one.
+    action_refused: Callable[[str, str], str] | None = None
+    #: Whether a bare ``KeyError`` from the apply means the target is gone (the proposal is
+    #: withdrawn). A kind that leaves it ``False`` gets a ``KeyError`` re-raised, not hidden.
+    keyerror_is_gone: bool = False
     #: The stored keys whose values skip the guard's key-shape heuristics (the stored-secret
     #: containment and the token-prefix rule still apply to every value).
     relaxed_guard_keys: frozenset[str] = frozenset()
     #: ``create_only_message(names) -> sentence``: the refusal for a change that names a
     #: ``create_only`` field, in place of the generic one.
     create_only_message: Callable[[list[str]], str] | None = None
+
+    def __post_init__(self) -> None:
+        validate_kind(self)
 
     def card(self, action: str, agent_name: str | None) -> str:
         if self.card_title is not None:

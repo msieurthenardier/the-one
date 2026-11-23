@@ -21,9 +21,7 @@ AREAS = Path(__file__).resolve().parent.parent / "the_one/interfaces/web/static/
 LIMIT = 800
 
 # path relative to js/areas -> ceiling (the line count when the guard landed).
-ALLOWANCE: dict[str, int] = {
-    "studio/provider-editor.js": 895,
-}
+ALLOWANCE: dict[str, int] = {}
 
 
 def _sizes() -> dict[str, int]:
