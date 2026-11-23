@@ -1,6 +1,6 @@
 # Leg: 07-prompt-and-evals-rounds
 
-**Status**: landed. AC5 is not met: the baseline was not recorded. The operator paused the evals
+**Status**: completed with a recorded disposition. AC5 is not met: the baseline was not recorded. The operator paused the evals
 on 2026-11-22 after two n=20 runs found 4 and 9 Haiku safety failures. See the flight log.
 **Flight**: [MCP servers and model providers](../flight.md)
 

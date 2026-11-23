@@ -994,6 +994,66 @@ Each item was walked against `9597b0f4`.
     2019684) were stopped by PID, and the Executor's Chromium by its PID.
     Afterwards nothing listened on 8484, 8485, 8486 or 42219. Ports 8484 and
     8485 and the default data dir were never used (AC5).
+  - **Step 8.5, quiet-host closing gate: PASS** (no fourth deferral).
+    - **Start:** a first wait found another project's short pytest running;
+      the FD waited until no test process was running and the 1-minute load
+      was below 1.0.
+      - started 2026-11-23T02:00:29Z at `3178ae7d`;
+      - `uptime` load 0.74 / 0.85 / 1.23;
+      - no other test processes.
+    - **Command:** `THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1
+      TEST_TIMEOUT=3600 make gate`. `setsid` forked; `make gate` was PID/PGID
+      2024228, which exited on its own.
+    - **Unit:** 11898 passed, 15 skipped (the expected count under netns),
+      4986 deselected, in 387 s.
+    - **Browser, `--parallel 3`:** 21 lanes, all rc=0, total wall 2616 s.
+    - **Gate total:** 50:46.
+    - **Lane walls against their budgets (s):**
+
+      | Lane | Wall / budget | Lane | Wall / budget |
+      |---|---|---|---|
+      | routing | 643/720 | agents | 603/630 |
+      | agent-tabs | 598/600 | chats-transcript | 463/540 |
+      | contracts-controls | 480/540 | library | 440/480 |
+      | **chats** | **427/420, OVER** | knowledge | 335/420 |
+      | providers | 386/420 | shared | 401/420 |
+      | mcp-connection | 351/390 | **gleepglorp** | **541/360, OVER** |
+      | settings | 355/360 | **mcp** | **350/330, OVER** |
+      | settings-tools | 283/330 | agent-routines | 279/300 |
+      | contracts-widget | 237/300 | contracts-widget-lifecycle | 105/300 |
+      | chats-widgets | 186/240 | contracts-overlay | 199/240 |
+      | contracts-chat | 140/150 | | |
+
+    - **Next:** a Developer re-budgets every lane that moved by more than
+      15% under the project's re-budget rule, and restates the full-gate
+      target. Then a review and a commit.
+  - **Re-budget review** (Haiku): confirmed.
+    - **Checks:** every changed budget equals wall × 1.25, rounded up to
+      30 s. `bash -n` passes, `tests/test_run_tests_lanes.py` gives 20
+      passed, and `--plan` keeps longest-first order.
+    - **Wording note:** `contracts-widget` (237 s, giving 300), `chats-widgets`
+      (186 s, giving 240) and `knowledge` (335 s, giving 420) are unchanged
+      because the rule's output equals their current budget. The "prior
+      readings were solo" reason given for some of them is beside the point.
+    - The restated gate target (50:46 × 1.25) is about 63 minutes.
+  - **Close-out:**
+    - Leg 8 completed;
+    - Leg 7 completed with its recorded disposition (AC5 not met);
+    - squawk 0399 completed and signed off (`5d64f987`);
+    - flight status `landed`, and Flight 4 checked off in the mission.
+    - **`[COMPLETE:flight]`.**
+    - **Next:** the PR (on the operator's word), then
+      `/mission-control:flight-debrief` on this branch.
+  - **Carried to the debrief and the alignment flight:**
+    - the safety regression: about 1 in 20 runs, with "Done!" openers,
+      including in the behavior test's step 1;
+    - "Click Save" where the button reads "Create";
+    - proposing instead of filling from the drawer (HAT step 7);
+    - the refusal not naming where a value came from (HAT step 3);
+    - MCP proposals linking the group page;
+    - ambiguous-name guessing;
+    - no `m36f4` baseline;
+    - the unit tier at 387 s against its 350 s target.
 - **Leg 6 design** (`legs/06-prompt-and-evals-setup.md`), drafted during the
   Batch B review. **Risk tier: high,** because it edits frozen eval scoring
   files (the FD re-pins them under the 2026-11-20 ruling) and safety-cell
@@ -1629,6 +1689,26 @@ Status: in-flight (not landed until gate 5).
 - Results: `tests/test_evals_gleepglorp*.py tests/test_gleepglorp_guide.py` 480 passed;
   `THE_ONE_TEST_NETNS=1 make test-unit` 11898 passed, 15 skipped. No model quota spent, no
   instance started, `env.sh` and the plan token not touched. Not committed.
+
+#### Step 8.5 re-budget
+- Source: the quiet-host reading (2026-11-23, 3178ae7d, `--parallel 3`, start load 0.74).
+  Rule (`the_one/agents.md` "Quiet-host rule"): a lane that moved more than 15% against its
+  last recorded quiet reading (the "measured" figure in its `scripts/run-tests.sh` comment; the
+  budget where none is recorded) or ran over budget gets wall x 1.25 rounded up to 30 s.
+- Changed (old to new, wall): gleepglorp 360 to 690 (541), chats 420 to 540 (427), mcp 330 to
+  450 (350), routing 720 to 810 (643), agents 630 to 780 (603), agent-tabs 600 to 750 (598),
+  library 480 to 570 (440), agent-routines 300 to 360 (279), contracts-chat 150 to 180 (140),
+  contracts-widget-lifecycle 300 to 150 (105). chats-transcript kept 540 (463, +8% on 430);
+  contracts-controls, contracts-overlay, contracts-widget, chats-widgets, knowledge, providers,
+  shared, mcp-connection, settings, settings-tools kept. Each changed row carries a comment
+  citing M36 F4 L8.
+- Target restated in `the_one/agents.md`: unit 387 s + browser 2616 s (21 lanes) = 3003 s,
+  gate 50:46; full-gate target 63 minutes; unit standing target stays 350 s (387 s is 11%
+  over, re-check on the next quiet gate). Squawk 0389 re-measure noted as discharged. History
+  entry and the gleepglorp lane bullet updated.
+- No test pins these numbers: `tests/test_run_tests_lanes.py` 20 passed (checks only that the
+  plan is sorted by budget and numeric). `run-tests.sh --help` shows the new table. No lanes
+  re-run, no Python touched (ruff n/a). Not committed.
 
 ## Decisions
 

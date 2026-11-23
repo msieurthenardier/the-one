@@ -475,7 +475,7 @@ Taken with the operator on 2026-11-21, at Flight 4 planning:
   *(Split 2026-11-19, operator: this flight is "The GleepGlorp drawer and
   form filling". It covers the drawer, the chat running twice, page awareness,
   filling proven on the agent editor, the prompt, and the n=20 baseline.)*
-- [ ] **Flight 4: The other kinds.** Before adding kinds, finish Flight 2's
+- [x] **Flight 4: The other kinds.** Before adding kinds, finish Flight 2's
   refactor:
   - the `ApplyError` protocol;
   - `shape.py` split by kind;

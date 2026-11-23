@@ -1,6 +1,6 @@
 # Leg: 08-hat-and-closing-gate
 
-**Status**: ready
+**Status**: completed
 **Flight**: [MCP servers and model providers](../flight.md)
 
 ## Objective
@@ -94,14 +94,16 @@ Reviewer for UI) and a commit.
 
 ## Acceptance Criteria
 
-- [ ] **AC1.** The prep pass is reviewed and committed (squawk 0399's grep is empty; the spec is
-  `ready`; the no-baseline docs are written).
-- [ ] **AC2.** The HAT is done. Every step passes, or its finding is fixed and re-verified, or
-  the operator accepts it with a disposition, recorded in the flight log.
-- [ ] **AC3.** The behavior test passes, or the operator accepts its failure with a disposition.
-  The run log is committed.
-- [ ] **AC4.** A quiet-host gate is recorded (start load below about 1.0, no other test
+- [x] **AC1.** The prep pass is reviewed and committed (squawk 0399's grep is empty; the spec is
+  `ready`; the no-baseline docs are written). Commit `5d64f987`.
+- [x] **AC2.** The HAT is done. Every step passes, or its finding is fixed and re-verified, or
+  the operator accepts it with a disposition, recorded in the flight log. Step 4 was fixed in
+  `86ec4d52` and re-verified; the wording findings are carried to the alignment flight.
+- [x] **AC3.** The behavior test passes, or the operator accepts its failure with a disposition.
+  The run log is committed. It passed 7/7, run log in `3178ae7d`.
+- [x] **AC4.** A quiet-host gate is recorded (start load below about 1.0, no other test
   processes), with unit and browser results. The lanes that moved more than 15% are
-  re-budgeted, and the full-gate target is restated.
-- [ ] **AC5.** The dev instance was stopped by PID. Nothing touched port 8484 or 8485 or the
+  re-budgeted, and the full-gate target is restated. Start load 0.74; unit 11898/15 skipped;
+  21 lanes green in 2616 s; 10 lanes re-budgeted; target 63 min.
+- [x] **AC5.** The dev instance was stopped by PID. Nothing touched port 8484 or 8485 or the
   default data directory.

@@ -1,6 +1,6 @@
 # Flight: MCP servers and model providers
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp, the In-App Assistant](../../mission.md)
 
 ## Contributing to Criteria
