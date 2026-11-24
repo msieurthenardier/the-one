@@ -75,7 +75,7 @@ CREATE_REFUSED = (
 )
 VALUES_MESSAGE = (
     "Secret values are entered only on the secret's page: the operator types them there; "
-    "I never take, fill or repeat one."
+    "I never take, fill or repeat one. I can fill its name, description and allowed tools."
 )
 #: Singular and common names a model uses for the value; refused like ``OPERATOR_ONLY`` but kept
 #: out of it, which feeds the cross-kind operator-only union (``key`` is a field elsewhere).

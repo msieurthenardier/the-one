@@ -264,6 +264,8 @@ async def test_operator_only_fields_are_refused_with_the_values_sentence(world, 
 
 def test_the_values_sentence_says_never_to_repeat_the_value() -> None:
     assert "never take, fill or repeat" in secret_kind.VALUES_MESSAGE
+    for field in ("name", "description", "allowed tools"):
+        assert field in secret_kind.VALUES_MESSAGE
     assert set(secret_kind.VALUE_SYNONYMS) == {"value", "key", "secret", "secret_value"}
     assert not set(secret_kind.VALUE_SYNONYMS) & {f.name for f in secret_kind.SECRET_FIELDS}
 
