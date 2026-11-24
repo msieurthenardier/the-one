@@ -174,6 +174,10 @@ def test_the_fields_view_shows_which_tools_expose_each_field() -> None:
     # the five search choices are in the hint, since describe has no enum
     for choice in tc_kind.SEARCH_BACKENDS:
         assert choice in by["search_backend"]["hint"]
+    hint = by["search_backend"]["hint"]
+    assert "Built-in tools page" in hint
+    assert hint.endswith("never repeat it")
+    assert "Library" not in hint
     assert by["searxng_base_url"]["provenance"] == "must come from you or a page you linked"
     assert by["google_pse_cse_id"]["provenance"] == "must come from you or a page you linked"
     # every field's stored location is nested under config, except the top-level column

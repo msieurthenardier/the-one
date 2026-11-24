@@ -73,7 +73,13 @@ CREATE_REFUSED = (
     "Create a secret on the [Secrets](#library/secrets/~new) page; I can fill its name, "
     "description and allowed tools there."
 )
-VALUES_MESSAGE = "Secret values are entered only on the secret's page."
+VALUES_MESSAGE = (
+    "Secret values are entered only on the secret's page: the operator types them there; "
+    "I never take, fill or repeat one."
+)
+#: Singular and common names a model uses for the value; refused like ``OPERATOR_ONLY`` but kept
+#: out of it, which feeds the cross-kind operator-only union (``key`` is a field elsewhere).
+VALUE_SYNONYMS = ("value", "key", "secret", "secret_value")
 
 
 def operator_only_message(names: list[str]) -> str:
@@ -140,7 +146,7 @@ async def normalize(
     enc: Any = None,
     mode: str = "propose",
 ) -> Normalized:
-    named = [k for k in changes if k in OPERATOR_ONLY]
+    named = [k for k in changes if k in OPERATOR_ONLY or k in VALUE_SYNONYMS]
     if named:
         raise ShapeError(operator_only_message(named))
     for key in changes:
@@ -346,6 +352,7 @@ KIND = Kind(
     fill_extras=fill_extras,
     keyerror_is_gone=False,
     operator_only=OPERATOR_ONLY,
+    operator_only_aliases=VALUE_SYNONYMS,
     operator_only_message=operator_only_message,
     actions=("change",),
     fillable=("create", "change"),

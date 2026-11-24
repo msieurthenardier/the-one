@@ -212,7 +212,7 @@ def _check_keys(kind: str, changes: Any) -> dict[str, Any]:
     if unknown:
         kind_ = get(kind)
         message = kind_.operator_only_message
-        named = [k for k in unknown if k in kind_.operator_only]
+        named = [k for k in unknown if k in kind_.operator_only or k in kind_.operator_only_aliases]
         if message is not None and named:
             raise ShapeError(message(named))
         raise ShapeError(

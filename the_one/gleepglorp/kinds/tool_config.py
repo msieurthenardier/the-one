@@ -116,7 +116,10 @@ _HINTS: dict[str, str] = {
     "max_concurrent_sessions": "open sessions at once",
     "read_size_cap_bytes": "bytes read at most",
     "response_size_cap_bytes": "bytes of a response kept",
-    "search_backend": f"one of {', '.join(SEARCH_BACKENDS)}; a keyed one needs the operator's key",
+    "search_backend": (
+        f"one of {', '.join(SEARCH_BACKENDS)}; a keyed one needs the operator's key, "
+        f"which they enter on the Built-in tools page; never repeat it"
+    ),
     "searxng_base_url": "the SearXNG address, or empty",
     "google_pse_cse_id": "the Google search engine ID, or empty",
 }

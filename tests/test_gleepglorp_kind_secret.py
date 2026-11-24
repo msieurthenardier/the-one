@@ -198,7 +198,7 @@ async def test_a_fill_create_records_name_description_and_tools_only(world) -> N
 
 async def test_a_fill_create_still_refuses_values_and_a_taken_name(world) -> None:
     msg = await refused(world, "create", {"name": "x", "values": [1]}, mode="fill")
-    assert msg == "Secret values are entered only on the secret's page."
+    assert msg == secret_kind.VALUES_MESSAGE
     msg = await refused(world, "create", {"name": "GITHUB"}, mode="fill")
     assert msg == "A secret with this name already exists."
 
@@ -257,9 +257,29 @@ async def test_a_rename_to_another_secrets_name_is_refused_but_a_case_change_is_
 @pytest.mark.parametrize("mode", ["propose", "fill"])
 async def test_operator_only_fields_are_refused_with_the_values_sentence(world, key, mode) -> None:
     msg = await refused(world, "change", {key: ["x"]}, world.sid, mode=mode)
-    assert msg == "Secret values are entered only on the secret's page."
+    assert msg == secret_kind.VALUES_MESSAGE
     msg = await refused(world, "change", {"description": "d", key: {"k": "v"}}, world.sid)
-    assert msg == "Secret values are entered only on the secret's page."
+    assert msg == secret_kind.VALUES_MESSAGE
+
+
+def test_the_values_sentence_says_never_to_repeat_the_value() -> None:
+    assert "never take, fill or repeat" in secret_kind.VALUES_MESSAGE
+    assert set(secret_kind.VALUE_SYNONYMS) == {"value", "key", "secret", "secret_value"}
+    assert not set(secret_kind.VALUE_SYNONYMS) & {f.name for f in secret_kind.SECRET_FIELDS}
+
+
+@pytest.mark.parametrize("key", ["value", "key", "secret", "secret_value"])
+@pytest.mark.parametrize("mode", ["propose", "fill"])
+async def test_singular_value_names_get_the_values_sentence_and_never_echo(
+    world, key, mode
+) -> None:
+    canary = "maple-harbor-k3m8w"
+    msg = await refused(world, "change", {key: canary}, world.sid, mode=mode)
+    assert msg == secret_kind.VALUES_MESSAGE
+    assert canary not in msg
+    msg = await refused(world, "create", {"name": "x", key: canary}, mode="fill")
+    assert msg == secret_kind.VALUES_MESSAGE
+    assert canary not in msg
 
 
 async def test_an_unknown_field_names_the_allowed_ones(world) -> None:

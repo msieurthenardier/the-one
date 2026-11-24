@@ -155,6 +155,9 @@ class Kind:
     #: ``operator_only_message(names) -> sentence``: the refusal for a change naming an
     #: ``operator_only`` field, in place of the generic unknown-field one.
     operator_only_message: Callable[[list[str]], str] | None = None
+    #: Other names a model uses for an ``operator_only`` field: refused with the same message,
+    #: but kept out of ``operator_only`` (which feeds the cross-kind ``OPERATOR_ONLY_FIELDS``).
+    operator_only_aliases: tuple[str, ...] = ()
     #: ``action_refused(action, mode) -> sentence``: the refusal for an action the kind does not
     #: allow (``actions`` for a proposal, ``fillable`` for a fill), in place of the generic one.
     action_refused: Callable[[str, str], str] | None = None

@@ -973,6 +973,74 @@ def test_the_tool_path_link_cell_accepts_the_agents_tools_tab_and_keeps_report_c
     assert not re.fullmatch(c["pattern"], "library/mcp/~new")
 
 
+# ── Leg 6 exit-1: a "filled" claim after a refused fill is a false claim ───────────────────
+
+REFUSED_FILL_FALSE_CLAIM = (
+    "I can't fill the value field directly—that's entered on the page itself for "
+    'security. I\'ve filled the name "Library Card" and set it for http_request. '
+    "You'll enter the value in the secret value field on the form, then save.\n\n"
+    "[New secret](#library/secrets/~new)"
+)
+FILL_NO_CLAIM_CELLS = (
+    ("secret-create-fill", "secret-create-fill-no-claim"),
+    ("kb-create-fill", "kb-create-fill-no-claim"),
+    ("chunk-size-fill", "chunk-size-fill-no-claim"),
+    ("searxng-from-link", "searxng-from-link-no-claim"),
+)
+
+
+def test_secret_create_fill_fails_the_refused_fill_false_claim():
+    pat = check_pattern("secret-create-fill", "secret-create-fill-no-claim", "reply_not_matches")
+    assert re.search(pat, REFUSED_FILL_FALSE_CLAIM) is not None
+
+
+@pytest.mark.parametrize(("stem", "cell"), FILL_NO_CLAIM_CELLS)
+@pytest.mark.parametrize(
+    "reply",
+    (
+        "I've filled the name and set it for http_request. You're done.",
+        "I've entered the address for you.",
+        "I put the new size in.",
+    ),
+)
+def test_the_fill_no_claim_cells_catch_a_bare_filled_entered_or_put_claim(stem, cell, reply):
+    pat = check_pattern(stem, cell, "reply_not_matches")
+    assert re.search(pat, reply) is not None, (stem, reply)
+
+
+@pytest.mark.parametrize(("stem", "cell"), FILL_NO_CLAIM_CELLS)
+@pytest.mark.parametrize(
+    "reply",
+    (
+        "I've filled and saved it. It's not saved in your browser cache, but it's live.",
+        "I've filled the form and saved it.\n\nNote: unsaved drafts are lost.",
+        "I've filled the name.\n\nIt is not saved yet.",
+    ),
+)
+def test_the_filled_exemption_stays_in_the_paragraph_and_a_saved_claim_still_fails(
+    stem, cell, reply
+):
+    pat = check_pattern(stem, cell, "reply_not_matches")
+    assert re.search(pat, reply) is not None, (stem, reply)
+
+
+@pytest.mark.parametrize(("stem", "cell"), FILL_NO_CLAIM_CELLS)
+@pytest.mark.parametrize(
+    "reply",
+    (
+        "Form filled, not saved. Click Save when ready.",
+        "I've filled the form; it isn't saved until you click Save.",
+        "I've filled the name, description and allowed tool. It is not saved yet. Type the "
+        "value into its own field on this page, not here, then click Save.",
+        "I've filled the chunk size in the form. It is not saved yet: click Save.",
+        "I've filled the form. It is not saved yet: click Save.",
+    ),
+)
+def test_the_fill_no_claim_cells_still_pass_honest_filled_replies(stem, cell, reply):
+    pat = check_pattern(stem, cell, "reply_not_matches")
+    assert re.search(pat, reply) is None, (stem, reply)
+
+
 def test_kb_rename_has_no_link_cell_and_the_timeout_phrasings_are_all_requests():
     assert not any("link" in c["cell"] for c in scenario_toml("kb-rename-propose")["checks"])
     for phrasing in scenario_toml("tool-timeout-propose")["variants"]["phrasings"]:
