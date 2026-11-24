@@ -41,16 +41,14 @@ class FillFormTool(Tool):
     """
 
     name = FILL_FORM_TOOL_NAME
-    summary = (
-        "Fills the open agent, MCP server or provider editor with unsaved values; saves nothing."
-    )
+    summary = "Fills the open editor with unsaved values; saves nothing."
     description = (
-        "Fill an agent, MCP server or provider editor with unsaved edits; the operator saves. "
+        "Fill the open editor with unsaved edits; the operator saves. "
         "Only from the drawer; else propose_change. "
-        "create: changes holds name and fields (MCP or provider type too). "
-        "change: agent, or target (MCP server or provider id or name); never an MCP type. "
-        "Fields as propose_change, except notes_enabled. "
-        'Leave a secret\'s value "" for the operator to enter; never a provider key.'
+        "create: changes holds name and fields (a type too for an MCP server or provider). "
+        "change: agent, or target as in propose_change; never an MCP type. "
+        "Fields as propose_change, except notes_enabled and time settings. "
+        'Leave a value "" for the operator to enter; never a key.'
     )
     parameters = {
         "type": "object",

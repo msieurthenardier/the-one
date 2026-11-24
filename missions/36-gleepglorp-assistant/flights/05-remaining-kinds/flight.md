@@ -1012,7 +1012,7 @@ agents (2026-11-23).
   - the Tools grid follow (DD14 choice 5);
   - the date and time follow;
   - the second-window follow test.
-- [ ] `05-descriptions-and-evals-setup` — Autonomous; reviewed and committed before any quota.
+- [x] `05-descriptions-and-evals-setup` — Autonomous; reviewed and committed before any quota.
   - `fill_form` kind-neutral and `propose_change` with the four kinds, within their pins;
   - the new cells, with BAD-script-proven checks;
   - harness state checks;
