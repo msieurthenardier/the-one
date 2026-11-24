@@ -1,6 +1,7 @@
 # Leg: 07-hat-and-closing-gate
 
-**Status**: ready
+**Status**: completed. The HAT passed 9 of 9, the quiet-host gate passed, and the lanes were
+re-budgeted. See the flight log.
 **Flight**: [The remaining kinds](../flight.md)
 
 ## Objective

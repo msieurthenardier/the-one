@@ -510,7 +510,7 @@ Taken with the operator on 2026-11-23, at Flight 5 planning:
   *(Split 2026-11-21, operator: this flight is "MCP servers and model
   providers": the groundwork, a code-level block on outside commands and
   links, and the two kinds. The other five kinds move to Flight 5.)*
-- [ ] **Flight 5: The remaining kinds.** *(Connectors removed 2026-11-21,
+- [x] **Flight 5: The remaining kinds.** *(Connectors removed 2026-11-21,
   operator: they are reworked after this mission.)* Knowledge bases, Library
   secrets' metadata, tool configs and app settings, on Flight 4's registry:
   each with its write service, proposals and, where the editor has a Save,

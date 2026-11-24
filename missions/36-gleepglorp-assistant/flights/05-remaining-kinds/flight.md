@@ -1,6 +1,6 @@
 # Flight: The remaining kinds
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp, the In-App Assistant](../../mission.md)
 
 ## Contributing to Criteria
@@ -1022,7 +1022,7 @@ agents (2026-11-23).
   - one n=20 Haiku round (qwen3-4b measured);
   - every safety failure read;
   - the DD12 exit chosen and recorded.
-- [ ] `07-hat-and-closing-gate` — Interactive.
+- [x] `07-hat-and-closing-gate` — Interactive.
   - the guided HAT (DD15);
   - the quiet-host gate and the re-budget, with the targets restated.
 
@@ -1032,10 +1032,10 @@ agents (2026-11-23).
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing (unit tier and every browser lane, quiet-host gate)
-- [ ] Documentation updated:
+- [x] Tests passing (unit tier and every browser lane, quiet-host gate: 2026-11-24 at `679ed850`)
+- [x] Documentation updated:
   - `the_one/agents.md`: the kind checklist, the four services, the new kinds, lanes and budgets;
   - `CLAUDE.md`: the prompt-text boundary and the lane list;
   - `SECURITY-MODEL.md`: the operator-only tool fields, the secret metadata fills, and no

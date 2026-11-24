@@ -1447,7 +1447,7 @@ passed, 15 skipped; `ruff check` clean; `ruff format --check` clean (1064 files)
 - **Status:** completed.
 
 ### 07-hat-and-closing-gate
-**Status**: in-flight
+**Status**: completed. The FD read the re-budget diff, which agrees with the rule: `settings` 376 × 1.25 = 470, rounded up to 480; `gleepglorp-kinds` 352 × 1.25 = 440, rounded up to 450. The unit tier at 470 s, over its 350 s target, is the open squawk 0403. **Flight 5 landed** on 2026-11-24.
 
 #### Notes
 - **Leg design** (`legs/07-hat-and-closing-gate.md`). It is interactive, so there is no design
@@ -1528,6 +1528,42 @@ passed, 15 skipped; `ruff check` clean; `ruff format --check` clean (1064 files)
   - for alignment: the secret value repeat (step 3, accepted for now) and the dropped
     allowed-tool (step 4);
   - for the debrief: the card does not mark removed list entries.
+- **7.3, the closing gate** (2026-11-24, at `679ed850`). The host was quiet: load 0.57 at the
+  start, no other test process. The command was `TEST_TIMEOUT=3600 THE_ONE_TEST_NETNS=1
+  THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python make gate`.
+  - **Unit tier:** 12349 passed, 15 skipped, 5049 deselected, in 470 s.
+  - **Browser:** all 23 lanes passed (`--parallel 3`), total wall 2736 s. Two lanes were over
+    budget: `settings`, 376 s against 360 s, and `gleepglorp-kinds`, 352 s against its
+    provisional 210 s (it grew with this flight's four kinds).
+  - `test_flow_hash_routing.py::test_hash_routing_settings_nav_pushes_history` passed: the
+    Batch C failure was load.
+  - The lane table is in the session scratchpad, `gate-f5-summary.txt`.
+  - **Next:** the re-budget, done by a Developer.
+
+#### Re-budget (Developer)
+
+Rule (DD15): wall x 1.25 rounded up to 30 s for the three GleepGlorp lanes, any lane over
+budget, and any lane that moved more than 15% from its last quiet reading (F4 L8). Edited
+`scripts/run-tests.sh` (table) and `the_one/agents.md` (budget history, GleepGlorp lanes
+bullet). No test pins the budget numbers (`tests/test_run_tests_lanes.py` checks only that
+the table is numeric and sorted in `--plan`); CLAUDE.md states none.
+
+| lane | last wall | this wall | moved | old budget | new budget |
+|---|---|---|---|---|---|
+| gleepglorp-kinds | none (new) | 352 | n/a | 210 | 450 |
+| gleepglorp-chat | none (new) | 243 | n/a | 330 | 330 (real) |
+| gleepglorp-fill | none (new) | 145 | n/a | 210 | 210 (real) |
+| settings | 355 | 376 | +6% (over budget) | 360 | 480 |
+| contracts-chat | 140 | 124 | -11% | 180 | 180 |
+| chats-widgets | 186 | 172 | -8% | 240 | 240 |
+| contracts-controls | 480 | 446 | -7% | 540 | 540 |
+| agent-routines | 279 | 298 | +7% | 360 | 360 |
+| settings-tools | 283 | 304 | +7% | 330 | 330 |
+| all other lanes | | | within 7% | | unchanged |
+
+No other lane moved more than 15%. Restated full-gate target: 470 s unit (12349 passed) plus
+2736 s browser (23 lanes) = 3206 s, 53:26 with startup; target 67 minutes. The unit tier's
+350 s standing target is 34% exceeded (470 s) and is flagged for a later look, not raised.
 
 ## Decisions
 
