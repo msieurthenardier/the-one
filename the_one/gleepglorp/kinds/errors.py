@@ -20,6 +20,7 @@ from typing import Any, NoReturn
 import aiosqlite
 
 from the_one.agent.service import AgentStaleError, AgentWriteError
+from the_one.app_settings_service import AppSettingsStaleError, AppSettingsWriteError
 from the_one.gleepglorp.proposals.store import ROWS_LABELS, Proposal, display_values
 from the_one.knowledge.service import KbNotFound, KbStaleError, KbWriteError
 from the_one.llm.provider_service import ProviderNotFound, ProviderStaleError, ProviderWriteError
@@ -35,6 +36,25 @@ from the_one.routines.limits import (
 )
 from the_one.routines.proposals import ProposalStaleError
 from the_one.secret_store.service import SecretNotFound, SecretStaleError, SecretWriteError
+from the_one.tools.config_service import ToolConfigStaleError, ToolConfigWriteError
+
+#: The write errors whose ``.items`` is the approve path's ``[{loc, msg}]``.
+_ITEMS_ERRORS = (
+    ProviderWriteError,
+    KbWriteError,
+    SecretWriteError,
+    ToolConfigWriteError,
+    AppSettingsWriteError,
+)
+#: The stale errors whose ``fields`` are ``[{field, current, proposed}]`` rows.
+_FIELD_STALE_ERRORS = (
+    AgentStaleError,
+    ProviderStaleError,
+    KbStaleError,
+    SecretStaleError,
+    ToolConfigStaleError,
+    AppSettingsStaleError,
+)
 
 
 class ApplyError(Exception):
@@ -72,7 +92,7 @@ def _failure_items(exc: BaseException) -> list[dict[str, Any]] | None:
         return _items(exc.detail)
     if isinstance(exc, McpWriteError):
         return exc.items
-    if isinstance(exc, (ProviderWriteError, KbWriteError, SecretWriteError)):
+    if isinstance(exc, _ITEMS_ERRORS):
         return exc.items
     if isinstance(exc, RoutineFieldError):
         return [{"loc": [exc.field], "msg": exc.message}]
@@ -90,7 +110,7 @@ def _failure_items(exc: BaseException) -> list[dict[str, Any]] | None:
 def _is_gone(exc: BaseException, p: Proposal) -> bool:
     if isinstance(exc, AgentWriteError):
         return exc.status == 404
-    if isinstance(exc, (McpWriteError, ProviderWriteError, KbWriteError, SecretWriteError)):
+    if isinstance(exc, (McpWriteError, *_ITEMS_ERRORS)):
         return exc.status == 404
     if isinstance(exc, (McpSourceNotFound, ProviderNotFound, KbNotFound, SecretNotFound)):
         return True
@@ -118,7 +138,12 @@ def _labels(kind: str) -> dict[str, str]:
 async def _agent_or_rule_stale(
     conn: aiosqlite.Connection,
     p: Proposal,
-    e: AgentStaleError | ProviderStaleError | KbStaleError | SecretStaleError,
+    e: AgentStaleError
+    | ProviderStaleError
+    | KbStaleError
+    | SecretStaleError
+    | ToolConfigStaleError
+    | AppSettingsStaleError,
 ) -> list[dict[str, Any]]:
     labels = _labels(p.kind)
     cur = await display_values(conn, {f["field"]: f["current"] for f in e.fields})
@@ -198,7 +223,7 @@ async def translate(
 
     The order is the apply path's: stale, then gone, then validation items.
     """
-    if isinstance(exc, (AgentStaleError, ProviderStaleError, KbStaleError, SecretStaleError)):
+    if isinstance(exc, _FIELD_STALE_ERRORS):
         return ApplyError(stale=await _agent_or_rule_stale(conn, p, exc))
     if isinstance(exc, McpStaleError):
         return ApplyError(stale=await _mcp_stale(conn, p, exc))

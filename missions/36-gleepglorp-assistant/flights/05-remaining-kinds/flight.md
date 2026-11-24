@@ -998,7 +998,7 @@ agents (2026-11-23).
   - the appliers and follows on the DD4 core;
   - the empty value row;
   - dirty-state tests.
-- [ ] `04a-settings-kinds-server` — High risk: security-sensitive fields.
+- [x] `04a-settings-kinds-server` — High risk: security-sensitive fields.
   - `tools/config_service.py` and the app settings service;
   - the `tool_config` kind (per-tool rows and settable fields, secret-preserving merge, the
     impact and on/off warnings, the key handoff, the operator-only refusal);
@@ -1007,7 +1007,7 @@ agents (2026-11-23).
   - the Settings item in the page route;
   - guard cases;
   - guide.
-- [ ] `04b-settings-kinds-editors` — High risk: shared admin area. Designed after 4a lands.
+- [x] `04b-settings-kinds-editors` — High risk: shared admin area. Designed after 4a lands.
   - the tools editor and Knowledge indexing seams, appliers and follows;
   - the Tools grid follow (DD14 choice 5);
   - the date and time follow;

@@ -175,8 +175,14 @@ def _route(descriptor: dict[str, Any], resolved_id: str | None) -> str | None:
     dest = descriptor["destination"]
     section = descriptor.get("section")
     if dest == "settings":
-        # Never the item: a settings item is the client's own text. A section is required.
-        return f"settings/{_enc(section)}" if section else None
+        # A settings item is the client's own text, so the route never carries it, with one
+        # exception: ``settings/tools/{name}`` when the server resolved the name against the
+        # built-in tools (``resolved_id``). A section is required.
+        if not section:
+            return None
+        if section == "tools" and resolved_id:
+            return f"settings/tools/{_enc(resolved_id)}"
+        return f"settings/{_enc(section)}"
     if dest == "agents":
         if descriptor.get("create"):
             return "agents/~new"
@@ -246,12 +252,18 @@ def _label(descriptor: dict[str, Any], resolved_name: str | None) -> str:
 
 async def _resolve_item(conn: Any, descriptor: dict[str, Any]) -> tuple[str | None, str | None]:
     """``(stored name, id)`` of the open item, or ``(None, None)`` when it does not resolve.
-    An agent's id is its name; a settings item has a name (its own text) and no id."""
+    An agent's id is its name; a settings item has a name (its own text) and, on the Built-in
+    tools page only, an id: the tool's name, when it is one of the built-in tools."""
     dest = descriptor["destination"]
     item = descriptor.get("item")
     if not item or descriptor.get("create"):
         return None, None
     if dest == "settings":
+        if descriptor.get("section") == "tools":
+            from the_one.tools.builtins import builtin_tool_names
+
+            if item in builtin_tool_names():
+                return item, item
         return item, None
     if dest == "agents":
         async with conn.execute("SELECT name FROM agents WHERE name = ?", (item,)) as cur:

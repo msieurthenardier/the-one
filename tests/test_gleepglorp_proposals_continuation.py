@@ -294,9 +294,13 @@ async def _apply_world(tmp_path):
         "gleepglorp/kinds/provider.py",
         "gleepglorp/kinds/knowledge_base.py",
         "gleepglorp/kinds/secret.py",
+        "gleepglorp/kinds/tool_config.py",
+        "gleepglorp/kinds/app_settings.py",
         "llm/provider_service.py",
         "knowledge/service.py",
         "secret_store/service.py",
+        "tools/config_service.py",
+        "app_settings_service.py",
         "routines/runner.py",
     ],
 )

@@ -339,10 +339,25 @@
     var foreign = tokens(describeTarget.getAttribute('aria-describedby'));
     if (info) foreign.push(info.descriptionId);
 
+    // The hint and error ids this field last wrote. A token any other module added to the
+    // describe target after construction (a GleepGlorp note link) is not one of them and
+    // survives every rebuild: current others, then foreign, then hint, then error.
+    var wroteIds = [];
+
     function wire() {
-      var ids = foreign.slice();
-      if (hintEl) ids.push(hintEl.id);
-      if (errorEl) ids.push(errorEl.id);
+      var ids = [];
+      tokens(describeTarget.getAttribute('aria-describedby')).forEach(function (t) {
+        if (wroteIds.indexOf(t) === -1 && foreign.indexOf(t) === -1 && ids.indexOf(t) === -1) {
+          ids.push(t);
+        }
+      });
+      foreign.forEach(function (t) {
+        if (ids.indexOf(t) === -1) ids.push(t);
+      });
+      wroteIds = [];
+      if (hintEl) wroteIds.push(hintEl.id);
+      if (errorEl) wroteIds.push(errorEl.id);
+      ids = ids.concat(wroteIds);
       if (ids.length) {
         describeTarget.setAttribute('aria-describedby', ids.join(' '));
       } else {

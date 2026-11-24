@@ -426,6 +426,425 @@ Verification (netns, one at a time):
 
 ---
 
+### Batch B commit
+- **`fbf11634`** "flight/5: Batch B Library kinds — knowledge_base and secret metadata": 63
+  files. Not pushed; the push waits for the PR.
+
+### 04a-settings-kinds-server
+**Status**: completed
+**Started**: 2026-11-23
+
+#### FD notes on landing
+- **The Developer landed with its verification unfinished:** the full unit run was still going
+  (detached, with its own Monitor), and the four browser lanes the leg names (`settings-tools`,
+  `settings`, `gleepglorp-fill`, `gleepglorp-chat`) had not run. The FD waited for the unit run
+  and then ran the lanes itself, one at a time, with no other test process on the host. Results
+  are under Verification.
+- **The crew prompt for later legs** says plainly that landing waits for the leg's own gates.
+
+#### Changes Made
+- **Repositories:** `ToolConfigRepository.update_in_txn(name, mutate, *, on_commit=None)`
+  (`(before, after)`, `before=None` for a never-saved tool; upsert, no `KeyError`) and
+  `AppMetadataRepository.set_in_txn(conn, key, value)` (static, raw `INSERT ... ON CONFLICT`).
+- **`the_one/tools/config_service.py` (new):** `ToolConfigWriteDeps`, `ToolConfigWriteError`
+  (with `.items`), `ToolConfigStaleError`; the moved `compute_tool_config_update`,
+  `merge_hidden_fields`, `secret_field_names`, `narrowing_added`, `impact_of`; plus
+  `effective_values`, `stale_fields`, `replace_tool_config` (the PUT, one transaction),
+  `change_tool_config` (named fields merged over `{**config, **secrets}`, `enabled` split to the
+  column), `preview_impact` and `impact_for_row`. `api.py` re-exports the old names; the PUT and
+  impact routes are thin (`_tool_config_write_errors` / `_tool_config_write_deps`);
+  `view_core._secret_field_names` now calls the service's.
+- **`the_one/app_settings_service.py` (new):** `AppSettingsWriteDeps(conn, poke,
+  apply_monitoring)`, `AppSettingsWriteError`, `AppSettingsStaleError`, `save_time_setting`,
+  `change_time_settings`, `change_knowledge_settings` (only the records it changes, one
+  transaction, never `knowledge.embedding`, hooks after the commit inside `try` / `except`).
+  `PUT /time-settings` calls `save_time_setting` (the service pokes the scheduler through the
+  route's late-bound `_poke_scheduler`); `PUT /knowledge-settings` is unchanged on the route
+  (guards, unconditional `_after_monitoring_settings_changed`).
+  `knowledge.settings.save_knowledge_settings` is now one transaction.
+- **Kinds:** `kinds/tool_config.py` and `kinds/app_settings.py`, appended to `REGISTRY` in that
+  order. `FieldSpec.applies_to` and its `describe()` emission (only when non-empty);
+  `view_core.ALLOWED` / `OPERATOR_PATHS` gained `applies_to`. `kinds/errors.py` learned the
+  new errors (`_ITEMS_ERRORS`, `_FIELD_STALE_ERRORS`). `page.py` carries
+  `settings/tools/{name}` (server-resolved against `builtin_tool_names()`).
+- **Description:** `propose_change` names both kinds and "or a built-in tool's name;
+  app_settings takes none" (475 of 520 characters, 114 of 120 tokens, measured with the cached
+  `o200k_base`); `fill_form`'s text is byte-unchanged (397 characters, 89 tokens).
+- **Guide:** `settings.md` gained a 69-word "With GleepGlorp" section (566 of 600 words);
+  `gleepglorp.md` line 19 reworded to cover every kind (597 of 600). `agent-tools.md` untouched.
+- **Docs:** `the_one/agents.md` (new "Tool-config and app-settings kinds (M36 F5 L4a)" section,
+  the REGISTRY line, the page-line bullet, the knowledge-settings transaction sentence) and
+  `SECURITY-MODEL.md` (new "GleepGlorp's built-in tool and app-settings changes" section).
+- **Tests, new:** `tests/test_tool_config_service.py` (18), `tests/test_app_settings_service.py`
+  (13), `tests/test_gleepglorp_kind_tool_config.py` (66), `tests/test_gleepglorp_kind_app_settings.py`
+  (37).
+- **Pins updated:** `test_gleepglorp_proposals_tool.py` (enum), `test_gleepglorp_fill_tool.py`
+  (enum), `test_gleepglorp_kinds.py` (registry, `OPERATOR_ONLY_FIELDS`, `FILLABLE`),
+  `test_gleepglorp_kind_hooks.py` (addressing dict; `fill_refused` list),
+  `test_gleepglorp_kind_secret.py` (`REGISTRY[6]`), `test_gleepglorp_proposals_shape.py`
+  (listings, operator-only set, "Valid names"), `test_gleepglorp_client_helpers.py`
+  (`areas/[a-z]+/` regex and `_PENDING_CLIENT_KINDS`), `test_gleepglorp_proposals_continuation.py`
+  (seam-import list, four paths), `test_gleepglorp_page.py` (docstring, `test_settings_lines`, a
+  resolution test). `REVIEWED_ALLOWED` needed no change: it pins only `fields.list` and
+  `fields.detail`, and `applies_to` is a nested key, declared in `ALLOWED` and `OPERATOR_PATHS`.
+  The squawk-0334 grep for other registry enumerations and `#settings/tools` page lines in
+  `tests/`, `tests/browser/`, `evals/` found none beyond these.
+
+#### Verification
+- **Existing route tests unedited:** `test_api_tool_configs.py`, `test_api_tool_config_impact.py`,
+  `test_tool_config_text.py`, `test_api_error_shapes.py`, `test_agent_notices.py`,
+  `test_agent_tool_overrides_round_trip.py`, `test_api_agent_tool_override_validation.py`
+  (184 passed); `test_time_settings_api.py`, `test_knowledge_settings.py`, `test_kb_manager.py`,
+  `test_time_zones.py`, `test_api_invalid_json.py`, `test_routines_scheduler.py`,
+  `test_db_api.py` (427 passed, 1 skipped), including the `_after_monitoring_settings_changed`
+  monkeypatch tests.
+- **Fields-view byte check:** `describe()` of the seven existing kinds and the kind list, captured
+  before any change and after the new kinds (`describe_before.json` in the session scratchpad),
+  are identical (diff empty). Only the two new kinds' output carries `applies_to`.
+- **Falsification (edit, run, see fail, restore by edit):**
+  - PUT read outside the transaction: yes (service race test and route race test fail);
+  - change merged over `config` alone (drops secrets): yes;
+  - `_after_commit` without its `try`: yes (service tests and the kind end-to-end test, which
+    would report `already_applied`);
+  - writing the monitoring key when only chunking changed: yes;
+  - key-hand-off sentence removed: yes; per-tool "has no ... setting" refusal removed: yes;
+  - narrowing gate (load agents for any numeric change): yes;
+  - `address_or_command` off on both address fields: yes (both guard tests fail);
+  - `TURN_ON_WARNED` missing `web_search`: yes (parity test);
+  - private-address row read from `fetch_url`, not the first `WebConfig` tool: yes;
+  - zone-mode addition removed: yes; `fill_refused` removed from `time_zone`: yes.
+  - Not falsified: the turn-off, turn-on, key-handoff and narrowing sentences and the
+    `relaxed_guard_keys` flag (each is an exact-sentence or exact-value assertion).
+- **Description budgets:** `test_the_description_token_budget` ran (not skipped) in both tool test
+  files: `propose_change` 114 of 120 tokens, `fill_form` 89 of 90.
+- **Gates:** `ruff check` and `ruff format --check` over `the_one/ tests/ scripts/ evals/` clean;
+  `tests/ -k gleepglorp` 1476 passed.
+- **Full unit tier (`make test-unit`, under `THE_ONE_TEST_NETNS=1`):** 12209 passed, 15 skipped
+  (the expected count in the namespace), 5017 deselected, in 436.81 s. The Developer started it
+  detached and landed before it finished; the FD read the result from the log afterwards.
+- **Browser lanes (FD, one at a time, `THE_ONE_TEST_NETNS=1`):**
+  - `settings-tools`: 174 passed (309 s), clean tree;
+  - `settings`: 126 passed (364 s), clean tree;
+  - `gleepglorp-fill`: 45 passed (139 s);
+  - `gleepglorp-chat`: **inconclusive**, 1 failed, 77 passed (229 s). The failure is
+    `test_flow_gleepglorp_drawer_shell.py::test_the_last_control_of_a_scrolled_page_is_clear_of_the_button[settings/prompts]`:
+    the Settings panel never became active.
+  - **Why it does not count:** the FD started the Leg 4b Developer while the last two lanes ran.
+    By the `gleepglorp-chat` run it had already edited `tools-page.js`, `tools-editor.js`,
+    `tools-grid.js` and the shared fill core (served from disk per request), and `index.html`
+    did not yet load its new modules, so a half-edited admin script that throws at load is the
+    likely cause.
+  - **Where it is proven instead:** `gleepglorp-chat` and `gleepglorp-fill` re-run on the
+    combined tree, in Leg 4b's own gate (AC11) and again at the Batch C review. If the
+    `settings/prompts` case fails there, it is treated as a regression, not a flake.
+
+#### Deviations
+- **`time_zones.ERR_ZONE_REQUIRED` is a code, not a sentence** (`"zone_required"`). The kind's
+  refusal for `time_zone_mode: "zone"` with no zone stored or named is its own sentence,
+  "Choose a time zone when time_zone_mode is zone.", mirroring the route's
+  `_time_settings_error` wording, and the unknown-zone sentence mirrors it too.
+- **`REVIEWED_ALLOWED` unchanged** (see Pins updated); the leg listed it as an expected edit.
+- **`PUT /time-settings` pokes through the service** (with the route's late-bound
+  `_poke_scheduler` injected) rather than calling `_poke_scheduler()` itself; `_poke_scheduler`
+  stays on `api.py` for its direct caller. Behaviour is unchanged.
+
+#### Notes
+- **Designed during the Batch B review,** from a read-only survey of the working tree (saved
+  as the session scratchpad's `leg4a-survey.md`). Citations were re-checked by the design
+  reviewer.
+- **Tiered high:** security-sensitive tool fields, shared registry and fields-view changes, and
+  routes thinned onto services.
+- **Survey corrections to the flight spec, folded into the leg:**
+  - DD7's settable table: `read_file`, `edit_file` and `grep` show all four Filesystem fields,
+    so they expose `read_size_cap_bytes`. The empty-config tools and the two session tools that
+    show nothing offer `enabled` only.
+  - The turn-on warning's categories exist only in `tool-categories.js`. The server gets
+    `TURN_ON_WARNED`, plus a parity test.
+  - `page` addressing and `FieldSpec.path` were declared but unused. `app_settings` builds its
+    own `target_key`.
+  - The embedding warm-up is not an app-settings side effect.
+  - The client-registry pin (`test_gleepglorp_client_helpers.py:57-75`) breaks as soon as server
+    kinds are appended. It is relaxed for the two pending kinds, and Leg 4b empties the
+    allowance.
+  - `agent-tools.md` has 12 spare words, so the guide text goes in `settings.md` only.
+- **Design review** (Developer, Sonnet): approve with changes, 5 medium and 4 low findings, all
+  applied:
+  - the narrowing warning is proposal-only, and is gated so no agent is loaded unless a numeric
+    field drops below its base;
+  - post-commit hooks are wrapped so a raise cannot misreport an applied proposal, and they are
+    injected through the deps;
+  - `target_noun` is "A built-in tool";
+  - a shape-level type check runs before a dry run of the real write, with message mapping;
+  - the private-address warning reads the row the provider resolves `WebConfig` from;
+  - the kind surface is spelled out;
+  - `operator_only` has a deterministic order;
+  - no `precheck` is used;
+  - edge cases.
+
+  The FD answered the three questions:
+  - the narrowing warning is proposal-only;
+  - a zone mode with no zone is refused with `ERR_ZONE_REQUIRED`;
+  - a Knowledge indexing fill reports stale fields.
+- **Taken into scope:** the reviewer noticed that `guide/gleepglorp.md:19` still says GleepGlorp
+  proposes only for agents, rules and routines (stale since Flight 4). Leg 4a rewords it, since
+  the guide moves with each kind (DD11).
+- **No second review cycle:** the changes are the reviewer's own fixes and change no design
+  direction.
+
+### 04b-settings-kinds-editors
+**Status**: completed
+
+#### FD notes on landing
+- The Developer signalled `[LAND:leg]` with every gate finished and no run still going (the FD
+  checked: no pytest, uvicorn or Chromium left over; tree unchanged since the hand-back).
+- **Unit tier** ran without the namespace (12 skips, the Linux count). The FD accepts it; the
+  Batch C fix pass or FD verification re-runs it under `THE_ONE_TEST_NETNS=1` before the commit.
+- **`gleepglorp-chat` is not accepted as a load flake yet.** The FD ran the lane once on the
+  finished, untouched tree (load about 5, other projects' sessions): `1 failed, 52 passed` with
+  `-x`, on a third different `test_flow_gleepglorp_drawer_chat.py` test,
+  `test_a_queued_message_carries_the_page_it_was_queued_on`: `_nav.open_destination(page,
+  "settings")` from `#library/mcp/~new` left the hash unchanged for 8 s (`expected route
+  'settings/appearance', got 'library/mcp/~new'`). Across four runs on the Batch C tree that is
+  three failures, each a different test in the same file, the third a navigation into Settings
+  (the area this batch changes). An investigation (Developer, Sonnet) compares the file against
+  the Batch B commit before the batch can commit. Log: session scratchpad
+  `lane4b-fd-gleepglorp-chat.log`.
+
+### Batch C checkpoint review (Legs 4a, 4b)
+**Status**: completed. Legs 4a and 4b were marked `completed`, and the checkpoint commit followed.
+Its ref is recorded in the next batch's notes.
+- **The crew** (all Sonnet, in parallel; only the investigator ran tests, so one test process at
+  a time):
+  - Reviewer (security-sensitive: tool configs, app settings, operator-only fields), static read
+    plus `ruff`;
+  - Accessibility Reviewer, static;
+  - an investigator (Developer) for the `gleepglorp-chat` failures, comparing the tree with
+    `fbf11634` in a separate worktree.
+- **Reviewer:** `[HANDOFF:confirmed]`, no blocking issue. Security holds: operator-only fields
+  refused before `normalize`, secrets absent from summaries, notes and follows, the same
+  validation as the direct routes. No plausible cause for the `gleepglorp-chat` failures in the
+  diff (static read). Non-blocking:
+  1. `keepFocus` race: `tools-page.js` `revealItem` reads the flag inside its `setTimeout(0)`, so
+     a fill that settles in the same task clears it first (also the Accessibility Reviewer's N1);
+  2. no `max` on the `tool_config` text fields or the `app_settings` zone specs;
+  3. the narrowing preview in `tool_config.py` merges `enabled` into `config`;
+  4. `tools-editor-controller.js` `fields()` as the fill's allowed set includes secret and
+     path-list handles (defence in depth; the server never sends them);
+  5. `date-time-page.js` `followed` calls `gen.next()`, which also voids an operator PUT in flight.
+- **Accessibility Reviewer:** changes requested, **one blocking issue (FD confirmed it in
+  code)**:
+  - **B1 (WCAG 1.3.1, 4.1.2):** `ui/field.js` `wire()` rebuilds `aria-describedby` from the
+    tokens captured at construction plus its own hint and error ids, so every `setError`/`setHint`
+    drops a note's link token. The tools editor hits it in `clearErrors()` (start of every save),
+    `showSaveError` and `controller.setField`, and the fill core's `skipIfUnchanged` redraw never
+    re-links. The checkbox `setError` in `tool-config-fields.js` restores only its base value.
+    Knowledge indexing has a local `paintField` workaround; Batch B's Library editors are likely
+    exposed too.
+  - Non-blocking: N1 the `keepFocus` race; N2 a repeated "Open chat" link text per grid card
+    (meets AA in context); N3 the checkbox case (covered by B1).
+  - Fine: the Date and time note, the grid note's structure and linkage, `paintField`,
+    consistency with Batch B, contrast in both themes.
+- **Investigator (`gleepglorp-chat`):** a pre-existing race, not Batch C code. The tree failed
+  the lane 7 of 9 runs, HEAD `fbf11634` (separate worktree, proven to serve HEAD) 1 of 4, at load
+  4-6.5; not separable from load at these sizes (Fisher p about 0.2). The drawer_chat file alone
+  passed 4/4. Cause: `tests/browser/_drawer.py::boot()` waits for the drawer and its socket, which
+  mount at `DOMContentLoaded`, but not for `App.router.start`, which waits on `/api/config` and
+  `/api/time-settings`; a probe at HEAD with a delayed `/api/config` showed `App.router.current()`
+  null after both waits. All four symptoms fit (no `page` on `start_session`, no chip, an ignored
+  rail click, no `_sessionState`). The FD confirmed the two waits in code. Logs: session
+  scratchpad `tlane-*.log`, `hlane-*.log`.
+- **FD decision:** logged as **squawk 0406** (defect, **grounding**: the lane gates this flight)
+  and fixed in the Batch C fix pass, with B1 and the non-blocking items. B1 is fixed at its root in
+  `ui/field.js` (the control library, so every form is exposed), which is why the fix pass runs
+  the full browser suite.
+
+#### Batch C fix pass (Developer)
+- **B1 (root fix).** `ui/field.js` `wire()` now remembers the hint and error ids it last wrote
+  (`wroteIds`) and rebuilds `aria-describedby` as: tokens currently on the control that the field
+  does not own (deduped, order-stable), then the construction-time tokens, then hint, then error.
+  The checkbox `setError` in `areas/shared/tool-config-fields.js` (the file is under `shared/`,
+  not `admin/`) adds and removes only its own error id through `App.ui.util.addDescribedBy` /
+  `removeDescribedBy`. `knowledge-settings-page.js` `paintField`'s token restore was removed (the
+  Knowledge tests stayed green without it). Inventory row "Field group" in
+  `docs/ui-control-inventory.md` gained the ordering sentence. Exact `aria-describedby` pins in
+  the tests were grepped: none depended on the old ordering for a late-added token; the existing
+  field contract pins (`hint`, `error`) hold unchanged.
+- **Squawk 0406.** `tests/browser/_drawer.py`: `boot()` ends with `wait_router(page, route)`
+  (router has committed, then `_nav.expect_route`, canonical); `wait_socket()` also waits for the
+  router (`wait_router_started`), which covers every other helper that reloads or opens a second
+  window and drives the drawer at once (`test_flow_gleepglorp_drawer_chat.py`,
+  `test_flow_gleepglorp_fill.py`); `drawer_shell._open` already waits for the destination panel.
+  The squawk's Corrective Action and Verification are written; status left `in-progress`.
+- **Non-blocking.** (1) `tools-page.js` `revealItem` reads `keepFocus` synchronously before the
+  timeout. (2) The Config models bound none of these, so `tool_config` text specs got
+  `max` 32 (`search_backend`), 2048 (`searxng_base_url`), 128 (`google_pse_cse_id`) and the
+  `app_settings` zone specs 16 (`time_zone_mode`) and 64 (`time_zone`). (3) The narrowing preview
+  excludes `enabled` from the merged `config`. (4) `tools-editor-controller.js` gained
+  `fillFields()` (`fields()` minus password, secret and array handles) and the fill's allowed set
+  uses it. (5) `date-time-page.js` keeps a `pendingSave` token: `followed` does not call
+  `gen.next()` while an operator PUT is in flight. (6) The grid note's "Open chat" link carries
+  `aria-label="Open chat (<tool>)"` through a new `linkLabel` option of
+  `App.gleepglorpFollow.buildNote` (visible text unchanged).
+- **New tests and falsification** (each fix removed by editing, test run, fix put back by editing):
+  - `test_ui_library_contract.py::test_field_keeps_a_token_added_after_construction`: falsified
+    yes (both engines failed).
+  - `test_flow_gleepglorp_fill_tool_config.py::test_the_notes_stay_linked_after_a_failed_save`:
+    falsified yes (it failed with the old `wire()`, at the note-link check after the fill, before
+    the Save step; the post-save assertions are not separately isolated).
+  - `test_the_fill_never_offers_a_secret_or_list_handle`: yes.
+  - `test_flow_gleepglorp_follow_app_settings.py::test_an_approval_arriving_during_the_operators_save_does_not_void_its_saved_status`:
+    yes.
+  - `test_flow_gleepglorp_follow_tool_config.py` (the aria-label assertion added to
+    `test_an_approved_enabled_change_flips_the_tile_and_notes_it_until_the_next_toggle`): yes.
+  - `test_gleepglorp_kind_tool_config.py::test_the_narrowing_preview_keeps_enabled_out_of_the_config`:
+    yes (the spy copies each call's data; it records two calls, and the bug shows in the second).
+  - `test_the_time_zone_text_fields_are_bounded` (app_settings): yes (removed `max=64`).
+  - `test_the_text_fields_are_bounded_by_their_specs` (tool_config): no (the pre-existing
+    `_check_text` path is shared; the `app_settings` test covers the same mechanism).
+  - Item 1 (`keepFocus` timing): no test (a same-task race with no stable seam); not falsified.
+- **Verification.**
+  - (a) `ruff check` and `ruff format --check`: clean (1064 files).
+  - (b) static guards (8 files): 455 passed, 6.8 s.
+  - (c) `THE_ONE_TEST_NETNS=1 make test-unit`: 12213 passed, 15 skipped, 427.6 s (load 1.81 at the
+    start of the pre-run checks).
+  - (d) full browser suite, `--parallel 3`, 23 lanes, 2958 s, load 2.79 at the start: all lanes
+    passed except two single failures. `routing` 193, `agents` 186, `agent-tabs` 221, `library`
+    122, `chats` 178, `chats-transcript` 152, `contracts-controls` 1304 (4 skipped), `mcp` 105,
+    `knowledge` 65, `providers` 144, `mcp-connection` 102, `agent-routines` 84, `gleepglorp-chat`
+    82, `settings-tools` 174, `contracts-widget` 156 (2 skipped), `chats-widgets` 32,
+    `contracts-overlay` 558 (1 skipped), `gleepglorp-fill` 45, `contracts-chat` 356,
+    `contracts-widget-lifecycle` 113, `settings` 126, all passed. `shared`: 1 failed, 364 passed
+    (`test_flow_hash_routing.py::test_hash_routing_settings_nav_pushes_history`, `.page-title` not
+    found in 5 s). `gleepglorp-kinds`: 1 failed, 100 passed
+    (`test_flow_gleepglorp_fill_provider.py::test_a_dirty_editor_on_another_provider_asks_the_guard_and_stay_writes_nothing`).
+    Each lane alone, once: `shared` 365 passed (371 s, load 1.51 at start), `gleepglorp-kinds` 101
+    passed (306 s). Neither failing file was touched, and the host load after the parallel run was
+    5 to 7; both are treated as load flakes, not regressions.
+  - (e) squawk 0406: `gleepglorp-chat` alone three times, each 82 passed (209 s, 212 s, 210 s);
+    load average at the starts 1.43, 3.55 and 2.93.
+- **No process of mine is left running.** HANDOFF: review-needed.
+
+#### FD acceptance of the fix pass
+- **Accepted without a second review cycle.** The FD read the `ui/field.js`, checkbox
+  `setError` and `_drawer.py` diffs:
+  - `wire()` keeps every token it did not write, so a note link survives each rebuild, and its
+    own hint and error ids are still replaced;
+  - the checkbox touches only its error id;
+  - `boot()` and `wait_socket()` wait for the router's first commit.
+
+  The rest are the reviewers' own recommendations, each with a falsified test, except the
+  `keepFocus` capture (no stable seam) and the tool_config bound test (it shares the falsified
+  path). The full browser suite covers the control-library change.
+- **The two parallel-run failures are accepted as load flakes.** Both passed with their lane
+  alone, and neither file is in the diff. One of them, `test_hash_routing_settings_nav_pushes_history`,
+  is a Settings navigation, so the FD notes it for the Leg 7 quiet-host gate. If it recurs on a
+  quiet host, it is a regression.
+- **Gate status:** the unit tier was re-run under the namespace (12213 passed, 15 skipped), which
+  closes the 04b landing note. Squawk 0406 was completed in this commit.
+- **Status:** completed.
+
+#### Notes
+- **Designed after Leg 4a landed,** from a read-only survey of the client code (session
+  scratchpad `leg4b-survey.md`), written while Leg 4a's browser lanes ran.
+- **Tiered high:** the shared admin area, a control-library change (`toolTile.setNote`) and an
+  every-window follow of the app's clock.
+- **Survey findings that shaped the leg:**
+  - none of the three settings surfaces has a seam, so the leg adds controllers;
+  - `listen` is once per kind per page, so the tools editor and grid share one `tool_config`
+    registration, and Knowledge indexing and Date and time share one `app_settings` dispatcher;
+  - the tools page's `refresh()` re-mounts the editor, so the follow patches in place;
+  - the "Saving narrows N agents" dialog is an untracked busy state; the leg adds `confirming`;
+  - `whenSettled` resolves false at once for a not-ready controller, so controllers attach only
+    after their load;
+  - the emptied `_PENDING_CLIENT_KINDS` needs its assertions rewritten (`[-0:]` is the whole
+    tuple).
+- **No new placement:** DD14 choice 5's "under that tool's row" lands at the foot of the tool's
+  card, the grid's real layout.
+- **Design review** (Developer, Sonnet): approve with changes; 3 high, 6 medium, 2 low, all
+  applied:
+  - the note CSS is scoped to `.area-studio`, so the leg now styles notes in `.area-admin`;
+  - a show_if-hidden dependent field (SearXNG URL, CSE id) is written into its hidden handle with
+    no note, because the core has no honest "skipped" receipt and `keep()` would claim the
+    operator changed it;
+  - the grid note is a host child of the tile, not a new `toolTile.setNote` (an exact-API
+    contract assertion would have had to change; host children are already contracted for group
+    tiles);
+  - the dialog case is split: a fill arriving with the dialog open is `stay` (the drawer's modal
+    rule); one already waiting holds until the choice;
+  - the `confirming` flag's mechanics, the exact pin edits, the seeder's `target_key` fallback,
+    a named `App.time.onChange` subscriber for the second-window check, two more lanes (the
+    tile-driving router and lists tests), and the `areas/admin.js` path.
+- **No second review cycle:** every change is the reviewer's own recommendation and none
+  changes the design's direction.
+- **Status:** ready.
+
+#### Changes Made (Developer, implementation)
+- **New (admin area, `static/js/areas/admin/`):** `tools-editor-controller.js`,
+  `tool-config-fill.js`, `tool-config-follow.js`, `tool-config-kinds.js`,
+  `knowledge-settings-controller.js`, `knowledge-settings-fill.js`,
+  `knowledge-settings-follow.js`, `app-settings-kinds.js`; **shared:**
+  `areas/shared/app-settings-follow.js` (the one `app_settings` registration: App.time in every
+  window, then the Date page's or the Knowledge follow's handler).
+- **Edited:** `tools-editor.js` (`confirming`, `idle()` at every busy-end site, the controller,
+  `controller.clearNotes()` on Save and Cancel), `tools-page.js` (`currentController`, `followed`,
+  attach, the one-shot `keepFocus`), `tools-grid.js` (`setFollowNote`, cleared by the next toggle),
+  `knowledge-settings-page.js` (controller, `loadState`, `getController`, `paintField` keeps a
+  note's `aria-describedby` token), `date-time-page.js` (follow note, dispatcher registration,
+  returns `{destroy}`), `areas/admin.js` (attach), `gleepglorp-fill-core.js`
+  (`settingsRoute`), `static/css/studio.css` (the note rules also name `.area-admin`),
+  `static/index.html`.
+- **Tests:** four new browser files (10 + 6 + 5 + 6 tests); pins in `test_flow_gleepglorp_kinds.py`,
+  `test_gleepglorp_client_helpers.py` (`_PENDING_CLIENT_KINDS` gone, whole-`KINDS` assertion, the
+  new fill/follow modules, a new one-`listen`-per-kind scan) and `test_run_tests_lanes.py` (the
+  `gleepglorp-kinds` lane's four new files); `seeders.py` (`seed_gleepglorp_fill`'s `target_key`
+  for an agent-less non-resolving kind is `{kind}:{target_id}`). Docs: `ui-testid-registry.md`
+  (six rows), `agents.md`.
+
+#### Verification
+- **New browser files** (alone): tool fill 10, tool follow 6, app_settings fill 5, app_settings
+  follow 6, all passed.
+- **Lanes, each alone** (`THE_ONE_TEST_NETNS=1`): `settings-tools` 174, `settings` 126,
+  `gleepglorp-fill` 45, `gleepglorp-kinds` 98, `contracts-controls` 1302 (4 skipped), `routing`
+  193 (holds `test_router_items.py`), `shared` 365 (holds `test_lists_helper.py`): all passed.
+  `gleepglorp-chat`: two `-x` runs each stopped on a different `test_flow_gleepglorp_drawer_chat.py`
+  test (`test_a_refused_turn_leaves_no_chip_on_the_next_message`, then
+  `test_open_in_chats_is_guarded_and_stay_returns_focus_to_the_button`), neither touching Settings
+  code; each passes alone, the whole file passes (26), and a third full run of the lane passed
+  (82). Recorded as load flakes in that file. The FD's `settings/prompts` shell failure did not
+  recur: the lane's shell tests passed on the finished tree.
+- **Static guards, inventory, ownership, area size, lane partition, guide:** `test_ui_guards`,
+  `test_token_definitions`, `test_design_tokens_a11y`, `test_ui_control_inventory`,
+  `test_ui_ownership` (a first run caught `.ui-tool-tile` in `studio.css`; the selector now uses
+  the note's testid), `test_area_module_size` (largest new module 601 lines), `test_run_tests_lanes`,
+  `test_gleepglorp_guide`, `test_gleepglorp_client_helpers` passed. `ruff check` and
+  `ruff format --check` clean.
+- **Falsified (edit, run, fail, restore by edit):** dirty follow keeps the operator's value (yes);
+  confirm-dialog wait, `confirming` left out (yes); grid follow note not placed (yes);
+  second-window clock, `App.time.applySettings` removed from the dispatcher (yes); single
+  registration, a second `listen('app_settings')` (yes, the new scan fails); backend-then-URL,
+  `showIfCtl.apply()` removed from `setField` (yes); admin-area note style, the `.area-admin`
+  selector removed (yes, after the test was strengthened to compare against the caption token).
+- **`git diff --stat -- tests/browser/`:** `seeders.py` and the `test_flow_gleepglorp_kinds.py`
+  pins only, plus the four new files.
+- **`make test-unit`:** 12213 passed, 12 skipped (run without the namespace, so 12 is the Linux
+  count), 0 failed.
+
+#### Deviations
+- **Focus on a fill's navigation (not in the leg):** opening a tool's editor from a link focuses
+  its title from a timer; AC2 needs focus to stay in the composer, so the tool kind's
+  `beforeNavigate`/`afterNavigate` set `App.admin.toolsPage.keepFocus` and `revealItem` skips the
+  title focus while it is set.
+- **`ui.field` rewrites `aria-describedby`:** every hint or error change on a Knowledge field
+  dropped a note's link, so `paintField` puts a note's token back. The tools editor's handles only
+  rewrite on a typed change, which also removes the note, so it needed nothing.
+- **`gleepglorp-fill-core.js` gained `settingsRoute`** (the leg lists no core edit; the Library's
+  `libraryRoute` is its precedent).
+- **The grid note rule** selects the note by its testid, not `.ui-tool-tile` (an owned class the
+  ownership guard counts in CSS).
+- **Lane run used `THE_ONE_REQUIRE_WEBKIT=1` for every lane**, not only the contracts ones.
+
+---
+
 ## Decisions
 
 ### Planning decisions (operator, 2026-11-23)
@@ -528,3 +947,9 @@ Verification (netns, one at a time):
   4. Bare `KeyError → gone` is gated by a declared `keyerror_is_gone` flag.
 - Per the Flight 4 debrief (recommendation 4), dependent legs (1b, 2, 3b, 4b and 6) are
   designed after their predecessor lands.
+- **FD error, Leg 4a verification:** the FD spawned the Leg 4b Developer while its own Leg 4a
+  browser lanes were still running, on the reasoning that the Developer would write code before
+  testing. But static JS is served from disk per request, so the Developer's in-progress edits
+  reached the running lanes and spoiled the `gleepglorp-chat` result (see 04a Verification).
+  **Rule from here:** no crew edits the tree while a verification run whose result will be
+  recorded is in progress. Implementation spawns wait for the run to end.

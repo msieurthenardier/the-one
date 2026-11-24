@@ -197,6 +197,7 @@ ALLOWED: dict[str, dict[str, frozenset[str]]] = {
                 "reference",
                 "shape",
                 "provenance",
+                "applies_to",
             }
         ),
     },
@@ -387,6 +388,7 @@ OPERATOR_PATHS: dict[str, frozenset[str]] = {
             "fields.detail.fields[].reference",
             "fields.detail.fields[].shape",
             "fields.detail.fields[].provenance",
+            "fields.detail.fields[].applies_to",
         }
     ),
 }
@@ -519,13 +521,10 @@ def _iso(ts: Any) -> str | None:
 
 
 def _secret_field_names(config_cls: type) -> set[str]:
-    """The names a tool Config marks ``secret: true`` (a neutral twin of the API's)."""
-    names: set[str] = set()
-    for field_name, info in getattr(config_cls, "model_fields", {}).items():
-        extra = info.json_schema_extra or {}
-        if isinstance(extra, dict) and extra.get("secret") is True:
-            names.add(field_name)
-    return names
+    """The names a tool Config marks ``secret: true``: the tool-config service's one copy."""
+    from the_one.tools.config_service import secret_field_names
+
+    return secret_field_names(config_cls)
 
 
 async def _names(conn: Any, table: str) -> list[tuple[str, str]]:

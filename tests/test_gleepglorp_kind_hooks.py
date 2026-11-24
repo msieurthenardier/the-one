@@ -81,7 +81,7 @@ def test_every_registered_kind_meets_the_registry_rules() -> None:
             assert k.target_noun, k.name
 
 
-def test_the_declared_addressing_and_flags_of_the_seven_kinds() -> None:
+def test_the_declared_addressing_and_flags_of_the_nine_kinds() -> None:
     assert {k.name: k.addressing for k in kinds.REGISTRY} == {
         "agent": "agent",
         "rule": "agent-owned",
@@ -90,9 +90,12 @@ def test_the_declared_addressing_and_flags_of_the_seven_kinds() -> None:
         "provider": "id",
         "knowledge_base": "id",
         "secret": "id",
+        "tool_config": "id",
+        "app_settings": "page",
     }
-    # The five kinds whose services raise a bare KeyError set it; the knowledge-base and secret
-    # services raise typed not-found errors, so a stray KeyError is re-raised, not hidden.
+    # The five kinds whose services raise a bare KeyError set it; the knowledge-base, secret,
+    # tool-config and app-settings services raise typed errors (or never a KeyError), so a stray
+    # KeyError is re-raised, not hidden.
     assert {k.name for k in kinds.REGISTRY if k.keyerror_is_gone} == {
         "agent",
         "rule",
@@ -242,7 +245,12 @@ async def test_the_notes_refusal_is_the_agent_fields_sentence() -> None:
     spec = next(f for f in agent.AGENT_FIELDS if f.name == "notes_enabled")
     assert spec.fill_refused == NO_NOTES
     assert await _fill(kind="agent", action="create", changes={"notes_enabled": True}) == NO_NOTES
-    assert [f.name for k in kinds.REGISTRY for f in k.fields if f.fill_refused] == ["notes_enabled"]
+    assert [f.name for k in kinds.REGISTRY for f in k.fields if f.fill_refused] == [
+        "notes_enabled",
+        # Date and time saves as soon as the operator chooses (Leg 4a, DD8)
+        "time_zone_mode",
+        "time_zone",
+    ]
 
 
 # --- AC6: keyerror_is_gone -----------------------------------------------------------------

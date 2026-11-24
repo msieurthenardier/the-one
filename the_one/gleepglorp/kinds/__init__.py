@@ -17,12 +17,14 @@ from typing import Any
 
 from the_one.gleepglorp.kinds import (
     agent,
+    app_settings,
     knowledge_base,
     mcp_server,
     provider,
     routine,
     rule,
     secret,
+    tool_config,
 )
 from the_one.gleepglorp.kinds.base import Kind
 from the_one.gleepglorp.kinds.deps import KindDeps
@@ -44,6 +46,8 @@ REGISTRY: tuple[Kind, ...] = (
     provider.KIND,
     knowledge_base.KIND,
     secret.KIND,
+    tool_config.KIND,
+    app_settings.KIND,
 )
 
 KINDS: tuple[str, ...] = tuple(k.name for k in REGISTRY)
@@ -65,6 +69,7 @@ __all__ = [
     "Kind",
     "KindDeps",
     "agent",
+    "app_settings",
     "describe",
     "find",
     "get",
@@ -79,6 +84,7 @@ __all__ = [
     "spec_for",
     "target_args",
     "target_key",
+    "tool_config",
 ]
 
 
@@ -192,6 +198,8 @@ def describe(kind: str | None = None) -> Any:
             d["provenance"] = "each tool you add must be named by you"
         if f.ref in REFS:
             d["reference"] = REFS[f.ref].describe_label
+        if f.applies_to:
+            d["applies_to"] = list(f.applies_to)
         out.append(d)
     return {"name": kind, "fields": out}
 

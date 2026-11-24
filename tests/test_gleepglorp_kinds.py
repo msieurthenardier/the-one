@@ -33,7 +33,7 @@ MOVED = [
 STAYING = ["ShapeError", "ACTIONS", "_ECHO_MAX", "routine_service", "FieldSpec", "Normalized"]
 
 
-def test_the_registry_is_exactly_the_seven_kinds_in_order() -> None:
+def test_the_registry_is_exactly_the_nine_kinds_in_order() -> None:
     assert isinstance(kinds.REGISTRY, tuple)
     assert [k.name for k in kinds.REGISTRY] == [
         "agent",
@@ -43,6 +43,8 @@ def test_the_registry_is_exactly_the_seven_kinds_in_order() -> None:
         "provider",
         "knowledge_base",
         "secret",
+        "tool_config",
+        "app_settings",
     ]
     assert kinds.KINDS == (
         "agent",
@@ -52,6 +54,8 @@ def test_the_registry_is_exactly_the_seven_kinds_in_order() -> None:
         "provider",
         "knowledge_base",
         "secret",
+        "tool_config",
+        "app_settings",
     )
     assert set(kinds.SPECS) == set(kinds.KIND_SUMMARIES) == set(kinds.KINDS)
 
@@ -93,11 +97,40 @@ def test_operator_only_fields_appear_in_no_kinds_fields() -> None:
         "values",
         "keys",
         "secret_ids",
+        # the tool config's (M36 F5 L4a): every built-in Config field not on the allowlist, in
+        # sorted order: folders, command and host lists, the redirect cap, the user agent, the
+        # sandbox switch and every API key
+        "allow_binary_files",
+        "brave_api_key",
+        "command_denylist",
+        "default_user_agent",
+        "extra_allowed_hosts",
+        "google_pse_api_key",
+        "host_allowlist",
+        "host_denylist",
+        "path_allowlist",
+        "path_denylist",
+        "redirect_cap",
+        "sandbox_network_allowed",
+        "tavily_api_key",
+        # the app settings' four: the embedding model and the vector store are fixed
+        "embedding_backend",
+        "embedding_model_id",
+        "embedding_dim",
+        "vector_store",
     )
 
 
 def test_the_fillable_kinds() -> None:
-    assert kinds.FILLABLE == ("agent", "mcp_server", "provider", "knowledge_base", "secret")
+    assert kinds.FILLABLE == (
+        "agent",
+        "mcp_server",
+        "provider",
+        "knowledge_base",
+        "secret",
+        "tool_config",
+        "app_settings",
+    )
 
 
 @pytest.mark.parametrize("name", MOVED)

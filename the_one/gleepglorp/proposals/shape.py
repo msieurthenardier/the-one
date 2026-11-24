@@ -62,7 +62,10 @@ class FieldSpec:
     its keys as loader keys. ``typed_items`` marks a ``names`` field whose ADDED items grant
     something (a secret's allowed tools): after outside content, each item added (those not in
     the stored base; all of them on a create) must be named in the operator's own typed text;
-    a removal is never refused.
+    a removal is never refused. ``applies_to`` names where a field applies when it is not the
+    whole kind (the built-in tools that show a tool-config field; the one Settings page of an
+    app-settings field): ``describe`` emits it as a list only when it is non-empty, so a kind
+    that does not set it describes itself exactly as before.
     """
 
     name: str
@@ -80,6 +83,7 @@ class FieldSpec:
     rows: bool = False
     fill_refused: str = ""
     typed_items: bool = False
+    applies_to: tuple[str, ...] = ()
 
 
 @dataclass

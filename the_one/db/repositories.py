@@ -3226,6 +3226,56 @@ class ToolConfigRepository:
                 ),
             )
 
+    async def update_in_txn(
+        self,
+        name: str,
+        mutate: Callable[[ToolConfig | None], ToolConfig],
+        *,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> tuple[ToolConfig | None, ToolConfig]:
+        """Re-read the row, mutate it and write it (an upsert), all inside one write transaction.
+
+        ``mutate(current)`` (sync) receives the row as stored at this instant, or ``None`` for a
+        tool with no saved row, and returns the row to store. ``on_commit(conn)`` is awaited after
+        the write inside the same transaction, and ``(before, after)`` is returned (``before`` is
+        ``None`` for a missing row). A raise from ``mutate`` or ``on_commit`` rolls everything
+        back. There is no ``KeyError``: a missing row is created.
+
+        RE-ENTRANCY: ``mutate`` and ``on_commit`` run under the write lock and must not call
+        any method that opens ``write_transaction`` (``upsert``, ``delete``): the re-entrancy
+        guard raises ``RuntimeError``. Use raw ``conn.execute``.
+        """
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT * FROM tool_configs WHERE name = ?", (name,)
+            ) as cur:
+                row = await cur.fetchone()
+            before = self._row_to_model(row) if row is not None else None
+            after = mutate(before)
+            stamp = now_iso()
+            await self.conn.execute(
+                """\
+                INSERT INTO tool_configs (name, config, secrets, enabled, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    config=excluded.config,
+                    secrets=excluded.secrets,
+                    enabled=excluded.enabled,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    name,
+                    json.dumps(after.config),
+                    self._secrets_to_ciphertext(after.secrets or {}),
+                    int(after.enabled),
+                    stamp,
+                    stamp,
+                ),
+            )
+            if on_commit is not None:
+                await on_commit(self.conn)
+        return before, after
+
     async def delete(self, name: str) -> None:
         if not await self.exists(name):
             raise KeyError(f"Tool config not found: {name}")
@@ -3277,6 +3327,20 @@ class AppMetadataRepository:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+    @staticmethod
+    async def set_in_txn(conn: aiosqlite.Connection, key: str, value: str) -> None:
+        """Insert or update ``key`` inside a ``write_transaction`` the caller already holds.
+
+        :meth:`set` opens its own transaction, and ``write_transaction`` raises on same-task
+        re-entry, so a write that sets several keys together (or rides a proposal's status
+        mark) calls this with the open transaction's connection instead.
+        """
+        await conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
 
     async def delete(self, key: str) -> None:
         """Delete ``key`` if present; a no-op if absent (Flight 7 Leg 2,

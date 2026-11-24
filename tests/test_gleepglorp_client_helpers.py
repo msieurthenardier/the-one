@@ -42,6 +42,11 @@ def test_the_fill_scaffolding_is_in_the_core_only() -> None:
         for needle in ("__ggFillSettleTimeoutMs", "aria-describedby", "function whenSettled"):
             assert needle not in text, f"{name}.js still holds {needle}"
         assert "App.gleepglorpFill" in text
+    for rel in ("tool-config-fill", "knowledge-settings-fill"):
+        text = _src(AREAS / "admin" / f"{rel}.js")
+        for needle in ("__ggFillSettleTimeoutMs", "aria-describedby", "function whenSettled"):
+            assert needle not in text, f"{rel}.js still holds {needle}"
+        assert "App.gleepglorpFill" in text
     core = _src(FILL_CORE)
     for needle in ("__ggFillSettleTimeoutMs", "aria-describedby", "function whenSettled"):
         assert needle in core
@@ -60,17 +65,21 @@ def test_the_client_kinds_register_in_the_server_registry_order() -> None:
     from the_one.gleepglorp import kinds
 
     html = (AREAS.parent.parent / "index.html").read_text(encoding="utf-8")
-    scripts = re.findall(r'src="/static/js/areas/studio/([a-z-]+-kinds)\.js"', html)
+    # Leg 4b's kinds live under ``areas/admin/``, so the pattern takes any area.
+    scripts = re.findall(r'src="/static/js/areas/[a-z]+/([a-z-]+-kinds)\.js"', html)
     assert scripts == [
         "agent-kinds",
         "mcp-kinds",
         "provider-kinds",
         "knowledge-kinds",
         "secret-kinds",
+        "tool-config-kinds",
+        "app-settings-kinds",
     ]
     registered: list[str] = []
     for name in scripts:
-        src = _src(STUDIO / f"{name}.js")
+        (path,) = AREAS.glob(f"*/{name}.js")  # the kind file lives under any area
+        src = _src(path)
         registered += [a or b for a, b in re.findall(r"register\('(\w+)'|name: '(\w+)'", src)]
     assert tuple(registered) == kinds.KINDS
 
@@ -85,4 +94,31 @@ def test_the_follow_listener_is_registered_once_per_kind_in_the_core() -> None:
         text = _src(STUDIO / f"{name}.js")
         assert "addEventListener" not in text, name
         assert "App.gleepglorpFollow.listen(" in text, name
+    # Leg 4b: the Settings follows. The tool follow and the shared app_settings dispatcher call
+    # `listen`; the Knowledge and Date and time pages register with the dispatcher instead.
+    for rel in ("admin/tool-config-follow.js", "shared/app-settings-follow.js"):
+        text = _src(AREAS / rel)
+        assert "addEventListener" not in text, rel
+        assert "App.gleepglorpFollow.listen(" in text, rel
+    for rel in ("admin/knowledge-settings-follow.js",):
+        text = _src(AREAS / rel)
+        assert "addEventListener" not in text and "gleepglorpFollow.listen(" not in text, rel
     assert "CONFIG_CHANGED" in _src(FOLLOW_CORE)
+
+
+def test_exactly_one_follow_listener_is_registered_per_kind() -> None:
+    """AC10: ``listen`` is once per kind per page (a second call is a silent no-op), so a second
+    registration for a kind is a bug that fails quietly."""
+    import re
+    from collections import Counter
+
+    js = AREAS.parent
+    kinds_listened: Counter[str] = Counter()
+    for p in js.rglob("*.js"):
+        if p == FOLLOW_CORE:
+            continue
+        for kind in re.findall(r"gleepglorpFollow\.listen\(\s*'(\w+)'", _src(p)):
+            kinds_listened[kind] += 1
+    assert kinds_listened, "no listeners found"
+    assert {k: n for k, n in kinds_listened.items() if n != 1} == {}
+    assert "app_settings" in kinds_listened and "tool_config" in kinds_listened

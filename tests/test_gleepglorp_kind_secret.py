@@ -141,9 +141,9 @@ async def view_of(world, pid):
 # --- the kind's declaration ---------------------------------------------------------------
 
 
-def test_the_kind_is_registered_last_and_declared() -> None:
+def test_the_kind_is_registered_seventh_and_declared() -> None:
     k = secret_kind.KIND
-    assert kinds.REGISTRY[-1] is k and kinds.KINDS[-1] == "secret"
+    assert kinds.REGISTRY[6] is k and kinds.KINDS[6] == "secret"
     assert k.addressing == "id" and k.target_noun == "A secret"
     assert k.actions == ("change",) and k.fillable == ("create", "change")
     assert k.keyerror_is_gone is False

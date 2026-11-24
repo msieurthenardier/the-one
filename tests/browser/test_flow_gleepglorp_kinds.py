@@ -39,6 +39,8 @@ _SCRIPT_ORDER_JS = """() => {
     providerKinds: at('/areas/studio/provider-kinds.js'),
     knowledgeKinds: at('/areas/studio/knowledge-kinds.js'),
     secretKinds: at('/areas/studio/secret-kinds.js'),
+    toolKinds: at('/areas/admin/tool-config-kinds.js'),
+    appSettingsKinds: at('/areas/admin/app-settings-kinds.js'),
     agentsList: at('/areas/studio/agents-list.js')
   };
 }"""
@@ -125,6 +127,8 @@ def test_the_agent_kinds_register_during_script_load_before_any_socket_frame(
         "provider",
         "knowledge_base",
         "secret",
+        "tool_config",
+        "app_settings",
     ]
     assert got["gg"] == ["function", "function", "function"]
     order = page.evaluate(_SCRIPT_ORDER_JS)
@@ -132,11 +136,12 @@ def test_the_agent_kinds_register_during_script_load_before_any_socket_frame(
     assert order["kinds"] < order["approvals"] < order["frames"]
     assert order["agentsList"] < order["agentKinds"] < order["mcpKinds"] < order["providerKinds"]
     assert order["providerKinds"] < order["knowledgeKinds"] < order["secretKinds"]
+    assert order["secretKinds"] < order["toolKinds"] < order["appSettingsKinds"]
     # The agent, MCP server, provider, knowledge base and secret kinds are fillable; the labels
     # carry today's wording.
     shape = page.evaluate(
         "() => ['agent', 'rule', 'routine', 'mcp_server', 'provider', 'knowledge_base',"
-        " 'secret'].map(n => {"
+        " 'secret', 'tool_config', 'app_settings'].map(n => {"
         " const k = App.gleepglorpKinds.get(n);"
         " return [n, !!k.fill, k.store, k.labels.editorUnavailable, k.labels.targetGone]; })"
     )
@@ -190,6 +195,20 @@ def test_the_agent_kinds_register_during_script_load_before_any_socket_frame(
             "The secret editor could not open.",
             "That secret no longer exists.",
         ],
+        [
+            "tool_config",
+            True,
+            "agents",
+            "The tool editor could not open.",
+            "That built-in tool no longer exists.",
+        ],
+        [
+            "app_settings",
+            True,
+            None,
+            "The settings page could not open.",
+            "That settings page no longer exists.",
+        ],
     ]
 
 
@@ -211,6 +230,8 @@ def test_the_registry_and_approvals_record_a_stub_id_targeted_kind(
         "provider",
         "knowledge_base",
         "secret",
+        "tool_config",
+        "app_settings",
         "stub_target",
     ]
     assert out["same"] is True

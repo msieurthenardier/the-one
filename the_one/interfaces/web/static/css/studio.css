@@ -1272,19 +1272,29 @@
 
 /* The agent editor's quiet note beside a control that holds an approved change (M36 F2 L7, board
    option A). Static caption; the link is the global a:any-link colour. */
-.area-studio .agent-approved-change-note {
+/* Leg 4b: the Settings pages (.area-admin) carry the same notes (tool editor and grid, Knowledge
+   indexing, Date and time), so every rule below names both areas. */
+.area-studio .agent-approved-change-note,
+.area-admin .agent-approved-change-note {
   margin: var(--space-1) 0 0;
   color: var(--fg-tertiary);
   font-size: var(--font-size-caption);
 }
 /* L8: the same caption under a tile, a row or a list, and the row-local rule caption. */
-.area-studio .agent-approved-change-note--item {
+.area-studio .agent-approved-change-note--item,
+.area-admin .agent-approved-change-note--item {
   margin: 0;
   padding: var(--space-1) var(--space-3);
 }
+/* A note at the foot of a tool card in the Tools grid: it sits inside the card's padding. */
+.area-admin .agent-approved-change-note[data-testid="tool-grid-approved-change-note"] {
+  margin: 0;
+  padding: 0;
+}
 /* The caption a GleepGlorp form fill leaves under each control it wrote (M36 F3 L6): the same
    quiet look as the approved-change note, with the bot icon leading. */
-.area-studio .agent-filled-note {
+.area-studio .agent-filled-note,
+.area-admin .agent-filled-note {
   display: flex;
   align-items: center;
   gap: var(--space-1);
@@ -1292,7 +1302,8 @@
   color: var(--fg-tertiary);
   font-size: var(--font-size-caption);
 }
-.area-studio .agent-filled-note--item {
+.area-studio .agent-filled-note--item,
+.area-admin .agent-filled-note--item {
   margin: 0;
   padding: var(--space-1) var(--space-3);
 }

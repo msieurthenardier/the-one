@@ -51,6 +51,8 @@
       var a = document.createElement('a');
       a.setAttribute('href', App.router.href({ destination: 'chats', id: detail.session_id }));
       a.textContent = 'Open chat';
+      // A note repeated per card names its subject, so the links are told apart (WCAG 2.4.4).
+      if (o.linkLabel) a.setAttribute('aria-label', 'Open chat (' + o.linkLabel + ')');
       p.appendChild(a);
     }
     return p;

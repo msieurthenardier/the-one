@@ -76,6 +76,9 @@
     var destroyed = false;
     var savedTimer = null;
     var serverErrors = {};
+    // 'loading' until the first GET settles, then 'ok' or 'failed' (the GleepGlorp controller).
+    var loadState = 'loading';
+    var controller = null;
 
     // ── Shell ──────────────────────────────────────────────────────────
 
@@ -259,6 +262,7 @@
     // only for a dirty, valid form that is not already saving (the shell holds the busy
     // state; validity is layered over it here).
     function revalidate() {
+      if (controller) controller.changed(); // the fill's notes follow what the controls hold
       var e1 = sizeError();
       var e2 = overlapError();
       var e3 = intervalError();
@@ -319,6 +323,7 @@
       serverErrors = {};
       showShellError(null);
       clearSaved();
+      if (controller) controller.clearNotes();
       fillFromBaseline();
       revalidate();
       App.focusAfter.restore(focus, shell.titleEl);
@@ -345,6 +350,7 @@
       function settle() {
         saving = false;
         revalidate();
+        if (controller) controller.idle();
         // The Save button is disabled when nothing is left to save; the page title then
         // takes the focus the click had.
         App.focusAfter.restore(focus, function () {
@@ -358,6 +364,7 @@
       }).then(function (data) {
         if (!gen.isCurrent(token)) return;
         setBaseline(data);
+        if (controller) controller.clearNotes();
         showSaved();
         settle();
       }).catch(function (err) {
@@ -378,9 +385,11 @@
         if (!gen.isCurrent(token)) return;
         setBaseline(data);
         fillFromBaseline();
+        loadState = 'ok';
         revalidate();
       }).catch(function () {
         if (!gen.isCurrent(token)) return;
+        loadState = 'failed';
         showShellError("Couldn't load the knowledge settings. Reload to try again.",
           true);
         [sizeInput, overlapInput, intervalInput, watchInput].forEach(function (input) {
@@ -430,15 +439,47 @@
     body.setAttribute('data-testid', 'knowledge-settings-panel');
     container.appendChild(body);
 
+    controller = App.admin.knowledgeSettingsController.create({
+      el: container,
+      sizeInput: sizeInput,
+      overlapInput: overlapInput,
+      intervalInput: intervalInput,
+      watchToggle: watchToggle,
+      sizeField: sizeField,
+      overlapField: overlapField,
+      intervalField: intervalField,
+      isAlive: function () { return !destroyed; },
+      saving: function () { return saving; },
+      loadState: function () { return loadState; },
+      snapshot: snapshot,
+      getBaseline: function () { return baseline; },
+      setBaseline: setBaseline,
+      // One control written silently; a server error on it no longer applies.
+      write: function (name, value) {
+        if (name === 'watch_enabled') watchToggle.setChecked(!!value);
+        else if (name === 'size_chars') sizeInput.value = value;
+        else if (name === 'overlap_chars') overlapInput.value = value;
+        else intervalInput.value = value;
+        delete serverErrors[name];
+        showShellError(null);
+      },
+      revalidate: revalidate,
+      isDirty: function () { return dirty; }
+    });
+
     shell.setDirty(false);
     load();
 
     return {
+      // The GleepGlorp controller, or null while the first load is in flight (a fill or follow
+      // that arrives then waits for it; after a failed load it is returned, not ready).
+      getController: function () { return loadState === 'loading' ? null : controller; },
       // Teardown only: every in-flight response is ignored from here and the "Saved."
       // timer is cleared. Never touches the leave guard's flag.
       destroy: function () {
         if (destroyed) return;
         destroyed = true;
+        controller.destroy();
         gen.invalidate();
         clearSaved();
         App.focusAfter.cancel();

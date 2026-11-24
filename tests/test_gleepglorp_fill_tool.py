@@ -76,7 +76,15 @@ def test_shape_of_the_tool() -> None:
     schema = t.to_schema()
     assert schema["name"] == "fill_form" == FILL_FORM_TOOL_NAME
     props = schema["parameters"]["properties"]
-    assert props["kind"]["enum"] == ["agent", "mcp_server", "provider", "knowledge_base", "secret"]
+    assert props["kind"]["enum"] == [
+        "agent",
+        "mcp_server",
+        "provider",
+        "knowledge_base",
+        "secret",
+        "tool_config",
+        "app_settings",
+    ]
     assert props["action"]["enum"] == ["create", "change"]
     assert set(props) == {"kind", "action", "agent", "target", "changes"}
     assert isinstance(t, Tool)

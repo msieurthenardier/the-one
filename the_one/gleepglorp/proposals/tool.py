@@ -43,10 +43,12 @@ class ProposeChangeTool(Tool):
     summary = "Proposes a change for the operator to approve; changes nothing itself."
     description = (
         "Propose one change; nothing changes until approved. "
-        "kind: agent, rule, routine, mcp_server, provider, knowledge_base or secret. agent "
+        "kind: agent, rule, routine, mcp_server, provider, knowledge_base, secret, tool_config "
+        "or app_settings. agent "
         "names the agent (for a new agent, put name in changes); rule is a rule's number from "
         "1, routine a routine's name; target is an existing MCP server's, provider's, "
-        "knowledge base's or secret's id or name. "
+        "knowledge base's or secret's id or name, or a built-in tool's name; app_settings "
+        "takes none. "
         "Fields and shapes: read_app_config kind=fields name=<kind>."
     )
     parameters = {

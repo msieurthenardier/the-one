@@ -116,7 +116,9 @@ def ready_with_reply(base: str, reply: str = "Hello from the mock", delay_ms: in
 
 
 def boot(page: Page, base: str, route: str, *, connected: bool = True) -> None:
-    """Load *route* with the socket recorder installed; wait for the drawer's socket to open."""
+    """Load *route* with the socket recorder installed; wait for the drawer's socket to open and
+    for the router to commit *route* (squawk 0406: the drawer mounts at DOMContentLoaded, the
+    router only after ``/api/config`` and ``/api/time-settings`` resolve)."""
     page.add_init_script(RECORD)
     _nav.goto(page, base, route)
     page.wait_for_function(
@@ -124,6 +126,13 @@ def boot(page: Page, base: str, route: str, *, connected: bool = True) -> None:
     )
     if connected:
         wait_socket(page)
+    wait_router(page, route)
+
+
+def wait_router(page: Page, route: str) -> None:
+    """Wait until ``App.router`` has committed a route, then that it is *route* (canonical)."""
+    wait_router_started(page)
+    _nav.expect_route(page, route, timeout=15000)
 
 
 def wait_socket(page: Page) -> None:
@@ -131,6 +140,16 @@ def wait_socket(page: Page) -> None:
         "() => { const i = App.gleepglorpDrawerChat.instance();"
         " return !!(i && i.ws() && i.ws().readyState === 1); }",
         timeout=8000,
+    )
+    # The socket opens at DOMContentLoaded; the router only after the config fetches resolve
+    # (squawk 0406), so a page that reloaded or opened here is not usable until it committed.
+    wait_router_started(page)
+
+
+def wait_router_started(page: Page) -> None:
+    page.wait_for_function(
+        "() => !!(window.App && App.router && App.router.current && App.router.current())",
+        timeout=15000,
     )
 
 

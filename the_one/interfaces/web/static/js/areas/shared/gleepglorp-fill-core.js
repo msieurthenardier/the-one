@@ -15,6 +15,8 @@
 //       false at the timeout (default 10000 ms; `window.__ggFillSettleTimeoutMs` is read only in
 //       dev mode) or at once when the editor mounted without its type list.
 //   libraryRoute(section) -> routeIs   #library/{section}/~new (create) or /{id} (edit:{id})
+//   settingsRoute(section, hasId) -> routeIs   #settings/{section}/{id} (edit:{id}) when hasId, else
+//       #settings/{section} (edit:{section})
 //   prepare(ctl, view, {allowed, dead, skip?}) -> null | {isCreate, vals}
 //       null when the fill is unavailable (the handle is dead, or the editor is not this
 //       view's, alive, ready and idle). Else the values inside the allowlist; anything else is
@@ -50,6 +52,19 @@
       var segs = String(cur.route).split('/');
       if (segs[1] !== section) return false;
       if (key === 'create') return segs[2] === '~new';
+      try { return decodeURIComponent(segs[2] || '') === key.slice(5); } catch (e) { return false; }
+    };
+  }
+
+  // The Settings counterpart (Leg 4b): #settings/{section}/{id} is the editor for 'edit:{id}'
+  // (a tool's editor); a section with no id (#settings/knowledge-indexing) is 'edit:{section}'.
+  function settingsRoute(section, hasId) {
+    return function (key) {
+      var cur = App.router && App.router.current && App.router.current();
+      if (!cur || cur.destination !== 'settings') return false;
+      var segs = String(cur.route).split('/');
+      if (segs[1] !== section) return false;
+      if (!hasId) return key === 'edit:' + section;
       try { return decodeURIComponent(segs[2] || '') === key.slice(5); } catch (e) { return false; }
     };
   }
@@ -232,7 +247,7 @@
   }
 
   window.App.gleepglorpFill = {
-    module: module, libraryRoute: libraryRoute, prepare: prepare, notes: notes, writer: writer,
+    module: module, libraryRoute: libraryRoute, settingsRoute: settingsRoute, prepare: prepare, notes: notes, writer: writer,
     link: link, unlink: unlink, same: same, has: has
   };
 })();

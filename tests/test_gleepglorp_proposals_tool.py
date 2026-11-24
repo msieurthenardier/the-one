@@ -71,6 +71,8 @@ def test_shape_of_the_tool() -> None:
         "provider",
         "knowledge_base",
         "secret",
+        "tool_config",
+        "app_settings",
     ]
     assert props["action"]["enum"] == ["create", "change"]
     assert set(props) == {"kind", "action", "agent", "rule", "routine", "target", "changes"}

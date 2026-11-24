@@ -25,7 +25,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, StrictBool, ValidationError
 
-from the_one import __version__, time_zones
+from the_one import __version__, app_settings_service, time_zones
 from the_one.agent import service as agent_service
 from the_one.agent import write_checks
 from the_one.agent.rules_service import change_rule as change_rule_service
@@ -69,7 +69,6 @@ from the_one.db.models import (
     KnowledgeBase,
     LLMProviderConfig,
     MCPSource,
-    ToolConfig,
     now_iso,
 )
 from the_one.db.repositories import (
@@ -150,6 +149,7 @@ from the_one.self_configuration import external_credentials as self_configuratio
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import EXTERNAL_CREDENTIAL_PREFIX
 from the_one.sessions import is_session_busy, turn_seq
+from the_one.tools import config_service as tool_config_service
 from the_one.tools import override_validation
 from the_one.vectors import get_vector_store
 
@@ -733,29 +733,31 @@ def _filter_schema_to_config_fields(schema: dict[str, Any], tool_cls: type) -> d
     return schema
 
 
-def _merge_hidden_fields(
-    config_cls: type,
-    tool_cls: type,
-    incoming: Any,
-    stored: dict[str, Any],
-) -> Any:
-    """The body a tools PUT validates: ``incoming`` with every hidden field
-    (see ``Tool.config_fields``) replaced by its stored value.
+# The tool-config write helpers moved to ``the_one/tools/config_service.py`` (Mission 36 F5
+# L4a, DD3); the old names stay for the route tests (``canonical-import + convenience-re-export``).
+_merge_hidden_fields = tool_config_service.merge_hidden_fields
+_secret_field_names = tool_config_service.secret_field_names
+_narrowing_added = tool_config_service.narrowing_added
+_impact_of = tool_config_service.impact_of
 
-    A hidden field is not shown, so the form cannot have meant to change it and
-    the stored value always wins over an incoming one. A hidden field with no
-    stored value is left out (the Config default applies). ``stored`` is the
-    saved config merged with the decrypted secrets. A non-dict ``incoming`` is
-    returned unchanged (validation rejects it).
-    """
-    hidden = _hidden_field_names(tool_cls, config_cls)
-    if not hidden or not isinstance(incoming, dict):
-        return incoming
-    merged = {k: v for k, v in incoming.items() if k not in hidden}
-    for field in hidden:
-        if field in stored:
-            merged[field] = stored[field]
-    return merged
+
+@contextlib.contextmanager
+def _tool_config_write_errors() -> Iterator[None]:
+    """Turn the tool-config write service's refusals into the ``HTTPException`` the routes
+    always returned (Mission 36 F5 L4a)."""
+    try:
+        yield
+    except tool_config_service.ToolConfigWriteError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
+
+
+async def _tool_config_write_deps() -> tool_config_service.ToolConfigWriteDeps:
+    """The tool-config write service's dependencies, from this module's own getters (called
+    late, so the tests that patch ``_agent_store`` or ``get_connection`` here still govern
+    them)."""
+    return tool_config_service.ToolConfigWriteDeps(
+        repo=await _tool_config_repo(), agent_store=lambda: _agent_store()
+    )
 
 
 # ── Client config ─────────────────────────────────────────────────────────
@@ -873,149 +875,27 @@ async def get_tool_config(name: str) -> dict[str, Any]:
     }
 
 
-def _compute_tool_config_update(
-    cls: type, name: str, data: dict[str, Any], existing: Any
-) -> tuple[bool, dict[str, Any], dict[str, Any]]:
-    """What a tools PUT would store: ``(new_enabled, new_config, new_secrets)``.
-
-    One computation shared by the PUT and the impact preview (sortie 07 L05, DD8), so
-    the preview equals what the PUT stores. ``existing`` is the stored
-    ``ToolConfig`` row or ``None``. A body that fails validation raises the PUT's
-    422 (``HTTPException``); when ``config`` is omitted the stored config and
-    secrets come back unchanged.
-    """
-    if existing is not None:
-        current_enabled = existing.enabled
-        current_config = existing.config
-        current_secrets = existing.secrets
-    else:
-        current_enabled = True
-        current_config = {}
-        current_secrets = {}
-
-    secret_fields = _secret_field_names(cls.Config)
-
-    # `enabled` — preserve when omitted from body; coerce when present.
-    new_enabled = bool(data["enabled"]) if "enabled" in data else current_enabled
-
-    # `config` — REPLACE when present (validate body), preserve when omitted.
-    if "config" in data:
-        stored = {**current_config, **current_secrets}
-        merged = _merge_hidden_fields(cls.Config, cls, data["config"], stored)
-        try:
-            try:
-                validated = cls.Config.model_validate(merged)
-            except ValidationError:
-                # A stored value for a hidden field may no longer validate (a
-                # constraint tightened since it was saved). Retry without the
-                # stored hidden values so the Config defaults apply; if that
-                # also fails the operator's visible edit is at fault.
-                fallback = _merge_hidden_fields(cls.Config, cls, data["config"], {})
-                if fallback == merged:
-                    raise
-                validated = cls.Config.model_validate(fallback)
-                logger.warning(
-                    "tool %r: a stored value for a hidden setting no longer validated; "
-                    "using the default",
-                    name,
-                )
-        except ValidationError as e:
-            # `e.errors()` may carry a raw exception in `ctx['error']` (Pydantic
-            # v2 model-validator path) which is NOT JSON-serializable. Pass
-            # `include_context=False` so the response stays JSON-encodable —
-            # `msg` + `loc` carry the human-readable diagnostic the L3 form
-            # surfaces inline. Discovered during F6 L6 HAT scenario 3 when an
-            # operator narrowed `timeout_seconds_max < timeout_seconds_default`
-            # and the resulting model-validator ValueError crashed the JSON
-            # encoder, surfacing as 500 instead of 422.
-            raise HTTPException(status_code=422, detail=_validation_detail(e))
-        dumped = validated.model_dump()
-        # M16 F08 L03: SPLIT secret-marked fields OUT of the config column
-        # into the encrypted `secrets` store — a plaintext key must never
-        # land in `config`. For each secret whose incoming value looks
-        # masked (the GET-response mask or the __MASKED__ sentinel),
-        # PRESERVE the existing decrypted secret instead of overwriting
-        # with the mask; a masked value with no existing secret is dropped
-        # (treated as cleared), never stored as the mask string. A real
-        # new value replaces it.
-        new_config = {k: v for k, v in dumped.items() if k not in secret_fields}
-        new_secrets: dict[str, Any] = {}
-        for field in secret_fields:
-            value = dumped.get(field)
-            if _looks_masked(value):
-                if field in current_secrets:
-                    new_secrets[field] = current_secrets[field]
-                # else: masked value with no existing secret → drop (cleared).
-            elif value:
-                new_secrets[field] = value
-            # else: empty/falsy non-secret → drop (cleared), matches the
-            # Config default of "".
-    else:
-        # `config` omitted — preserve both the existing config and secrets.
-        new_config = current_config
-        new_secrets = dict(current_secrets)
-    return new_enabled, new_config, new_secrets
-
-
-def _narrowing_added(before: list[dict], after: list[dict]) -> list[dict]:
-    """The fields in ``after`` whose notice is new or gained a dropped value."""
-    prior = {n["field"]: n for n in before}
-    out: list[dict] = []
-    for n in after:
-        old = prior.get(n["field"])
-        if old is None or any(d not in old["dropped"] for d in n["dropped"]):
-            out.append(
-                {"field": n["field"], "field_title": n["field_title"], "dropped": n["dropped"]}
-            )
-    return out
-
-
-def _impact_of(name: str, cfgs: list[AgentConfig], rows: dict[str, Any], proposed: Any) -> list:
-    """Blocking (path canonicalisation): per agent, the narrowing ``proposed`` adds."""
-    after_rows = {**rows, name: proposed}
-    impact = []
-    for cfg in cfgs:
-        before = [n for n in override_validation.compute_notices(cfg, rows) if n["tool"] == name]
-        after = [
-            n for n in override_validation.compute_notices(cfg, after_rows) if n["tool"] == name
-        ]
-        fields = _narrowing_added(before, after)
-        if fields:
-            impact.append({"agent": cfg.name, "fields": fields})
-    return impact
-
-
 @router.post("/tools/configs/{name}/impact")
 async def tool_config_impact(name: str, request: Request) -> dict[str, Any]:
     """Which agents a proposed tool config would newly narrow (sortie 07 L05, DD8).
 
     Read-only. The body is the PUT's shape; it goes through the PUT's own
-    computation (``_compute_tool_config_update``), so an invalid body gets the
-    PUT's 422 and the preview equals what a following PUT stores. The response is
-    ``{"agents": [{"agent", "fields": [{"field", "field_title", "dropped"}]}]}``:
+    computation (``compute_tool_config_update`` in the tool-config service), so an invalid
+    body gets the PUT's 422 and the preview equals what a following PUT stores. The response
+    is ``{"agents": [{"agent", "fields": [{"field", "field_title", "dropped"}]}]}``:
     an agent is listed only for a field whose notice for this tool is new or gained
     a dropped value. A widening, a no-op and a tool turned off list nothing.
     """
     from the_one.tools.builtins import _TOOL_CLASSES
 
-    cls = _TOOL_CLASSES.get(name)
-    if cls is None:
+    if name not in _TOOL_CLASSES:
         raise HTTPException(status_code=404, detail=f"Tool not found: {name}")
     data = await _read_json(request)
-    repo = await _tool_config_repo()
-    rows = override_validation.rows_by_name(await repo.list())
-    existing = rows.get(name)
-    new_enabled, new_config, new_secrets = _compute_tool_config_update(cls, name, data, existing)
-    update = {"enabled": new_enabled, "config": new_config, "secrets": new_secrets}
-    if existing is not None:
-        proposed = existing.model_copy(update=update)
-    else:
-        proposed = ToolConfig(name=name).model_copy(update=update)
-    store = await _agent_store()
-    cfgs = [await store.load(n) for n in await store.list_agents()]
-    if not any(c.tool_overrides and name in c.tool_overrides for c in cfgs):
-        return {"agents": []}
-    return {"agents": await asyncio.to_thread(_impact_of, name, cfgs, rows, proposed)}
+    with _tool_config_write_errors():
+        agents = await tool_config_service.preview_impact(
+            await _tool_config_write_deps(), name, data
+        )
+    return {"agents": agents}
 
 
 @router.put("/tools/configs/{name}")
@@ -1048,15 +928,14 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
     if cls is None:
         raise HTTPException(status_code=404, detail=f"Tool not found: {name}")
     data = await _read_json(request)
-    repo = await _tool_config_repo()
-    try:
-        existing = await repo.get(name)
-    except KeyError:
-        existing = None
     secret_fields = _secret_field_names(cls.Config)
-    new_enabled, new_config, new_secrets = _compute_tool_config_update(cls, name, data, existing)
-
-    await repo.upsert(name, new_config, secrets=new_secrets, enabled=new_enabled)
+    # Read and written inside one transaction (the tool-config service), so a value committed
+    # while this save waited for the lock is not written back from a stale pre-read row.
+    with _tool_config_write_errors():
+        written = await tool_config_service.replace_tool_config(
+            await _tool_config_write_deps(), name, data
+        )
+    new_enabled, new_config, new_secrets = written.enabled, written.config, written.secrets
 
     # Build the masked response (same shape the GET handler returns):
     # non-secret config verbatim + secret fields masked.
@@ -2810,8 +2689,16 @@ async def update_time_settings(request: Request) -> dict[str, Any]:
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=_time_settings_error(e, data))
     conn = await get_connection()
-    await time_zones.save_setting(conn, setting)
-    _poke_scheduler()
+    # One transaction; the service pokes the scheduler after the commit (this module's own
+    # ``_poke_scheduler``, called late).
+    await app_settings_service.save_time_setting(
+        app_settings_service.AppSettingsWriteDeps(
+            conn=conn,
+            poke=lambda: _poke_scheduler(),
+            apply_monitoring=_after_monitoring_settings_changed,
+        ),
+        setting,
+    )
     return await _time_settings_response(setting)
 
 
@@ -3115,22 +3002,8 @@ def _mask_secret_value(value: Any) -> Any:
 # at the top of this module.
 
 
-def _secret_field_names(config_cls: type) -> set[str]:
-    """Return the set of field names a tool Config marks ``secret: true``.
-
-    Generic — reads each Pydantic field's ``json_schema_extra`` for the
-    ``secret`` marker leg 2 introduced (`web_search`'s keyed-engine API
-    keys are the first consumers, but ANY future built-in tool Config
-    with a ``secret``-marked field gets encrypted storage + masking for
-    free). ``json_schema_extra`` is ``None`` on unmarked fields — null-
-    guard before the dict lookup. M16 F08 L03.
-    """
-    names: set[str] = set()
-    for name, field_info in config_cls.model_fields.items():
-        extra = field_info.json_schema_extra or {}
-        if isinstance(extra, dict) and extra.get("secret") is True:
-            names.add(name)
-    return names
+# (``_secret_field_names`` is the tool-config service's ``secret_field_names``; see the
+# re-exports above the tool-config routes.)
 
 
 # OAuth-managed secret keys (F5 §5). These four keys are written ONLY by

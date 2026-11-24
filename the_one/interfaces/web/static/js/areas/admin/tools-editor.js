@@ -6,7 +6,8 @@
 // `{enabled, config}` -- L1's REPLACE-not-merge contract.
 //
 //   var api = App.admin.renderToolsEditor(container, toolDetail, callbacks)
-//     -> { setEnabled(bool), destroy() }
+//     -> { setEnabled(bool), controller, destroy() }
+//     controller: the GleepGlorp fill and follow handles (tools-editor-controller.js).
 //   callbacks: { isCurrent(), onSaved(updated), onSaveSuccess(updated), onCancel(),
 //                onDirtyChange(bool) }
 //     isCurrent() is the page's mount-slot check: false once another tool's editor (or
@@ -119,6 +120,10 @@
     var saving = false;
     var previewing = false;
     var testing = false;
+    // The "Saving narrows N agents" dialog is open: the form must not be written behind it.
+    var confirming = false;
+    // The GleepGlorp handles (tools-editor-controller.js), built once the form exists.
+    var controller = null;
     var dirty = false;
     var saveLatest = util.latest();
     var testLatest = util.latest();
@@ -149,7 +154,11 @@
       return { enabled: enabledToggle.control.checked, config: cfg };
     }
 
+    // Waiters (a follow) run once no Save, preview, test or dialog holds the form.
+    function idle() { if (controller) controller.idle(); }
+
     function checkDirty() {
+      if (controller) controller.changed(); // the fill's notes follow what the controls hold
       var next = !same(snapshot(), baseline);
       if (testHint) testHint.hidden = !next;
       if (next === dirty) return;
@@ -300,6 +309,23 @@
 
     baseline = snapshot();
 
+    controller = App.admin.toolsEditorController.create({
+      name: name,
+      el: container,
+      properties: properties,
+      fieldNames: fieldNames,
+      handles: handles,
+      enabledToggle: enabledToggle,
+      showIfCtl: showIfCtl,
+      isAlive: current,
+      busy: function () { return saving || previewing || testing || confirming; },
+      recompute: checkDirty,
+      isDirty: function () { return dirty; },
+      snapshot: snapshot,
+      getBaseline: function () { return baseline; },
+      setBaseline: function (next) { baseline = next; }
+    });
+
     // ── Test ──────────────────────────────────────────────────────────
 
     function clearTestResult() {
@@ -370,6 +396,7 @@
         if (!live()) return;
         testing = false;
         refreshBusy();
+        idle();
         App.focusAfter.restore(focusTok, testBtn);
       });
     }
@@ -388,6 +415,7 @@
         if (handles[f]) handles[f].setValue(baseline.config[f]);
       });
       clearErrors();
+      controller.clearNotes();
       showIfCtl.apply();
       if (changed) clearTestResult();
       checkDirty();
@@ -446,15 +474,22 @@
         return [];
       }).then(function (agents) {
         previewing = false;
-        if (!alive || !current()) return;
+        if (!alive || !current()) { idle(); return; }
         if (!agents.length) { doSave(submitted); return; }
+        // Held from here until the operator chooses, so a fill waiting or a follow cannot write
+        // the form behind the dialog.
+        confirming = true;
         App.confirmDialog({
           title: 'Saving narrows ' + plural(agents.length, 'agent'),
           message: impactMessage(agents),
           confirmText: 'Save anyway',
           cancelText: 'Cancel',
           opener: opener,
-          onConfirm: function () { if (alive && current()) doSave(submitted); }
+          onConfirm: function () {
+            confirming = false;
+            if (alive && current()) doSave(submitted); else idle();
+          },
+          onCancel: function () { confirming = false; idle(); }
         });
       });
     }
@@ -476,16 +511,19 @@
         applyResponse(submitted, updated);
         App.ui.flash('Tool saved');
         if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated);
+        controller.clearNotes();
         dirty = null; // force the report: the baseline moved
         checkDirty();
         saving = false;
         refreshBusy();
+        idle();
         App.focusAfter.restore(focusTok, shell.titleEl);
       }, function (err) {
         if (!live()) return;
         showSaveError(err);
         saving = false;
         refreshBusy();
+        idle();
         App.focusAfter.restore(focusTok, shell.saveButton);
       });
     }
@@ -523,8 +561,10 @@
 
     return {
       setEnabled: setEnabled,
+      controller: controller,
       destroy: function () {
         alive = false;
+        controller.destroy();
         saveLatest.invalidate();
         testLatest.invalidate();
         if (showIfCtl) showIfCtl.destroy();
