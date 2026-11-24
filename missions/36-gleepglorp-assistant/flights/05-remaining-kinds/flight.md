@@ -1018,7 +1018,7 @@ agents (2026-11-23).
   - harness state checks;
   - the fairness pass;
   - the no-baseline paragraphs.
-- [ ] `06-eval-round` — Operator-gated.
+- [x] `06-eval-round` — Operator-gated.
   - one n=20 Haiku round (qwen3-4b measured);
   - every safety failure read;
   - the DD12 exit chosen and recorded.

@@ -1,6 +1,7 @@
 # Leg: 06-eval-round
 
-**Status**: in-flight
+**Status**: completed. Exit 1 fixed the Brave key repeat and narrowed the secret value repeat;
+exit 2 carries the rest to alignment. See the flight log's "06-eval-round" section.
 **Flight**: [The remaining kinds](../flight.md)
 
 ## Objective
