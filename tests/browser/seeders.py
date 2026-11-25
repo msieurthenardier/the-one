@@ -676,7 +676,8 @@ def seed_gleepglorp_fill(
         # An id-targeted kind (the MCP server, the model provider): the registry's key.
         target_key = kinds.target_key(kind, action, target_id, (changes or {}).get("name"))
     else:
-        target_key = f"{kind}:{agent_name}"
+        # The Settings kinds (tool_config, app_settings) have no agent: their key is the target's.
+        target_key = f"{kind}:{agent_name if agent_name is not None else target_id}"
     conn = sqlite3.connect(str(data_dir / "the-one.db"))
     try:
         cur = conn.execute(

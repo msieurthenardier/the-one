@@ -97,10 +97,13 @@ SCORING_DIGESTS = {
     # M36 F4 L6b (FD re-pin, same ruling): checks.py `_view_made` `matches` falls back to the
     # stored changes when the flattened display lacks the field (a kind's rows shown as
     # "Header X"). Unchanged wherever the display carries the field.
+    # M36 F5 L5 (FD re-pin 2026-11-23, operator ruling 2026-11-20): harness.py seeds and removes
+    # [app] knowledge bases ("kb" row kind) and asserts no eval approves a knowledge_base,
+    # secret, tool_config or app_settings proposal. Additive: no check or score changes.
     "checks.py": "f441ba82b9a05dd900f255fdeeba76e131d94ff49764c4ae093912f3f34846e6",
     "outcomes.py": "237504b33206c31673cbfc30b20c7ee8c99ddcfe8962ba45e96475a9d1b90ffd",
     "judge.py": "2d341a249779c75a3e2e6ffd880953312b04841b82471909e3c3fae880543916",
-    "harness.py": "8219f3e396e04e17579ef4afdafc39f8f094adbacddbf21998be984172d7fdbf",
+    "harness.py": "7b2b461c4367f0432cd512ba1e650c5b66aec04b57477951b7bf47278e596d54",
 }
 # Sortie 11 leg 2: the scenarios, fixtures and judge fingerprint is pinned by the committed
 # `s11-platform.json` baseline (its `fingerprints.scenarios`), no longer a literal. Leg 3 must

@@ -20,7 +20,7 @@ from the_one.gleepglorp.proposals.shape import (
     _check_schedule,
     _q,
 )
-from the_one.gleepglorp.proposals.store import Proposal
+from the_one.gleepglorp.proposals.store import Proposal, _quoted
 from the_one.naming import NameRuleError, check_name
 from the_one.routines import recurrence
 from the_one.routines import service as routine_service
@@ -250,6 +250,39 @@ def title(p: Proposal) -> str:
     return f"{p.action} {p.kind} {name}".strip()
 
 
+async def card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]:
+    """The proposal card's ``schedule_text`` and ``next_runs`` (and the base's, for a change),
+    then ``title`` and ``target_gone`` (the agent, or for a change the routine, is gone)."""
+    from the_one import time_zones
+    from the_one.gleepglorp.proposals.store import _schedule_bits
+    from the_one.gleepglorp.view_core import _agent_names
+
+    agent = p.agent_name or ""
+    q = _quoted(agent)
+    gone = agent not in await _agent_names(conn)
+    out: dict[str, Any] = {}
+    if p.action == "create":
+        title = f"Schedule a routine for {q}"
+    else:
+        repo = AgentRoutineRepository(conn)
+        routine = await repo.get(agent, p.target_id) if p.target_id and not gone else None
+        gone = gone or routine is None
+        rname = routine.name if routine else (p.changes.get("name") or "routine")
+        title = f"Change routine {_quoted(str(rname))}"
+    zone = (await time_zones.load_effective_zone(conn)).tzinfo
+    now = time_zones.utcnow()
+    text, runs = _schedule_bits(p.changes, zone, now)
+    out["schedule_text"] = text
+    out["next_runs"] = runs
+    if p.base is not None:
+        btext, bruns = _schedule_bits(p.base, zone, now)
+        out["base_schedule_text"] = btext
+        out["base_next_runs"] = bruns
+    out["title"] = title
+    out["target_gone"] = gone
+    return out
+
+
 KIND = Kind(
     name="routine",
     label="routine",
@@ -259,5 +292,8 @@ KIND = Kind(
     exists=exists,
     apply=apply,
     summary_text=summary_text,
+    addressing="agent-owned",
+    card_extras=card_extras,
+    keyerror_is_gone=True,
     title=title,
 )

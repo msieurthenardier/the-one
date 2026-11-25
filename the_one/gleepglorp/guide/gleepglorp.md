@@ -16,7 +16,7 @@ GleepGlorp isn't one of your agents, so it doesn't appear in the Agents list and
 
 ## What it can't do
 
-- It can't change anything by itself. It can't run a command, or read or write your files. For agents, their rules and their routines it can propose a change, which takes effect only when you approve it (see "proposals"). For anything else it explains where to go and what to press, and you make the change yourself.
+- It can't change anything by itself. It can't run a command, or read or write your files. For agents, their rules and routines, MCP servers, model providers, knowledge bases, a secret's details (never its value), built-in tools, the time zone and knowledge indexing it can propose a change, which takes effect only when you approve it (see "proposals"). For most of these it can instead fill in the form for you to save. For anything else it explains where to go and what to press, and you make the change yourself.
 - It doesn't read your conversations with other agents, your files or the app's logs.
 
 ## Privacy

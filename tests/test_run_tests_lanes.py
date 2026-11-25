@@ -25,7 +25,9 @@ LANES = (
     "chats",
     "chats-transcript",
     "chats-widgets",
-    "gleepglorp",
+    "gleepglorp-chat",
+    "gleepglorp-fill",
+    "gleepglorp-kinds",
     "agents",
     "agent-tabs",
     "agent-routines",
@@ -195,28 +197,71 @@ def test_chats_lanes_are_the_transcript_files_and_the_rest(lanes: dict[str, set[
         "tests/browser/test_flow_chat_gleepglorp.py",
         "tests/browser/test_flow_chat_proposals.py",
     }
-    assert gg_chat <= lanes["gleepglorp"] and not (gg_chat & (transcript | lanes["chats"]))
+    assert gg_chat <= lanes["gleepglorp-chat"] and not (gg_chat & (transcript | lanes["chats"]))
     assert _lane_files("chat") == lanes["chats"] | transcript | widgets | gg_chat
 
 
-def test_gleepglorp_lane_is_the_drawer_fill_kinds_and_proposal_files(
-    lanes: dict[str, set[str]],
-) -> None:
-    """M36 F4 L1b (DD14): the GleepGlorp browser tests are their own lane."""
-    assert lanes["gleepglorp"] == {
+def test_gleepglorp_lanes_are_chat_fill_and_kinds(lanes: dict[str, set[str]]) -> None:
+    """M36 F5 L1b (DD13): the GleepGlorp browser tests are three lanes; `gleepglorp` is an
+    alias of their union."""
+    chat = {
         "tests/browser/test_flow_gleepglorp_drawer_chat.py",
         "tests/browser/test_flow_gleepglorp_drawer_shell.py",
-        "tests/browser/test_flow_gleepglorp_fill.py",
         "tests/browser/test_flow_chat_gleepglorp.py",
         "tests/browser/test_flow_chat_proposals.py",
+    }
+    fill = {
+        "tests/browser/test_flow_gleepglorp_fill.py",
         "tests/browser/test_flow_gleepglorp_kinds.py",
+    }
+    kinds = {
         "tests/browser/test_flow_gleepglorp_fill_mcp.py",
         "tests/browser/test_flow_gleepglorp_follow_mcp.py",
         "tests/browser/test_flow_gleepglorp_fill_provider.py",
         "tests/browser/test_flow_gleepglorp_follow_provider.py",
+        "tests/browser/test_flow_gleepglorp_fill_knowledge.py",
+        "tests/browser/test_flow_gleepglorp_follow_knowledge.py",
+        "tests/browser/test_flow_gleepglorp_fill_secret.py",
+        "tests/browser/test_flow_gleepglorp_follow_secret.py",
+        "tests/browser/test_flow_gleepglorp_fill_tool_config.py",
+        "tests/browser/test_flow_gleepglorp_follow_tool_config.py",
+        "tests/browser/test_flow_gleepglorp_fill_app_settings.py",
+        "tests/browser/test_flow_gleepglorp_follow_app_settings.py",
     }
+    assert lanes["gleepglorp-chat"] == chat
+    assert lanes["gleepglorp-fill"] == fill
+    assert lanes["gleepglorp-kinds"] == kinds
+    union = chat | fill | kinds
+    assert _lane_files("gleepglorp") == union
     for other in ("chats", "chats-transcript", "shared"):
-        assert not (lanes[other] & lanes["gleepglorp"]), other
+        assert not (lanes[other] & union), other
+
+
+def test_gleepglorp_alias_is_not_scheduled_in_parallel() -> None:
+    plan = _list("--parallel", "3", "--plan").stdout
+    assert "gleepglorp-chat" in plan and "gleepglorp-kinds" in plan
+    assert "gleepglorp " not in plan and "gleepglorp\n" not in plan
+
+
+def test_a_new_kinds_file_joins_without_a_pattern_edit() -> None:
+    """AC6: `gleepglorp-kinds` is two globs; a new fill or follow file matches them, and the
+    `fill` lane's two files do not."""
+    import fnmatch
+    import re
+
+    text = SCRIPT.read_text()
+    m = re.search(r"^gleepglorp_kinds_pat=\((.*?)\)", text, re.M)
+    assert m, "gleepglorp_kinds_pat not found"
+    globs = re.findall(r"'([^']+)'", m.group(1))
+    assert globs
+
+    def matches(name: str) -> bool:
+        return any(fnmatch.fnmatch(name, g) for g in globs)
+
+    assert matches("test_flow_gleepglorp_fill_secret.py")
+    assert matches("test_flow_gleepglorp_follow_x.py")
+    assert not matches("test_flow_gleepglorp_fill.py")
+    assert not matches("test_flow_gleepglorp_kinds.py")
 
 
 def test_mcp_lanes_are_the_split_editor_files(lanes: dict[str, set[str]]) -> None:
@@ -249,7 +294,7 @@ def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     proc = _list("--lane", "no-such-lane", "--list")
     assert proc.returncode == 2
     lanes = (
-        "chats|chats-transcript|chats-widgets|gleepglorp|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|"
+        "chats|chats-transcript|chats-widgets|gleepglorp-chat|gleepglorp-fill|gleepglorp-kinds|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|"
         "settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|shared"
     )
     assert lanes in proc.stderr

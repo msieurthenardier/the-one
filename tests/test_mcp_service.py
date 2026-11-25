@@ -360,10 +360,10 @@ async def test_only_the_named_fields_change_and_rows_merge_per_row(world) -> Non
     await make_stdio(world)
     await world.repo.merge_cache("s1", {"last_check": {"status": "ok"}})
     out = await svc.change_mcp_source(
-        world.deps, "s1", {"args": ["-y", "other"], "env": {"EXTRA": "1", "LOG_LEVEL": "debug"}}
-    )
+        world.deps, "s1", {"env": {"EXTRA": "1", "LOG_LEVEL": "debug"}}
+    )  # squawk 0382: an args change would now (rightly) prune the check; this one is env only
     cfg = out.config
-    assert cfg["command"] == "npx" and cfg["args"] == ["-y", "other"]
+    assert cfg["command"] == "npx" and cfg["args"] == ["-y", "pkg"]
     assert cfg["env"] == {"LOG_LEVEL": "debug", "EXTRA": "1"}  # merged per row, none removed
     assert cfg["cwd"] == "/home/x/work" and cfg["sandbox"] == {"network_allowed": False}
     assert cfg["_cache"]["last_check"] == {"status": "ok"}  # the type did not change
@@ -393,6 +393,113 @@ async def test_a_url_change_prunes_the_old_servers_cache_keys(world) -> None:
     await world.repo.merge_cache("h1", {"last_check": {"s": 2}})
     same = await svc.change_mcp_source(world.deps, "h1", {"name": "Docs renamed"})
     assert same.config["_cache"]["last_check"] == {"s": 2}  # no server change, no pruning
+
+
+_CHECKED = {
+    "last_check": {"s": 1},
+    "auth_posture": "oauth",
+    "protocol_fallback": "no_answer",
+    "tools": [{"name": "t"}],
+}
+
+
+async def _seed_stdio_cache(world) -> None:
+    await make_stdio(world)
+    await world.repo.merge_cache("s1", dict(_CHECKED))
+
+
+def _stdio_body(**cfg) -> dict:
+    base = {"command": "npx", "args": ["-y", "pkg"], "env": {"LOG_LEVEL": "info"}}
+    return {"name": "Local", "type": "stdio", "config": {**base, **cfg}, "secrets": {}}
+
+
+@pytest.mark.parametrize("via", ["put", "change"])
+@pytest.mark.parametrize("field", ["command", "args"])
+async def test_a_stdio_command_or_args_change_prunes_the_old_servers_cache(
+    world, via, field
+) -> None:
+    """Squawk 0382: a local-command server's identity is its command and arguments."""
+    await _seed_stdio_cache(world)
+    new = {"command": "uvx"} if field == "command" else {"args": ["-y", "other"]}
+    if via == "put":
+        out = await svc.replace_mcp_source(world.deps, "s1", _stdio_body(**new))
+    else:
+        out = await svc.change_mcp_source(world.deps, "s1", new)
+    assert out.config["_cache"] == {"tools": [{"name": "t"}]}
+    assert (await world.repo.get("s1")).config["_cache"] == {"tools": [{"name": "t"}]}
+
+
+@pytest.mark.parametrize("via", ["put", "change"])
+async def test_a_stdio_env_or_sandbox_change_keeps_the_cache(world, via) -> None:
+    await _seed_stdio_cache(world)
+    if via == "put":
+        out = await svc.replace_mcp_source(
+            world.deps,
+            "s1",
+            _stdio_body(env={"LOG_LEVEL": "debug"}, sandbox={"network_allowed": True}),
+        )
+    else:
+        out = await svc.change_mcp_source(world.deps, "s1", {"env": {"LOG_LEVEL": "debug"}})
+    assert out.config["_cache"] == _CHECKED
+
+
+async def test_a_stdio_args_absent_to_empty_is_not_a_change(world) -> None:
+    await make_stdio(world, config={"command": "npx"})
+    await world.repo.merge_cache("s1", dict(_CHECKED))
+    out = await svc.replace_mcp_source(world.deps, "s1", _stdio_body(command="npx", args=[]))
+    assert out.config["_cache"] == _CHECKED
+
+
+async def _wait_for_waiter(task) -> None:
+    """Yield until ``task`` is blocked on the write lock the test holds."""
+    import asyncio
+
+    for _ in range(400):
+        if task.done():
+            raise AssertionError("the write finished without waiting for the lock")
+        if getattr(_write_lock._lock, "_waiters", None):
+            return
+        await asyncio.sleep(0.005)
+    raise AssertionError("the write never reached the lock")
+
+
+async def test_a_refresh_written_while_a_replace_waits_for_the_lock_survives(world) -> None:
+    """Squawk 0400: the PUT reads the row under the write lock, so a rotated refresh token and
+    a new ``_cache`` key written while it waits are pinned, not overwritten."""
+    import asyncio
+    import json
+
+    await make_http(
+        world, secrets={"Authorization": "Bearer-secret-value-1234", "refresh_token": "old"}
+    )
+    await world.repo.merge_cache("h1", {"tools": [{"name": "t"}]})
+    body = {
+        "name": "Renamed",
+        "type": "streamable-http",
+        "config": {"url": "https://mcp.example.com/a"},
+        "secrets": {"Authorization": "Bearer-secret-value-1234"},
+    }
+    async with write_transaction(world.conn):
+        task = asyncio.create_task(svc.replace_mcp_source(world.deps, "h1", body))
+        await _wait_for_waiter(task)
+        cfg = {
+            "url": "https://mcp.example.com/a",
+            "headers": {"Accept": "text/plain"},
+            "_cache": {"tools": [{"name": "t"}], "last_check": {"s": 9}},
+        }
+        secrets = {"Authorization": "Bearer-secret-value-1234", "refresh_token": "rotated"}
+        await world.conn.execute(
+            "UPDATE mcp_sources SET config=?, secrets=? WHERE id='h1'",
+            (json.dumps(cfg), world.repo._secrets_to_ciphertext(secrets)),
+        )
+    after = await task
+    stored = await world.repo.get("h1")
+    assert stored.name == "Renamed"
+    assert stored.secrets["refresh_token"] == "rotated"
+    assert stored.config["_cache"]["last_check"] == {"s": 9}
+    assert after.secrets["refresh_token"] == "rotated"
+    assert after.updated_at == stored.updated_at
+    assert "_cache" not in body["config"]  # the caller's dict is not mutated
 
 
 @pytest.mark.parametrize(

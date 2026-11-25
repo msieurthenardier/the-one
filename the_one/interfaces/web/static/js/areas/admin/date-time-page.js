@@ -371,11 +371,49 @@
         window.App.ui.status({ state: 'success', text: text, live: 'off' }).el);
     }
 
+    // The approved-change note (M36 F5 L4b, DD14 choice 3): one note after the zone radio group,
+    // linked to the mode radios and the search input. The operator's next choice (every one goes
+    // through save) and a re-mount clear it.
+    var followNote = null;
+    function clearFollowNote() {
+      if (!followNote) return;
+      window.App.gleepglorpFill.unlink(followNote.entry);
+      if (followNote.el.parentNode) followNote.el.parentNode.removeChild(followNote.el);
+      followNote = null;
+    }
+
+    // An approved change, already read back (and applied to App.time) by the shared dispatcher.
+    function followed(detail, r) {
+      if (!root.isConnected || !built) return;
+      // An older page response must not overwrite the approved zone. An operator PUT in flight
+      // is not older than this approval: its token stays current, so its "Saved" status and its
+      // own App.time.applySettings still run (the operator's later write wins).
+      if (pendingSave === null) gen.next();
+      applySettings(r, { external: true });
+      clearFollowNote();
+      var el = window.App.gleepglorpFollow.buildNote(detail, {
+        testid: 'date-time-approved-change-note'
+      });
+      radio.el.after(el);
+      var controls = Array.prototype.slice.call(radio.el.querySelectorAll('input[type="radio"]'));
+      var search = root.querySelector('[data-testid="date-time-search"]');
+      if (search) controls.push(search);
+      followNote = { el: el, entry: window.App.gleepglorpFill.link(el, controls) };
+    }
+    var unregisterFollow = window.App.appSettingsFollow.register('date-and-time', followed);
+
+    // The token of the operator's PUT in flight, or null (followed() leaves it current).
+    var pendingSave = null;
+
     function save(body, opts) {
       var token = gen.next();
+      pendingSave = token;
+      clearFollowNote();
       clearError();
       clearStatus();
+      function settled() { if (pendingSave === token) pendingSave = null; }
       window.App.api.fetchJson('/api/time-settings', jsonOpts('PUT', body)).then(function (r) {
+        settled();
         if (!gen.isCurrent(token)) return;
         if (root.isConnected && built) {
           // The user's own pick: the row they chose is where they want it, never re-centre.
@@ -386,6 +424,7 @@
         }
         window.App.time.applySettings(r);
       }, function (err) {
+        settled();
         if (!gen.isCurrent(token)) return;
         if (root.isConnected && built) showError(err.message);
         reload();
@@ -564,6 +603,8 @@
       loadError.set('danger', 'The time settings could not be loaded: ' + err.message);
       loadError.el.hidden = false;
     });
+
+    return { destroy: function () { unregisterFollow(); clearFollowNote(); } };
   }
 
   window.App.admin.renderDateTimePage = renderDateTimePage;

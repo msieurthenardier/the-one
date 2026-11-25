@@ -20,6 +20,10 @@ The pages are listed down the left of [Settings](#settings/appearance), in three
 - [Built-in tools](#settings/tools): the app-wide settings for the tools that come with the app, in tabs by kind. Each tool has a switch, "Enable ... for all agents". A tool that is off here is off for every agent. Select a tool's name to open it. You see its description, the **Enabled for all agents** switch and its configuration, such as allowed folders or a search engine. Some tools have a **Test connection** button. If a change would affect agents that already have their own overrides, the app tells you how many and asks you to confirm.
 - [Knowledge indexing](#settings/knowledge-indexing): the chunk size (200 to 2,000 characters), the chunk overlap (at most half the chunk size), how often folders are re-checked (10 seconds to 24 hours) and whether folders are watched for changes. The embedding model and vector store are shown but fixed by the app. See "knowledge-bases".
 
+## With GleepGlorp
+
+GleepGlorp can propose changes, which you approve. On **Built-in tools** it can switch a tool on or off and set its limits or search engine. On **Date and time** it proposes the time zone. On **Knowledge indexing** it proposes chunk size, overlap and folder watching. It can also fill the Built-in tools and Knowledge indexing forms for you to save. It never sets allowed folders, hosts or API keys.
+
 ## Saving
 
 Pages with a form, such as GleepGlorp and Knowledge indexing, have **Save** and **Cancel** at the top. If you leave with unsaved changes, the app asks first. Appearance, Date and time, and the tool switches save as soon as you choose.

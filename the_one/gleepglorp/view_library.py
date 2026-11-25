@@ -86,7 +86,9 @@ async def knowledge_bases_view(ctx: Ctx, name: str | None = None) -> Any:
             "agents": await store.list_by_kb(key),
         }
 
-    return await _list_or_detail("knowledge_bases", entries, summarize, detail, name)
+    return await _list_or_detail(
+        "knowledge_bases", entries, summarize, detail, name, id_of=lambda key: key
+    )
 
 
 async def connectors_view(ctx: Ctx, name: str | None = None) -> Any:
@@ -151,7 +153,7 @@ async def secrets_view(ctx: Ctx, name: str | None = None) -> Any:
             "agents": await store.list_by_secret(s.id),
         }
 
-    return await _list_or_detail("secrets", entries, summarize, detail, name)
+    return await _list_or_detail("secrets", entries, summarize, detail, name, id_of=lambda key: key)
 
 
 _URL_LIKE = re.compile(r"^\s*[A-Za-z][A-Za-z0-9+.-]*://")

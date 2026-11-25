@@ -34,7 +34,7 @@ from the_one.db._provider_types import (
     PROVIDER_TYPE_LABELS,
     PROVIDER_TYPES,
 )
-from the_one.gleepglorp.kinds.base import Kind, changed_labels
+from the_one.gleepglorp.kinds.base import Kind, changed_labels, id_fill_extras
 from the_one.gleepglorp.kinds.deps import KindDeps
 from the_one.gleepglorp.kinds.errors import reraise
 from the_one.gleepglorp.proposals.shape import (
@@ -425,6 +425,44 @@ async def card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]
     return {"title": card_title("change", name), "target_gone": current is None}
 
 
+async def fill_stale(conn: Any, fill: Any, labels: dict[str, str]) -> list[dict[str, Any]]:
+    """The ``stale`` rows of a provider change fill: the named fields whose stored value moved
+    since the fill was made, labelled and in display form (an absent option reads ``None``)."""
+    from the_one.llm.provider_service import stale_fields
+
+    source = await _load(conn, None, fill.target_id) if fill.target_id else None
+    if source is None:
+        return []
+    return [
+        {
+            "field": row["field"],
+            "label": labels.get(row["field"], row["field"]),
+            "current": row["current"],
+            "proposed": row["proposed"],
+        }
+        for row in stale_fields(source, fill.changes, fill.base or {})
+    ]
+
+
+async def clears_key(conn: Any, fill: Any) -> bool:
+    """Whether the fill clears the editor's key field: a provider change whose type differs from
+    the stored type and which leaves a key-taking type, whichever type it enters. Into a type
+    with no key row (ollama, anthropic-plan) the key is cleared as the apply would; between
+    key-taking types it is cleared so the old key is never sent to the new service."""
+    if fill.action != "change" or not fill.target_id:
+        return False
+    new_type = (fill.changes or {}).get("type")
+    base_type = (fill.base or {}).get("type")
+    if not new_type or new_type == base_type:
+        return False
+    from the_one.llm import provider_service
+
+    return base_type is not None and provider_service.takes_key(base_type)
+
+
+fill_extras = id_fill_extras(card_extras, stale_fn=fill_stale, clears_key_fn=clears_key)
+
+
 # --- warnings -----------------------------------------------------------------------------
 
 
@@ -517,6 +555,10 @@ KIND = Kind(
     exists=exists,
     apply=apply,
     summary_text=summary_text,
+    addressing="id",
+    target_noun="A model provider",
+    fill_extras=fill_extras,
+    keyerror_is_gone=True,
     operator_only=OPERATOR_ONLY,
     fillable=("create", "change"),
     title=title,

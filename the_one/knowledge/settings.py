@@ -25,6 +25,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from the_one.db._write_lock import write_transaction
 from the_one.db.repositories import AppMetadataRepository
 from the_one.embeddings.local import EMBEDDING_DIM, EMBEDDING_MODEL_DIRNAME
 
@@ -250,12 +251,18 @@ async def load_knowledge_settings(conn) -> KnowledgeSettings:
 
 
 async def save_knowledge_settings(conn, settings: KnowledgeSettings) -> None:
-    """Write all three records. Three independent ``set()`` calls (three
-    transactions) — the records are independent by DD-6."""
-    repo = AppMetadataRepository(conn)
-    await repo.set(EMBEDDING_KEY, settings.embedding.model_dump_json())
-    await repo.set(CHUNKING_KEY, settings.chunking.model_dump_json())
-    await repo.set(MONITORING_KEY, settings.monitoring.model_dump_json())
+    """Write all three records in ONE write transaction (Mission 36 F5 L4a: a failure part-way
+    leaves none of them written). The records stay independent keys (DD-6)."""
+    async with write_transaction(conn):
+        await AppMetadataRepository.set_in_txn(
+            conn, EMBEDDING_KEY, settings.embedding.model_dump_json()
+        )
+        await AppMetadataRepository.set_in_txn(
+            conn, CHUNKING_KEY, settings.chunking.model_dump_json()
+        )
+        await AppMetadataRepository.set_in_txn(
+            conn, MONITORING_KEY, settings.monitoring.model_dump_json()
+        )
 
 
 async def load_vector_store_settings(conn) -> VectorStoreSettings:

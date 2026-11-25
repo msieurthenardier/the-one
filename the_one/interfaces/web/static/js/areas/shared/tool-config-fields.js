@@ -325,16 +325,16 @@
       var h = handle(cb.el, cb.control, null, function (v) { cb.setChecked(!!v); });
       // A checkbox has no field wrapper, so its error line is a library status line
       // placed under the checkbox.
-      var baseDescribedBy = cb.control.getAttribute('aria-describedby');
+      // Only the error id is added and removed; a token another module added (a note link)
+      // stays.
       h.setError = function (msg) {
         if (!msg) {
           if (boolError) {
+            ui.util.removeDescribedBy(cb.control, boolError.el.id);
             boolError.el.parentNode.removeChild(boolError.el);
             boolError = null;
           }
           cb.control.removeAttribute('aria-invalid');
-          if (baseDescribedBy) cb.control.setAttribute('aria-describedby', baseDescribedBy);
-          else cb.control.removeAttribute('aria-describedby');
           return;
         }
         if (!boolError) {
@@ -344,10 +344,7 @@
         }
         boolError.set('danger', msg);
         cb.control.setAttribute('aria-invalid', 'true');
-        cb.control.setAttribute(
-          'aria-describedby',
-          (baseDescribedBy ? baseDescribedBy + ' ' : '') + boolError.el.id
-        );
+        ui.util.addDescribedBy(cb.control, boolError.el.id);
       };
       return h;
     }

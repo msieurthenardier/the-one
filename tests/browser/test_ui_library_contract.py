@@ -605,6 +605,31 @@ def test_field_set_error_null_removes_wiring(engine_page: Page) -> None:
     assert_controls_labelled_and_described(engine_page, "#harness-root")
 
 
+def test_field_keeps_a_token_added_after_construction(engine_page: Page) -> None:
+    """A describedby token another module adds later (a note link) survives every rebuild."""
+    _load(engine_page)
+    engine_page.evaluate(FIELD_SETUP, {"hint": "h"})
+    engine_page.evaluate(
+        """() => {
+          const n = document.createElement('div');
+          n.id = 'late-note'; n.className = 'late-note'; n.textContent = 'note';
+          document.getElementById('harness-root').appendChild(n);
+          App.ui.util.addDescribedBy(document.querySelector('[data-testid=f-input]'), 'late-note');
+        }"""
+    )
+    # Order: tokens the field does not own, then its hint, then its error.
+    for call, expected in [
+        ("window.__f.setError('bad')", ["late-note", "field-hint", "field-error"]),
+        ("window.__f.setError(null)", ["late-note", "field-hint"]),
+        ("window.__f.setHint('h2')", ["late-note", "field-hint"]),
+        ("window.__f.setHint(null)", ["late-note"]),
+        ("window.__f.setError('e3')", ["late-note", "field-error"]),
+        ("window.__f.setError(null)", ["late-note"]),
+    ]:
+        engine_page.evaluate(f"() => {call}")
+        assert _describedby(engine_page) == expected, call
+
+
 def test_field_label_hidden_stays_in_dom_and_control_gets_id(engine_page: Page) -> None:
     _load(engine_page)
     out = engine_page.evaluate(

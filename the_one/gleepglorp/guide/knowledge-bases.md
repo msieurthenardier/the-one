@@ -33,6 +33,10 @@ Searches combine meaning-based and keyword matching, so a question phrased diffe
 
 [Knowledge indexing](#settings/knowledge-indexing) in Settings sets the chunk size, the chunk overlap, how often folders are re-checked and whether folders are watched. Chunk changes apply to files indexed from then on. The embedding model and the vector store are fixed by the app and shown for reference.
 
+## Ask GleepGlorp
+
+GleepGlorp can propose a new knowledge base, or a change to a knowledge base's name or description. Nothing changes until you approve. It can't add folders or files, re-index or remove anything: those happen on the knowledge base's own page, so add its folders yourself after approving. Renaming one that agents use changes the name of its search tool, and the card names those agents. GleepGlorp can also fill the form without saving; nothing is stored until you choose **Create** or **Save**.
+
 ## Related topics
 
 - "agent-tools" for attaching knowledge.

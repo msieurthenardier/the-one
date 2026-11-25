@@ -63,7 +63,7 @@ _AGENT_KEYS = {
 BUILDERS = ("gleepglorp",)
 # The ``[agent]`` keys a builder scenario may not set (the assistant has none of them).
 _BUILDER_REFUSES = ("kb", "routines_enabled", "persona", "rules", "rich_visuals", "max_iterations")
-_APP_KEYS = {"agents", "mcp_servers", "secrets", "providers"}
+_APP_KEYS = {"agents", "mcp_servers", "secrets", "providers", "knowledge_bases"}
 # The provider types a seeded ``[app.providers]`` row may take (the stored ``type`` values; the
 # seed never builds a live client, so any is inert).
 _PROVIDER_TYPES = (
@@ -149,6 +149,16 @@ class AppSecret:
     allowed_tools: tuple[str, ...] = ("http_request",)
 
 
+@dataclass(frozen=True)
+class AppKnowledgeBase:
+    """A knowledge base (``KnowledgeBaseRepository.create``): name, description and an optional
+    explicit id (letters, digits, ``_`` and ``-``: the row's own id rule)."""
+
+    name: str
+    description: str = ""
+    id: str = ""
+
+
 @dataclass
 class AppSeed:
     """The ``[app]`` table: rows GleepGlorp can read, seeded per run (placeholders expand)."""
@@ -157,9 +167,16 @@ class AppSeed:
     mcp_servers: list[AppMcp] = field(default_factory=list)
     secrets: list[AppSecret] = field(default_factory=list)
     providers: list[AppProvider] = field(default_factory=list)
+    knowledge_bases: list[AppKnowledgeBase] = field(default_factory=list)
 
     def empty(self) -> bool:
-        return not (self.agents or self.mcp_servers or self.secrets or self.providers)
+        return not (
+            self.agents
+            or self.mcp_servers
+            or self.secrets
+            or self.providers
+            or self.knowledge_bases
+        )
 
 
 @dataclass(frozen=True)
@@ -445,7 +462,8 @@ def _row_id(path: Path, row: dict, f: str) -> str:
 
 
 def _parse_app(path: Path, app: Any) -> AppSeed:
-    """The ``[app]`` table: ``agents``, ``mcp_servers``, ``providers`` and ``secrets`` row arrays.
+    """The ``[app]`` table: ``agents``, ``mcp_servers``, ``providers``, ``secrets`` and
+    ``knowledge_bases`` row arrays.
     String values may hold ``{placeholders}`` (expanded from the variant's facts when seeded).
     An MCP server or provider may carry an explicit ``id`` (a page line names it)."""
     if not isinstance(app, dict):
@@ -530,6 +548,16 @@ def _parse_app(path: Path, app: Any) -> AppSeed:
                 _opt_str(path, row, "description", f"{f}.description"),
                 values,
                 tuple(tools),
+            )
+        )
+    for i, row in enumerate(_app_rows(path, app, "knowledge_bases", {"id", "name", "description"})):
+        f = f"app.knowledge_bases[{i}]"
+        kid = _row_id(path, row, f)
+        if "." in kid:
+            raise _fail(path, f"{f}.id", "must be letters, digits, '_' or '-'")
+        seed.knowledge_bases.append(
+            AppKnowledgeBase(
+                row["name"], _opt_str(path, row, "description", f"{f}.description"), kid
             )
         )
     return seed

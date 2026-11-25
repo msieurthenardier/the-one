@@ -656,13 +656,58 @@ class KnowledgeBaseRepository:
             raise KeyError(f"Knowledge base not found: {kb_id}")
         return self._row_to_model(row)
 
-    async def create(self, kb: KnowledgeBase) -> None:
+    async def create(
+        self,
+        kb: KnowledgeBase,
+        *,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> None:
+        """Insert the row. ``on_commit(conn)`` is awaited after the insert inside the same
+        transaction (a proposal's status mark rides there); a raise rolls the insert back.
+        It must not open ``write_transaction`` (see :meth:`update_in_txn`)."""
         async with write_transaction(self.conn):
             await self.conn.execute(
                 "INSERT INTO knowledge_bases (id, name, description, created_at, updated_at)"
                 " VALUES (?, ?, ?, ?, ?)",
                 (kb.id, kb.name, kb.description, kb.created_at, kb.updated_at),
             )
+            if on_commit is not None:
+                await on_commit(self.conn)
+
+    async def update_in_txn(
+        self,
+        kb_id: str,
+        mutate: Callable[[KnowledgeBase], KnowledgeBase],
+        *,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> tuple[KnowledgeBase, KnowledgeBase]:
+        """Re-read the row, mutate it and write it, all inside one write transaction.
+
+        ``mutate(current)`` (sync) receives the row as stored at this instant and returns the
+        updated model. ``updated_at`` is set to now, the row is written, ``on_commit(conn)`` is
+        awaited, and ``(before, after)`` is returned. A raise from ``mutate`` or ``on_commit``
+        rolls everything back. ``KeyError`` for an unknown id.
+
+        RE-ENTRANCY: ``mutate`` and ``on_commit`` run under the write lock and must not call
+        any method that opens ``write_transaction`` (``create``, ``update``, ``delete``): the
+        re-entrancy guard raises ``RuntimeError``. Use raw ``conn.execute``.
+        """
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT * FROM knowledge_bases WHERE id = ?", (kb_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            if row is None:
+                raise KeyError(f"Knowledge base not found: {kb_id}")
+            before = self._row_to_model(row)
+            after = mutate(before).model_copy(update={"updated_at": now_iso()})
+            await self.conn.execute(
+                "UPDATE knowledge_bases SET name=?, description=?, updated_at=? WHERE id=?",
+                (after.name, after.description, after.updated_at, kb_id),
+            )
+            if on_commit is not None:
+                await on_commit(self.conn)
+        return before, after
 
     async def update(self, kb: KnowledgeBase) -> None:
         if not await self._exists(kb.id):
@@ -2368,11 +2413,19 @@ class SecretRepository:
         description: str | None = None,
         allowed_tools: list[str] | None = None,
         values: list[dict[str, Any]] | None = None,
+        precheck: Callable[[dict[str, Any]], None] | None = None,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
     ) -> Secret:
         """Partial update. ``values`` is the full ordered ``[{id?, key, value}]`` list:
         ``SECRET_MASK`` with this secret's pair ``id`` keeps its ciphertext, any other
         string is encrypted, an omitted pair is deleted. Raises ``KeyError`` (unknown
-        secret), :class:`SecretNameConflict`, :class:`SecretInvalid`."""
+        secret), :class:`SecretNameConflict`, :class:`SecretInvalid`.
+
+        ``precheck(row)`` (sync) runs inside the transaction on the freshly read
+        ``{name, description, allowed_tools}`` before anything is written (a stale check
+        raises from it, and nothing is written); ``on_commit(conn)`` is awaited after the
+        write inside the same transaction (a proposal's status mark rides there). Neither
+        may open ``write_transaction``."""
         try:
             async with write_transaction(self.conn):
                 async with self.conn.execute(
@@ -2382,6 +2435,14 @@ class SecretRepository:
                     row = await cur.fetchone()
                 if row is None:
                     raise KeyError(secret_id)
+                if precheck is not None:
+                    precheck(
+                        {
+                            "name": row[0],
+                            "description": row[1],
+                            "allowed_tools": self._tools(row[2]),
+                        }
+                    )
                 new_name = row[0] if name is None else name
                 if name is not None and await self._name_taken(name, exclude_id=secret_id):
                     raise SecretNameConflict
@@ -2445,6 +2506,8 @@ class SecretRepository:
                         secret_id,
                     ),
                 )
+                if on_commit is not None:
+                    await on_commit(self.conn)
         except (sqlite3.IntegrityError, aiosqlite.IntegrityError) as e:
             raise self._map_integrity(e, values) from None
         updated = await self.get(secret_id)
@@ -3163,6 +3226,56 @@ class ToolConfigRepository:
                 ),
             )
 
+    async def update_in_txn(
+        self,
+        name: str,
+        mutate: Callable[[ToolConfig | None], ToolConfig],
+        *,
+        on_commit: Callable[[aiosqlite.Connection], Awaitable[None]] | None = None,
+    ) -> tuple[ToolConfig | None, ToolConfig]:
+        """Re-read the row, mutate it and write it (an upsert), all inside one write transaction.
+
+        ``mutate(current)`` (sync) receives the row as stored at this instant, or ``None`` for a
+        tool with no saved row, and returns the row to store. ``on_commit(conn)`` is awaited after
+        the write inside the same transaction, and ``(before, after)`` is returned (``before`` is
+        ``None`` for a missing row). A raise from ``mutate`` or ``on_commit`` rolls everything
+        back. There is no ``KeyError``: a missing row is created.
+
+        RE-ENTRANCY: ``mutate`` and ``on_commit`` run under the write lock and must not call
+        any method that opens ``write_transaction`` (``upsert``, ``delete``): the re-entrancy
+        guard raises ``RuntimeError``. Use raw ``conn.execute``.
+        """
+        async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT * FROM tool_configs WHERE name = ?", (name,)
+            ) as cur:
+                row = await cur.fetchone()
+            before = self._row_to_model(row) if row is not None else None
+            after = mutate(before)
+            stamp = now_iso()
+            await self.conn.execute(
+                """\
+                INSERT INTO tool_configs (name, config, secrets, enabled, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET
+                    config=excluded.config,
+                    secrets=excluded.secrets,
+                    enabled=excluded.enabled,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    name,
+                    json.dumps(after.config),
+                    self._secrets_to_ciphertext(after.secrets or {}),
+                    int(after.enabled),
+                    stamp,
+                    stamp,
+                ),
+            )
+            if on_commit is not None:
+                await on_commit(self.conn)
+        return before, after
+
     async def delete(self, name: str) -> None:
         if not await self.exists(name):
             raise KeyError(f"Tool config not found: {name}")
@@ -3214,6 +3327,20 @@ class AppMetadataRepository:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
+
+    @staticmethod
+    async def set_in_txn(conn: aiosqlite.Connection, key: str, value: str) -> None:
+        """Insert or update ``key`` inside a ``write_transaction`` the caller already holds.
+
+        :meth:`set` opens its own transaction, and ``write_transaction`` raises on same-task
+        re-entry, so a write that sets several keys together (or rides a proposal's status
+        mark) calls this with the open transaction's connection instead.
+        """
+        await conn.execute(
+            "INSERT INTO app_metadata (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
 
     async def delete(self, key: str) -> None:
         """Delete ``key`` if present; a no-op if absent (Flight 7 Leg 2,

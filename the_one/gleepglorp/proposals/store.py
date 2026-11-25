@@ -309,56 +309,11 @@ def _schedule_bits(values: dict[str, Any] | None, zone: Any, now: Any) -> tuple[
 
 
 async def _card_extras(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]:
-    """``title``, ``target_gone`` and, for a routine, the schedule text and next runs."""
-    from the_one import time_zones
-    from the_one.db.repositories import AgentRuleRepository
+    """``title``, ``target_gone`` and the kind's own extras (a routine's schedule text and next
+    runs): the kind's ``card_extras``."""
     from the_one.gleepglorp import kinds
-    from the_one.gleepglorp.view_core import _agent_names
-    from the_one.routines.repository import AgentRoutineRepository
 
-    kind = kinds.find(p.kind)
-    if kind is not None and kind.card_extras is not None:
-        return await kind.card_extras(conn, p)
-
-    agent = p.agent_name or ""
-    q = _quoted(agent)
-    gone = False
-    out: dict[str, Any] = {}
-    if p.kind == "agent":
-        title = f"{'Create' if p.action == 'create' else 'Change'} agent {q}"
-        if p.action == "change":
-            gone = agent not in await _agent_names(conn)
-    elif p.kind == "rule":
-        gone = agent not in await _agent_names(conn)
-        if p.action == "create":
-            title = f"Add a rule to {q}"
-        else:
-            rules = await AgentRuleRepository(conn).list_for_agent(agent) if not gone else []
-            pos = next((i for i, r in enumerate(rules, 1) if r.id == p.target_id), None)
-            gone = gone or pos is None
-            title = f"Change rule {pos} of {q}" if pos else f"Change a rule of {q}"
-    else:
-        gone = agent not in await _agent_names(conn)
-        repo = AgentRoutineRepository(conn)
-        if p.action == "create":
-            title = f"Schedule a routine for {q}"
-        else:
-            routine = await repo.get(agent, p.target_id) if p.target_id and not gone else None
-            gone = gone or routine is None
-            rname = routine.name if routine else (p.changes.get("name") or "routine")
-            title = f"Change routine {_quoted(str(rname))}"
-        zone = (await time_zones.load_effective_zone(conn)).tzinfo
-        now = time_zones.utcnow()
-        text, runs = _schedule_bits(p.changes, zone, now)
-        out["schedule_text"] = text
-        out["next_runs"] = runs
-        if p.base is not None:
-            btext, bruns = _schedule_bits(p.base, zone, now)
-            out["base_schedule_text"] = btext
-            out["base_next_runs"] = bruns
-    out["title"] = title
-    out["target_gone"] = gone
-    return out
+    return await kinds.get(p.kind).card_extras(conn, p)
 
 
 async def proposal_view(conn: aiosqlite.Connection, p: Proposal) -> dict[str, Any]:

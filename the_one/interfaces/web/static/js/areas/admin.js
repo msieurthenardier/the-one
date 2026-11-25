@@ -263,6 +263,12 @@ App.registerArea({
     // GET and PUT and its "Saved." timer, so a late response cannot repaint a torn-down
     // page.
     var knowledgePage = null;
+    // GleepGlorp (M36 F5 L4b): the page's controller, null while it loads or when it is not showing.
+    function knowledgeController() {
+      return knowledgePage && knowledgePage.getController ? knowledgePage.getController() : null;
+    }
+    App.admin.knowledgeSettingsFill.attach(knowledgeController);
+    App.admin.knowledgeSettingsFollow.attach({ getController: knowledgeController });
     function destroyKnowledgePage() {
       if (knowledgePage) {
         knowledgePage.destroy();

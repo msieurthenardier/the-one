@@ -198,8 +198,11 @@ async def test_mcp_server_and_provider_reads_carry_ids(world) -> None:
 
 
 async def test_other_kinds_get_no_id(world) -> None:
-    for kind in ("agents", "knowledge_bases", "connectors", "secrets", "built_in_tools"):
+    # Knowledge bases and secrets list ``id`` since M36 F5 L3a.
+    for kind in ("agents", "connectors", "built_in_tools"):
         assert all("id" not in e for e in await _read(world, kind)), kind
+    for kind in ("knowledge_bases", "secrets"):
+        assert all("id" in e for e in await _read(world, kind)), kind
 
 
 async def test_a_read_by_id_reaches_the_second_of_two_same_named_servers(world) -> None:

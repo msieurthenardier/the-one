@@ -15,11 +15,28 @@ from __future__ import annotations
 from datetime import datetime, tzinfo
 from typing import Any
 
-from the_one.gleepglorp.kinds import agent, mcp_server, provider, routine, rule
+from the_one.gleepglorp.kinds import (
+    agent,
+    app_settings,
+    knowledge_base,
+    mcp_server,
+    provider,
+    routine,
+    rule,
+    secret,
+    tool_config,
+)
 from the_one.gleepglorp.kinds.base import Kind
 from the_one.gleepglorp.kinds.deps import KindDeps
 from the_one.gleepglorp.kinds.errors import ApplyError
-from the_one.gleepglorp.proposals.shape import ACTIONS, FieldSpec, Normalized, ShapeError, _q
+from the_one.gleepglorp.proposals.shape import (
+    ACTIONS,
+    REFS,
+    FieldSpec,
+    Normalized,
+    ShapeError,
+    _q,
+)
 
 REGISTRY: tuple[Kind, ...] = (
     agent.KIND,
@@ -27,6 +44,10 @@ REGISTRY: tuple[Kind, ...] = (
     routine.KIND,
     mcp_server.KIND,
     provider.KIND,
+    knowledge_base.KIND,
+    secret.KIND,
+    tool_config.KIND,
+    app_settings.KIND,
 )
 
 KINDS: tuple[str, ...] = tuple(k.name for k in REGISTRY)
@@ -48,18 +69,22 @@ __all__ = [
     "Kind",
     "KindDeps",
     "agent",
+    "app_settings",
     "describe",
     "find",
     "get",
+    "knowledge_base",
     "mcp_server",
     "normalize",
     "provider",
     "resolve_by_id_or_name",
     "routine",
     "rule",
+    "secret",
     "spec_for",
     "target_args",
     "target_key",
+    "tool_config",
 ]
 
 
@@ -118,19 +143,18 @@ def target_args(
     one's id or name (``agent`` is not used); a rule and a routine are addressed by ``agent``
     plus ``rule`` / ``routine``, so ``target`` is refused for them. Raises :class:`ShapeError`.
     """
-    if target is not None and kind in ("rule", "routine"):
-        raise ShapeError(
-            f"target isn't used for a {kind}: give agent, and "
-            f"{'rule' if kind == 'rule' else 'routine'} to change one."
-        )
-    if kind == "agent" and target is not None:
+    k = find(kind)
+    addressing = k.addressing if k is not None else None
+    if addressing == "agent-owned" and target is not None:
+        raise ShapeError(f"target isn't used for a {kind}: give agent, and {kind} to change one.")
+    if addressing == "agent" and target is not None:
         if agent is not None and agent != target:
             raise ShapeError("agent and target name different agents. Give one of them.")
         agent = target
-    if kind == "mcp_server" and agent is not None:
-        raise ShapeError("An MCP server is named with target, not agent.")
-    if kind == "provider" and agent is not None:
-        raise ShapeError("A model provider is named with target, not agent.")
+    if k is not None and addressing == "id" and agent is not None:
+        raise ShapeError(f"{k.target_noun} is named with target, not agent.")
+    if addressing == "page" and (agent is not None or target is not None):
+        raise ShapeError("App settings take no agent or target; name the fields to change.")
     return {"agent": agent, "rule": rule, "routine": routine, "target": target}
 
 
@@ -170,12 +194,12 @@ def describe(kind: str | None = None) -> Any:
             d["shape"] = "an object of name → value"
         if f.address_or_command:
             d["provenance"] = "must come from you or a page you linked"
-        if f.ref in ("provider", "mcp", "kb"):
-            d["reference"] = {
-                "provider": "a model provider's name",
-                "mcp": "MCP server names",
-                "kb": "knowledge base names",
-            }[f.ref]
+        if f.typed_items:
+            d["provenance"] = "each tool you add must be named by you"
+        if f.ref in REFS:
+            d["reference"] = REFS[f.ref].describe_label
+        if f.applies_to:
+            d["applies_to"] = list(f.applies_to)
         out.append(d)
     return {"name": kind, "fields": out}
 
@@ -186,6 +210,11 @@ def _check_keys(kind: str, changes: Any) -> dict[str, Any]:
     allowed = [f.name for f in SPECS[kind]]
     unknown = [k for k in changes if k not in allowed]
     if unknown:
+        kind_ = get(kind)
+        message = kind_.operator_only_message
+        named = [k for k in unknown if k in kind_.operator_only or k in kind_.operator_only_aliases]
+        if message is not None and named:
+            raise ShapeError(message(named))
         raise ShapeError(
             f"{kind} changes can't include {', '.join(repr(_q(k)) for k in unknown)}. "
             f"Allowed fields: {', '.join(allowed)}."
@@ -214,6 +243,14 @@ async def normalize(
         raise ShapeError(f"Unknown kind {str(kind)[:40]!r}. Kinds: {', '.join(KINDS)}.")
     if action not in ACTIONS:
         raise ShapeError(f"Unknown action {str(action)[:40]!r}. Actions: {', '.join(ACTIONS)}.")
+    k = get(kind)
+    allowed = k.actions if mode == "propose" else k.fillable
+    if action not in allowed:
+        if k.action_refused is not None:
+            raise ShapeError(k.action_refused(action, mode))
+        verb = "created" if action == "create" else "changed"
+        how = "by a proposal" if mode == "propose" else "by filling its form"
+        raise ShapeError(f"A {k.label} can't be {verb} {how}.")
     changes = _check_keys(kind, changes)
     specs = SPECS[kind]
     if action == "create":

@@ -29,6 +29,7 @@
 //   clearKey()               empties the key input, so Save sends null
 //   placeNote(key, el)       appends the note under the field's row; returns its controls
 //   placeFollowNote(el), clearNotes(), isDirty(), rebase(row), afterCancel(fn)
+//   blockSave(text|null), saveBlock()   squawk 0401: Save shows `text` instead of sending
 //   fill                     the GleepGlorp fill handle (provider-editor-fill.js)
 (function () {
   'use strict';
@@ -77,6 +78,7 @@
     var idleWaiters = [];
     var cancelHook = null;
     var fillApi = null;
+    var saveBlock = null;
 
     var rows = {
       name: h.name, type: h.type, base_url: h.baseUrl, api_key: h.apiKey, num_ctx: h.numCtx,
@@ -167,6 +169,10 @@
       // A Cancel that has reverted the form (the editor's own click handler ran first) runs this
       // once: the follow uses it to open the provider as an approval changed it.
       afterCancel: function (fn) { cancelHook = fn; },
+      // Squawk 0401: Save is refused with `text` in the editor's error line until the block is
+      // cleared (blockSave(null)) or Cancel re-mounts the editor (a new controller).
+      blockSave: function (text) { saveBlock = text || null; },
+      saveBlock: function () { return saveBlock; },
       // An approved change for this provider that kept its type: a clean field takes the stored
       // value, a dirty one keeps the operator's while its baseline moves. False when the stored
       // type is not the mounted one (the follow re-mounts or notes that instead).

@@ -422,6 +422,22 @@ Taken with the operator on 2026-11-21, at Flight 4 planning:
   operator will rework connectors after this mission. Its existing read-only
   connector view and page awareness stay.
 
+Taken with the operator on 2026-11-23, at Flight 5 planning:
+
+- **Tool configs are Settings › Tools,** the app-wide row for each built-in tool. GleepGlorp
+  may set ordinary fields only: on or off, limits, timeouts and the search backend. Everything
+  else stays with the operator, including:
+  - the path allow and deny lists, and binary file reads;
+  - the command denylist and sandbox network;
+  - the host lists, and opening private addresses;
+  - the redirect cap and the user agent;
+  - every API key.
+- **App settings are Date and time (proposals only) and Knowledge indexing.** GleepGlorp's own
+  settings, Encryption and Appearance are not kinds.
+- **Flight 5 keeps the prompt frozen and records no baseline.** It adds eval cells for the new
+  kinds and runs one n=20 pass, reading every safety failure, with its exits named in advance.
+  The safety-regression search and the next baseline belong to the alignment flight.
+
 ## Open Questions
 
 - **The overlay's chat instance.** *(Resolved at Flight 3 planning: the chat
@@ -494,7 +510,7 @@ Taken with the operator on 2026-11-21, at Flight 4 planning:
   *(Split 2026-11-21, operator: this flight is "MCP servers and model
   providers": the groundwork, a code-level block on outside commands and
   links, and the two kinds. The other five kinds move to Flight 5.)*
-- [ ] **Flight 5: The remaining kinds.** *(Connectors removed 2026-11-21,
+- [x] **Flight 5: The remaining kinds.** *(Connectors removed 2026-11-21,
   operator: they are reworked after this mission.)* Knowledge bases, Library
   secrets' metadata, tool configs and app settings, on Flight 4's registry:
   each with its write service, proposals and, where the editor has a Save,
@@ -504,3 +520,14 @@ Taken with the operator on 2026-11-21, at Flight 4 planning:
 - [ ] **Flight 6 *(optional)*: Alignment.** A hands-on session to tune
   GleepGlorp's prompt, tone and overlay feel with the operator, against the
   evals and the real app.
+  - **Not flown (operator, 2026-11-24).** The operator was satisfied with the HAT rounds
+    during the flights, so the alignment flight is skipped.
+  - **Items that were deferred to it stay open.** The mission debrief records their
+    disposition:
+    - no GleepGlorp baseline since `m36f3`;
+    - the `p4c` control and the Flight 4 regression search;
+    - the prompt is shipped as `p5d`;
+    - Flight 5's exit-2 eval findings: secret value repeats, "Done!" and "I've set up"
+      claims, qwen3-4b's tool discovery.
+
+    The detail is in Flight 5's debrief and flight log.

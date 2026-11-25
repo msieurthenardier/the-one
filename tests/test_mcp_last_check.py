@@ -334,7 +334,7 @@ async def test_sequence_keeps_every_key_then_reset_drops_all(client_and_repo, mo
         json={
             "name": "S",
             "type": "stdio",
-            "config": {"command": "python", "args": ["y"]},
+            "config": {"command": "python", "args": []},
             "secrets": {},
         },
     )
@@ -419,8 +419,14 @@ async def test_put_server_change_drops_the_protocol_fallback_note(client_and_rep
     c, repo = client_and_repo
     stale = {**CACHE_WITH_CHECK, "protocol_fallback": "no_answer"}
     await _seed(repo, stdio=True, cache=stale)
-    await _put(c, {"config": {"command": "python", "args": ["other"]}})  # same server: kept
+    await _put(c, {"config": {"command": "python", "args": []}})  # same server: kept
     assert (await repo.get(SID)).config["_cache"]["protocol_fallback"] == "no_answer"
+    # Squawk 0382: new args on a local-command server are a different server: dropped.
+    await _put(c, {"config": {"command": "python", "args": ["other"]}})
+    cache = (await repo.get(SID)).config["_cache"]
+    assert "protocol_fallback" not in cache
+    assert "last_check" not in cache and "auth_posture" not in cache
+    assert cache["tools"] == FULL_CACHE["tools"]
     await _put(c, {"type": "streamable-http", "config": {"url": "https://x.example/mcp"}})
     cache = (await repo.get(SID)).config["_cache"]
     assert "protocol_fallback" not in cache

@@ -56,8 +56,33 @@ def test_the_operator_only_fields_are_in_no_spec() -> None:
     for forbidden in shape.OPERATOR_ONLY_FIELDS:
         assert forbidden not in names and forbidden not in stored
     # The agent's six, the MCP server's three (Leg 4a), then the provider's api_key (Leg 5a;
-    # its ``secrets`` is the MCP server's too).
+    # its ``secrets`` is the MCP server's too), the knowledge base's folders, items and path and
+    # the secret's values and keys (its ``secret_ids`` is the agent's) (M36 F5 L3a), the tool
+    # config's thirteen (every built-in Config field off the allowlist) and the app settings'
+    # four fixed embedding names (M36 F5 L4a).
     assert set(shape.OPERATOR_ONLY_FIELDS) == {
+        "allow_binary_files",
+        "brave_api_key",
+        "command_denylist",
+        "default_user_agent",
+        "extra_allowed_hosts",
+        "google_pse_api_key",
+        "host_allowlist",
+        "host_denylist",
+        "path_allowlist",
+        "path_denylist",
+        "redirect_cap",
+        "sandbox_network_allowed",
+        "tavily_api_key",
+        "embedding_backend",
+        "embedding_model_id",
+        "embedding_dim",
+        "vector_store",
+        "folders",
+        "items",
+        "path",
+        "values",
+        "keys",
         "api_key",
         "secret_ids",
         "tool_overrides",
@@ -110,7 +135,17 @@ def test_every_agent_field_maps_to_an_agent_config_field_of_a_compatible_type() 
 
 def test_describe_is_generated_from_the_specs() -> None:
     listing = shape.describe()
-    assert [e["name"] for e in listing] == ["agent", "rule", "routine", "mcp_server", "provider"]
+    assert [e["name"] for e in listing] == [
+        "agent",
+        "rule",
+        "routine",
+        "mcp_server",
+        "provider",
+        "knowledge_base",
+        "secret",
+        "tool_config",
+        "app_settings",
+    ]
     detail = shape.describe("rule")
     by = {f["name"]: f for f in detail["fields"]}
     assert by["text"]["required_on_create"] is True
@@ -124,13 +159,26 @@ async def test_the_fields_kind_of_read_app_config_comes_from_the_shape(world) ->
     from the_one.gleepglorp import views
 
     listing = await views.read(world.conn, world.enc, "fields")
-    assert [e["name"] for e in listing] == ["agent", "rule", "routine", "mcp_server", "provider"]
+    assert [e["name"] for e in listing] == [
+        "agent",
+        "rule",
+        "routine",
+        "mcp_server",
+        "provider",
+        "knowledge_base",
+        "secret",
+        "tool_config",
+        "app_settings",
+    ]
     detail = await views.read(world.conn, world.enc, "fields", "agent")
     assert detail == shape.describe("agent")
     assert {f["name"] for f in detail["fields"]} == {f.name for f in shape.AGENT_FIELDS}
     with pytest.raises(views.PlainMessage) as e:
         await views.read(world.conn, world.enc, "fields", "does-not-exist")
-    assert "Valid names: agent, rule, routine, mcp_server, provider" in str(e.value)
+    assert (
+        "Valid names: agent, rule, routine, mcp_server, provider, knowledge_base, secret, "
+        "tool_config, app_settings"
+    ) in str(e.value)
     with pytest.raises(views.PlainMessage):
         await views.read(world.conn, world.enc, "fields", "x" * 500)
 
@@ -139,7 +187,7 @@ async def test_the_fields_kind_of_read_app_config_comes_from_the_shape(world) ->
 
 
 async def test_unknown_kind_action_and_field(world) -> None:
-    assert "Unknown kind" in await refused(world, "secret", "create", {})
+    assert "Unknown kind" in await refused(world, "widget", "create", {})
     assert "Unknown action" in await refused(world, "agent", "delete", {}, agent="plain")
     msg = await refused(world, "agent", "change", {"secret_ids": ["x"]}, agent="plain")
     assert "secret_ids" in msg and "Allowed fields:" in msg and "system_prompt" in msg

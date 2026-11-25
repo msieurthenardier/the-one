@@ -28,6 +28,7 @@ saves too):
 from __future__ import annotations
 
 import copy
+import sqlite3
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -273,7 +274,8 @@ async def create_provider(
     if data.get("type") == "mock" and not dev_mode:
         raise ProviderWriteError(400, MOCK_DETAIL)
     data["name"] = checked_name(data.get("name"))
-    if "id" not in data:
+    client_id = "id" in data
+    if not client_id:
         data["id"] = uuid.uuid4().hex[:12]
     # DD-2 create direction: secrets are OAuth-managed, force-empty regardless of the body.
     data["secrets"] = {}
@@ -293,7 +295,24 @@ async def create_provider(
             update={"config": {**provider.config, "thinking_enabled": True}}
         )
     _check_url(provider)
-    await deps.repo.create(provider, on_commit=on_commit)
+    try:
+        await deps.repo.create(provider, on_commit=on_commit)
+    except sqlite3.IntegrityError:
+        # A client-supplied id that already exists (squawk 0402). Confirmed against the row,
+        # not assumed, so a race between two creates is a 409 too; the transaction has rolled
+        # back, so an ``on_commit`` mark rolled back with it.
+        clash = False
+        if client_id:
+            try:
+                await deps.repo.get(provider.id)
+                clash = True
+            except KeyError:
+                pass
+        if not clash:
+            raise
+        raise ProviderWriteError(
+            409, f"A model provider with id {provider.id} already exists."
+        ) from None
     return provider
 
 

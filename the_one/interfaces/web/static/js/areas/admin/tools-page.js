@@ -15,6 +15,10 @@
 App.admin = App.admin || {};
 
 App.admin.toolsPage = {
+  // One-shot, set by the tool_config kind's fill around its navigation (tool-config-kinds.js):
+  // opening a tool's editor then leaves focus where it is.
+  keepFocus: false,
+
   // Parse an area sub ('tools' or 'tools/{name}') into the pending item.
   // Returns null for any other sub.
   parseSub: function (sub) {
@@ -34,7 +38,7 @@ App.admin.toolsPage = {
     // Set by a hydrate for an item route; consumed when that item mounts
     // (scroll its header into view, focus its title).
     var openIntent = false;
-    // The mounted tool editor's { setEnabled, destroy } (tools-editor.js). Every tool's
+    // The mounted tool editor's { setEnabled, controller, destroy } (tools-editor.js). Every tool's
     // editor mounts into the same item section, so each mount is a mountSlot token: a
     // stale editor (a Save for tool A resolving after tool B opened) writes no shared
     // state, because it asks isCurrent(token) first.
@@ -141,12 +145,15 @@ App.admin.toolsPage = {
     // last. A close or a newer open in between cancels it.
     function revealItem(itemEl) {
       var gen = ctx.getGen();
+      // A GleepGlorp fill opens the editor from the drawer: focus stays in its composer. The
+      // flag is read now, not in the timeout: a fill that settles in the same task clears it.
+      var keepFocus = !!App.admin.toolsPage.keepFocus;
       setTimeout(function () {
         if (gen !== ctx.getGen() || !itemEl.isConnected) return;
         var header = itemEl.querySelector('[data-testid="tool-editor-header"]');
         var title = header ? header.querySelector('h2[tabindex="-1"]') : null;
         if (header && typeof header.scrollIntoView === 'function') header.scrollIntoView({ block: 'nearest' });
-        if (title) focusNoScroll(title);
+        if (title && !keepFocus) focusNoScroll(title);
       }, 0);
     }
 
@@ -397,6 +404,40 @@ App.admin.toolsPage = {
       });
     }
 
+    // ── GleepGlorp (M36 F5 L4b): the open editor's controller and the follow path ───
+
+    // The mounted editor's controller, or null (no editor, or a page render dropped it).
+    function currentController() {
+      return toolEditorApi && toolEditorApi.controller ? toolEditorApi.controller : null;
+    }
+
+    // An approved change to tool `row.name`, read back from the server. Like onSaved it updates
+    // the list cache and the open tool's copy and re-renders the grid; unlike refresh() it never
+    // re-mounts the editor (the editor itself rebased in tool-config-follow.js). A tile whose own
+    // toggle PUT is in flight keeps its optimistic value, and gets no note.
+    function followed(detail, row) {
+      var name = row.name;
+      if (editingTool && editingTool.name === name) {
+        editingTool = Object.assign({}, editingTool, {
+          description: row.description, enabled: row.enabled, config: row.config
+        });
+      }
+      if (ctx.getCategory() !== 'tools' || !toolConfigs) return;
+      for (var i = 0; i < toolConfigs.length; i++) {
+        if (toolConfigs[i].name !== name) continue;
+        toolConfigs[i] = Object.assign({}, toolConfigs[i], {
+          description: row.description,
+          enabled: toolsInFlight[name] ? toolConfigs[i].enabled : row.enabled,
+          config: row.config
+        });
+        break;
+      }
+      renderToolsListNow();
+      if (!grid) return;
+      var changesEnabled = (detail.fields || []).indexOf('enabled') !== -1;
+      grid.setFollowNote(name, changesEnabled && !toolsInFlight[name] ? detail : null);
+    }
+
     function showAdminFlash(msg, isError) {
       App.ui.flash(msg, { error: !!isError });
     }
@@ -538,6 +579,13 @@ App.admin.toolsPage = {
       },
       setOpenIntent: function (on) { openIntent = !!on; }
     };
+
+    App.admin.toolConfigFill.attach(currentController);
+    App.admin.toolConfigFollow.attach({
+      getController: currentController,
+      gridShowing: function () { return !!(scaffoldFor('tools') && grid); },
+      followed: followed
+    });
 
     // State accessors behind the area's test seams.
     function accessor(name, get, set) {

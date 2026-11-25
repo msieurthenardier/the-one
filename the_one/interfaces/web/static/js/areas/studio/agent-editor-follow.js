@@ -96,27 +96,8 @@
     }
 
     function buildNote_(noteKey, hit, item) {
-      var p = document.createElement('p');
-      p.className = 'agent-approved-change-note';
-      p.setAttribute('data-testid', 'agent-approved-change-note');
-      p.setAttribute('data-field', noteKey);
-      if (item !== undefined) {
-        p.setAttribute('data-item', item);
-        p.className += ' agent-approved-change-note--item';
-      }
-      var when = '';
-      var t = hit.at ? new Date(hit.at) : null;
-      if (t && !isNaN(t.getTime())) when = ' · ' + App.time.formatClock(t);
-      p.appendChild(document.createTextNode(
-        'Changed by a change you approved in a GleepGlorp chat' + when));
-      if (hit.session_id) {
-        p.appendChild(document.createTextNode(' · '));
-        var a = document.createElement('a');
-        a.setAttribute('href', App.router.href({ destination: 'chats', id: hit.session_id }));
-        a.textContent = 'Open chat';
-        p.appendChild(a);
-      }
-      return p;
+      return App.gleepglorpFollow.buildNote(hit,
+        { testid: 'agent-approved-change-note', field: noteKey, item: item });
     }
 
     // Draw the notes for the open agent from the record: every mount, patch and live apply.

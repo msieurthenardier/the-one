@@ -23,6 +23,7 @@ the write services unchanged. A rule's ``position`` is the 1-based position the 
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, tzinfo
 from typing import Any
@@ -50,12 +51,21 @@ class FieldSpec:
     ``names`` / ``text`` value refers to, resolved to ids: ``provider``, ``mcp``, ``kb`` or
     ``tool`` (a built-in tool name, kept as a name).
 
-    ``path`` is reserved for the kinds that follow (a nested stored location).
+    ``path``: the stored location when it is nested or differs from ``stored`` (read and written
+    through :func:`stored_get` / :func:`stored_set`). ``fill_refused`` is a sentence: when a
+    ``fill_form`` call names the field, the tool answers with it and records nothing (the
+    propose path never reads it; it is not part of ``describe``).
     ``address_or_command`` marks a value that is an address or a command (the outside-value
     guard, ``the_one/gleepglorp/outside.py``, then accepts it from a page the operator linked
     as well as from the operator's own text). ``rows`` marks a ``{key: value}`` field (headers,
     env); for a field that is both ``rows`` and ``address_or_command`` the guard also treats
-    its keys as loader keys.
+    its keys as loader keys. ``typed_items`` marks a ``names`` field whose ADDED items grant
+    something (a secret's allowed tools): after outside content, each item added (those not in
+    the stored base; all of them on a create) must be named in the operator's own typed text;
+    a removal is never refused. ``applies_to`` names where a field applies when it is not the
+    whole kind (the built-in tools that show a tool-config field; the one Settings page of an
+    app-settings field): ``describe`` emits it as a list only when it is non-empty, so a kind
+    that does not set it describes itself exactly as before.
     """
 
     name: str
@@ -71,6 +81,9 @@ class FieldSpec:
     path: tuple[str, ...] | None = None
     address_or_command: bool = False
     rows: bool = False
+    fill_refused: str = ""
+    typed_items: bool = False
+    applies_to: tuple[str, ...] = ()
 
 
 @dataclass
@@ -139,27 +152,17 @@ def _check_names(spec: FieldSpec, value: Any) -> list[str]:
     return seen
 
 
-def _kind_label(ref: str) -> str:
-    return {"provider": "model provider", "mcp": "MCP server", "kb": "knowledge base"}[ref]
+async def _provider_entries(conn: Any) -> list[tuple[str, str]]:
+    return await _names(conn, "llm_providers")
 
 
-def _resolve_one(entries: list[tuple[str, str]], ref: str, name: str) -> str:
-    """The id of the one entry named ``name`` (exact), else a plain sentence."""
-    hits = [i for i, n in entries if n == name]
-    if not hits:
-        raise ShapeError(f"No {_kind_label(ref)} named {_q(name)}.")
-    if len(hits) > 1:
-        raise ShapeError(f"More than one {_kind_label(ref)} is named {_q(name)}; rename one first.")
-    return hits[0]
+async def _kb_entries(conn: Any) -> list[tuple[str, str]]:
+    return await _names(conn, "knowledge_bases")
 
 
-async def _ref_entries(conn: Any, ref: str) -> list[tuple[str, str]]:
+async def _mcp_entries(conn: Any) -> list[tuple[str, str]]:
     from the_one.self_configuration.constants import SURFACE_ROW_NAME
 
-    if ref == "provider":
-        return await _names(conn, "llm_providers")
-    if ref == "kb":
-        return await _names(conn, "knowledge_bases")
     surface_ids = set(await _surface_owners(conn))
     # The self-configuration surface row is never resolvable, by marker or by name.
     return [
@@ -167,6 +170,69 @@ async def _ref_entries(conn: Any, ref: str) -> list[tuple[str, str]]:
         for i, n in await _names(conn, "mcp_sources")
         if i not in surface_ids and n != SURFACE_ROW_NAME
     ]
+
+
+@dataclass(frozen=True)
+class Ref:
+    """One kind of reference a field may hold: ``label`` words the refusals ("No {label} named
+    ..."), ``describe_label`` the field's ``reference`` in ``describe``, ``loader`` returns the
+    ``[(id, name)]`` entries a name may resolve to."""
+
+    label: str
+    describe_label: str
+    loader: Callable[[Any], Awaitable[list[tuple[str, str]]]]
+
+
+#: The reference kinds, by ``FieldSpec.ref``. ``tool`` is not one (a built-in tool name is kept
+#: as a name, not resolved to an id).
+REFS: dict[str, Ref] = {
+    "provider": Ref("model provider", "a model provider's name", _provider_entries),
+    "mcp": Ref("MCP server", "MCP server names", _mcp_entries),
+    "kb": Ref("knowledge base", "knowledge base names", _kb_entries),
+}
+
+
+def _resolve_one(entries: list[tuple[str, str]], ref: str, name: str) -> str:
+    """The id of the one entry named ``name`` (exact), else a plain sentence."""
+    label = REFS[ref].label
+    hits = [i for i, n in entries if n == name]
+    if not hits:
+        raise ShapeError(f"No {label} named {_q(name)}.")
+    if len(hits) > 1:
+        raise ShapeError(f"More than one {label} is named {_q(name)}; rename one first.")
+    return hits[0]
+
+
+async def _ref_entries(conn: Any, ref: str) -> list[tuple[str, str]]:
+    return await REFS[ref].loader(conn)
+
+
+def stored_get(spec: FieldSpec, obj: dict[str, Any]) -> Any:
+    """The stored value of ``spec`` in ``obj``: ``obj[spec.stored]``, or, when ``spec.path`` is
+    set, the value found by walking ``path`` through nested dicts. ``KeyError`` when absent."""
+    if spec.path is None:
+        return obj[spec.stored]
+    value: Any = obj
+    for key in spec.path:
+        value = value[key]
+    return value
+
+
+def stored_set(spec: FieldSpec, obj: dict[str, Any], value: Any) -> dict[str, Any]:
+    """``obj`` with ``value`` written at the stored location of ``spec`` (the same place
+    :func:`stored_get` reads), as a new dict: the input is not mutated, only the levels walked
+    are copied (sibling values are shared) and a missing intermediate level is created."""
+    if spec.path is None:
+        return {**obj, spec.stored: value}
+
+    def put(level: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+        head, rest = keys[0], keys[1:]
+        if not rest:
+            return {**level, head: value}
+        child = level.get(head)
+        return {**level, head: put(child if isinstance(child, dict) else {}, rest)}
+
+    return put(obj, spec.path)
 
 
 def _check_schedule(spec: FieldSpec, value: Any, now: datetime, zone: tzinfo) -> dict[str, Any]:

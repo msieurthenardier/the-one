@@ -454,6 +454,7 @@ class Harness:
         from the_one.config import settings
         from the_one.db.connection import get_connection
         from the_one.db.repositories import (
+            KnowledgeBaseRepository,
             LLMProviderRepository,
             MCPSourceRepository,
             SecretRepository,
@@ -480,6 +481,11 @@ class Harness:
                     await LLMProviderRepository(conn, enc).delete(key)
                 except KeyError:
                     pass
+            elif kind == "kb":
+                try:
+                    await KnowledgeBaseRepository(conn).delete(key)
+                except KeyError:
+                    pass
 
     async def _seed_gleepglorp(self, spec: RunSpec, conn: Any) -> set[str]:
         """Seed a ``builder = "gleepglorp"`` run. GleepGlorp is one singleton per data directory,
@@ -489,8 +495,9 @@ class Harness:
         seeded notes and the ``[app]`` rows go in. Returns the seeded note ids."""
         from the_one.agent.config import AgentConfig
         from the_one.config import settings
-        from the_one.db.models import LLMProviderConfig, MCPSource
+        from the_one.db.models import KnowledgeBase, LLMProviderConfig, MCPSource
         from the_one.db.repositories import (
+            KnowledgeBaseRepository,
             LLMProviderRepository,
             MCPSourceRepository,
             SecretRepository,
@@ -585,6 +592,13 @@ class Harness:
             )
             self._app_rows.append(("secret", made.id))
             self._run_secrets += [x(v) for _k, v in sec.values]
+        kbs = KnowledgeBaseRepository(conn)
+        for kb in sc.app.knowledge_bases:
+            kb_id = kb.id or f"ev-kb-{len(self._app_rows)}"
+            await kbs.create(
+                KnowledgeBase(id=kb_id, name=x(kb.name), description=x(kb.description))
+            )
+            self._app_rows.append(("kb", kb_id))
         seeded: set[str] = set()
         for seed in sc.seeded_notes:
             note, _created = await notes.create(
@@ -682,6 +696,13 @@ class Harness:
             and open_proposal.kind in ("mcp_server", "provider")
             and open_proposal.action == "create"
         ), "an eval run must not approve an mcp_server or provider create"
+        # The four Flight 5 kinds write global rows (a built-in tool's config, an app setting, a
+        # Library secret, a knowledge base) that the run's cleanup does not undo, so a scenario
+        # that approves one is a harness error, not a model failure.
+        assert not (
+            step.kind == "approve"
+            and open_proposal.kind in ("knowledge_base", "secret", "tool_config", "app_settings")
+        ), "an eval run must not approve a knowledge_base, secret, tool_config or app_settings"
         if step.kind == "dismiss":
             res = await dismiss_proposal(conn, open_proposal.id, continue_chat=False)
             if res.outcome != "dismissed":

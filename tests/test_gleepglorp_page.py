@@ -1,4 +1,9 @@
-"""The page descriptor, its line and its sanitiser (M36 F3 L4, AC4)."""
+"""The page descriptor, its line and its sanitiser (M36 F3 L4, AC4).
+
+The line's route carries an item only from a server-resolved id: an agent, a Library item and
+(M36 F5 L4a) a built-in tool on ``settings/tools/{name}``; every other Settings item is the
+client's own text and never reaches the route.
+"""
 
 from __future__ import annotations
 
@@ -135,12 +140,27 @@ def test_settings_lines():
     assert page.build_line({"destination": "settings", "section": "gleepglorp"}) == (
         "Settings › GleepGlorp (#settings/gleepglorp)"
     )
-    # Never the item, resolved or not.
+    # The item is the client's own text and never reaches the route, except a built-in tool the
+    # server resolved (Leg 4a): ``settings/tools/{name}``. An unresolved name keeps the section.
     d = {"destination": "settings", "section": "tools", "item": "web_search"}
     assert page.build_line(d) == "Settings › Built-in tools › web_search (#settings/tools)"
     assert page.build_line(d, "web_search", "web_search") == (
-        "Settings › Built-in tools › web_search (#settings/tools)"
+        "Settings › Built-in tools › web_search (#settings/tools/web_search)"
     )
+    other = {"destination": "settings", "section": "date-and-time", "item": "web_search"}
+    assert page.build_line(other, "web_search", "web_search") == (
+        "Settings › Date and time › web_search (#settings/date-and-time)"
+    )
+
+
+async def test_a_settings_tools_item_resolves_against_the_built_in_tools(world):
+    d = {"destination": "settings", "section": "tools", "item": "web_search"}
+    assert await page._resolve_item(world.conn, d) == ("web_search", "web_search")
+    unknown = {**d, "item": "not_a_tool"}
+    assert await page._resolve_item(world.conn, unknown) == ("not_a_tool", None)
+    # every other settings section: the item is the client's text, no id
+    other = {"destination": "settings", "section": "appearance", "item": "web_search"}
+    assert await page._resolve_item(world.conn, other) == ("web_search", None)
 
 
 def test_library_routes_need_a_group_and_a_resolved_item():

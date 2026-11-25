@@ -12,7 +12,7 @@
   //   App.admin.toolsGrid.create(listEl, {onToggle(name, enabled),
   //     onBeforeCategoryChange(id, commit)}) ->
   //     { render(toolConfigs, {selectedName, inFlight}), setSelection(name),
-  //       setLoading(), setError(text, onRetry), destroy() }
+  //       setLoading(), setError(text, onRetry), setFollowNote(name, detail|null), destroy() }
   //
   //   render(null) shows "Loading tools…"; an empty array an empty state. A
   //   tile's description is the served `summary` (B1), the model-facing
@@ -111,6 +111,20 @@
       // back when that tile is enabled again and nothing else took focus.
       var heldFocus = null;
 
+      // The approved-change note at the foot of a tool's card (M36 F5 L4b, DD14 choice 5): a host
+      // child of the tile, built by the follow core and linked to the tile's switch. name -> {el,
+      // entry}. Cleared by the operator's next toggle of that tile, a newer approval or the tile
+      // leaving the list.
+      var followNotes = Object.create(null);
+
+      function clearFollowNote(name) {
+        var n = followNotes[name];
+        if (!n) return;
+        App.gleepglorpFill.unlink(n.entry);
+        if (n.el.parentNode) n.el.parentNode.removeChild(n.el);
+        delete followNotes[name];
+      }
+
       function showState(node) {
         stateEl.textContent = '';
         if (node) stateEl.appendChild(node);
@@ -131,7 +145,10 @@
             checked: !!t.enabled,
             testid: 'tool-toggle',
             dataset: { name: name },
-            onChange: function (checked) { onToggle(name, checked); }
+            onChange: function (checked) {
+              clearFollowNote(name); // the operator's own choice supersedes the approved one
+              onToggle(name, checked);
+            }
           }
         });
         return { tile: tile, category: categoryOf(name) };
@@ -241,7 +258,10 @@
             (byCategory[entry.category] = byCategory[entry.category] || []).push(t.name);
           });
           Object.keys(tiles).forEach(function (name) {
-            if (!kept[name]) delete tiles[name];
+            if (!kept[name]) {
+              clearFollowNote(name);
+              delete tiles[name];
+            }
           });
 
           CATEGORY_ORDER.forEach(function (cid) {
@@ -278,6 +298,20 @@
           selected = name || null;
           applySelection();
           revealSelected();
+        },
+
+        // Place (detail given) or clear (detail null) the approved-change note under a tool's
+        // card. A newer approval replaces the older note. Returns whether a note is shown.
+        setFollowNote: function (name, detail) {
+          clearFollowNote(name);
+          var entry = tiles[name];
+          if (!detail || !entry) return false;
+          var el = App.gleepglorpFollow.buildNote(detail, {
+            testid: 'tool-grid-approved-change-note', field: 'enabled', linkLabel: name
+          });
+          entry.tile.el.appendChild(el);
+          followNotes[name] = { el: el, entry: App.gleepglorpFill.link(el, [entry.tile.toggle.control]) };
+          return true;
         },
 
         destroy: function () {

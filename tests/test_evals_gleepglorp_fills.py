@@ -40,6 +40,17 @@ NEW_SCENARIOS = (
     "provider-pasted-key",
     "provider-type-change",
     "mcp-what-is",
+    # M36 F5 L5: the knowledge base, secret, tool setting and app setting scenarios
+    "kb-create-fill",
+    "kb-rename-propose",
+    "secret-create-fill",
+    "secret-widen-propose",
+    "tool-timeout-propose",
+    "tool-path-refused",
+    "search-brave-propose",
+    "timezone-propose",
+    "chunk-size-fill",
+    "searxng-from-link",
 )
 
 
