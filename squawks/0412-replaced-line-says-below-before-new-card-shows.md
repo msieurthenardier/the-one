@@ -1,10 +1,10 @@
 # Squawk 0412: "Replaced by the proposal below" shows before the new card does
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-11-24
-**Completed**: —
+**Completed**: 2026-11-25
 
 ## Report
 
@@ -15,7 +15,12 @@ Since squawk 0407, a replaced proposal's card folds live to "Withdrawn · <title
 - The new card is held until the turn ends (`onChanged`, lines 568-584).
 
 ## Corrective Action
-*(written at completion)*
+`renderWithdrawn` in `static/js/areas/chat/proposal-cards.js` now says "replaced by a newer proposal." (true whether or not the new card is shown yet). The two pins in `tests/browser/test_flow_chat_proposals.py` are updated. No other pin existed in `tests/`, `tests/behavior/` or `docs/`. The status announcement is unchanged.
 
 ## Verification
-Either the wording holds true while the new card is held (for example "replaced by a newer proposal"), or the old card folds when the new card is shown. A test or a pinned string confirms the choice.
+Done: the updated pinned strings pass in lane `gleepglorp-chat` (84 passed) and lane `chats` (178 passed). Planned check: either the wording holds true while the new card is held (for example "replaced by a newer proposal"), or the old card folds when the new card is shown. A test or a pinned string confirms the choice.
+
+## Sign-Off
+**Reviewer**: Reviewer agent (Sonnet), batch review of squawks 0411-0419; Accessibility Reviewer (Sonnet)
+**Verdict**: confirmed
+**Commit**: `squawk: turnaround 2026-11-25` on squawk/turnaround-2026-11-25

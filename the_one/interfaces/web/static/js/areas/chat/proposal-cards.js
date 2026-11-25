@@ -280,7 +280,7 @@
       var v = e.view;
       var reason;
       if (v.status === 'withdrawn' && v.result && v.result.reason === 'replaced') {
-        reason = 'replaced by the proposal below.';
+        reason = 'replaced by a newer proposal.';
       } else {
         var kind = App.gleepglorpKinds.get(v.kind);
         reason = kind && kind.labels && kind.labels.withdrawnGone
@@ -423,7 +423,14 @@
       e.el.removeAttribute('aria-busy');
       if (state === 'applying') e.body.setAttribute('aria-busy', 'true');
       else e.body.removeAttribute('aria-busy');
+      // A rebuild that drops the focused control (a server-pushed fold: replaced, gone) would
+      // leave focus on <body> (WCAG 2.4.3): hand it to the composer when nothing focusable stays.
+      var heldFocus = !!(document.activeElement && e.body.contains(document.activeElement));
       e.body.replaceChildren.apply(e.body, kids);
+      if (heldFocus && !e.body.querySelector('button, a[href], input, select, textarea, [tabindex]')
+          && ctx.composer && ctx.composer.input) {
+        ctx.composer.input.focus();
+      }
       announce(e, state);
       syncBusy(e);
     }

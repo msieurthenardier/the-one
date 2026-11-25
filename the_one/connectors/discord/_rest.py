@@ -126,7 +126,7 @@ class RestClient:
                 except httpx.HTTPError as exc:
                     raise DiscordTransportError(
                         f"{method} {path} failed: {type(exc).__name__}"
-                    ) from exc
+                    ) from None
                 self._limiter.record(route_key, resp.headers)
                 if resp.status_code == 429:
                     body = resp.json() if resp.content else {}

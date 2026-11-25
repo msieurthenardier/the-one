@@ -342,7 +342,7 @@ def test_every_state_renders_with_its_testids_and_tone(
     c = _card(page, replaced)
     assert c.get_attribute("data-state") == "withdrawn"
     expect(_in(c, "proposal-status-line")).to_have_text(
-        "Withdrawn · Change agent “plain”: replaced by the proposal below."
+        "Withdrawn · Change agent “plain”: replaced by a newer proposal."
     )
     c = _card(page, gone)
     assert c.get_attribute("data-state") == "withdrawn"
@@ -1109,7 +1109,7 @@ def test_a_replaced_proposal_folds_its_card_live_without_a_reload(
     old = _card(page, int(first_id))
     expect(old).to_have_attribute("data-state", "withdrawn")
     expect(_in(old, "proposal-status-line")).to_have_text(
-        "Withdrawn · Change agent “plain”: replaced by the proposal below."
+        "Withdrawn · Change agent “plain”: replaced by a newer proposal."
     )
     expect(old.locator("button")).to_have_count(0)
     expect(_in(old, "proposal-approve")).to_have_count(0)
@@ -1121,3 +1121,50 @@ def test_a_replaced_proposal_folds_its_card_live_without_a_reload(
     new = page.locator(f'{CARD}:not([data-proposal-id="{first_id}"])')
     expect(new).to_have_attribute("data-state", "pending")
     expect(_in(new, "proposal-approve")).to_be_visible()
+
+
+def test_a_pushed_fold_of_the_focused_card_moves_focus_off_the_body(
+    app_with_data_dir: tuple[str, Any], page: Page
+) -> None:
+    """Squawk 0411: the old card's Approve holds focus (it stays focusable, aria-disabled,
+    during a turn) when a replacement folds the card to a line with no control. Focus must not
+    fall to ``<body>``: it lands on the composer input."""
+    propose = {
+        "content": "Let me propose that.",
+        "tool_calls": [
+            {
+                "id": "mock-call",
+                "name": "propose_change",
+                "arguments": {
+                    "kind": "agent",
+                    "action": "change",
+                    "agent": "plain",
+                    "changes": {"description": "Replaced words"},
+                },
+            }
+        ],
+    }
+    w = _world(
+        app_with_data_dir,
+        provider_config={"responses": [propose, {"content": "Review the card."}]},
+    )
+    _open(page, w)
+    _chats.send_first(page, "Change plain's description.")
+    expect(page.locator(CARD)).to_have_count(1, timeout=15000)
+    first = page.locator(CARD).first
+    first_id = first.get_attribute("data-proposal-id")
+    expect(_in(first, "proposal-approve")).to_be_visible()
+    expect(page.locator('[data-testid="chat-stop-btn"]')).to_be_hidden(timeout=15000)
+
+    # Type the second message, focus the old card's Approve and send with a script click, so
+    # focus stays on Approve until the replacement folds the card.
+    page.locator('[data-testid="chat-input"]').fill("Make it different.")
+    _in(first, "proposal-approve").focus()
+    page.evaluate("() => document.querySelector('[data-testid=\"chat-send-btn\"]').click()")
+    old = _card(page, int(first_id))
+    expect(old).to_have_attribute("data-state", "withdrawn", timeout=15000)
+    expect(old.locator("button")).to_have_count(0)
+    assert page.evaluate("() => document.activeElement.tagName") != "BODY"
+    assert page.evaluate(
+        "() => document.activeElement === document.querySelector('[data-testid=\"chat-input\"]')"
+    )

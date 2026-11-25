@@ -47,7 +47,8 @@
   //   and adds; duplicates are ignored; an empty or all-rejected commit clears
   //   the input without onChange. A click on a chip body (not locked) moves the
   //   input before that chip. values() lists every chip, locked ones included,
-  //   in DOM order. setError(bool) sets aria-invalid on the input and the
+  //   in DOM order. Removing a chip with its button moves focus to the next editable
+  //   chip's remove button, else the previous one's, else the input. setError(bool) sets aria-invalid on the input and the
   //   is-invalid class.
   App.ui.chipList = function (opts) {
     opts = opts || {};
@@ -413,7 +414,24 @@
       if (btn) {
         var chip = btn.closest('.chip');
         if (chip) {
+          // The removed chip holds the focused button: pick where focus goes first
+          // (next editable chip's remove button, else the previous one's, else the
+          // input; locked chips have no button and are skipped), then remove.
+          var active = document.activeElement;
+          var hadFocus = !active || active === document.body || chip.contains(active);
+          var target = null;
+          var sib = chip.nextElementSibling;
+          while (sib && !target) {
+            if (sib.classList.contains('chip')) target = sib.querySelector('.ui-chip-remove');
+            sib = sib.nextElementSibling;
+          }
+          sib = chip.previousElementSibling;
+          while (sib && !target) {
+            if (sib.classList.contains('chip')) target = sib.querySelector('.ui-chip-remove');
+            sib = sib.previousElementSibling;
+          }
           chip.remove();
+          if (hadFocus) (target || input).focus();
           fire();
         }
         return;

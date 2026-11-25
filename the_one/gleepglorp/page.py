@@ -18,10 +18,13 @@ Every label table here is pinned equal to the client source it copies by
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from typing import Any
 from urllib.parse import quote
+
+logger = logging.getLogger(__name__)
 
 VALUE_FAULT = "value: "
 """Prefix of the error of a value fault (the message is kept, the page dropped)."""
@@ -310,5 +313,6 @@ async def resolve_page(conn: Any, descriptor: dict[str, Any]) -> dict[str, Any]:
     try:
         name, item_id = await _resolve_item(conn, descriptor)
     except Exception:  # noqa: BLE001 - a lookup failure must not fail the turn
+        logger.debug("resolve_page: item lookup failed; line built without a name", exc_info=True)
         name, item_id = None, None
     return {"line": build_line(descriptor, name, item_id), "descriptor": descriptor}
