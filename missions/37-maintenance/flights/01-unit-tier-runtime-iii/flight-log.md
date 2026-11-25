@@ -4,7 +4,14 @@
 
 ## Summary
 
-*(In flight.)*
+Landed 2026-11-25 on branch `flight/01-unit-tier-runtime-iii`, from `main` at `c3df3d73`.
+- **The unit tier runs in parallel** under pytest-xdist: `make test-unit` uses N=4 and `--dist load`, and `UNIT_WORKERS=0` runs it serially. Each worker gets its own data directory.
+- **Timing:** 180.6 s and 212.4 s on a clean host, against about 465 s serial before the flight. Under the other project's load (7-23) it read 312-490 s.
+- **Leg 1's serial cuts** saved about 20-25 s. The biggest was the `tool_config` sweep, which rebuilt every built-in tool for each case.
+- **Fixed at their cause:** an environment leak in the tiktoken tests (which made a 17-skip run), a race in the purge loop, and MCP windows too tight under load.
+- **Lane re-budget (T2) deferred.** No quiet host came that day. The closing gate ran loaded as a correctness check and was aborted by the browser watchdog with 3 of 23 lanes done.
+- **Squawk 0424 logged:** a pre-existing race between a rail-link click and the router's boot under a slow bwrap probe.
+- **Coverage unchanged:** 12,353 passed and 15 skipped, both serial and parallel.
 
 ---
 
@@ -86,6 +93,39 @@ The three runs have identical counts. **AC6 is not shown on a quiet host in this
 
 **Docs and wiring (AC8, AC9).** `Makefile` `test-unit` passes `-n $(UNIT_WORKERS) --dist load` (`UNIT_WORKERS ?= 4`); `make gate` inherits it. `make test`, the browser targets, `scripts/run-tests.sh`, CI tasks and workflows are untouched. CLAUDE.md "Testing": one bullet added. `the_one/agents.md` "Host policy" bullet: the new reading appended. After each parallel run no pytest or execnet worker processes survived (checked with `ps`). `ruff check` and `ruff format --check` clean; `tests/test_run_tests_lanes.py`, `tests/test_evals_cli.py` and `tests/test_evals_freeze.py` pass (40).
 
+### Leg 3: closing-quiet-gate (landed as a loaded correctness gate)
+
+Flight Director decision 2026-11-25 14:40: the 60-minute quiet wait timed out, so the leg took AC1's loaded path.
+
+- **Start (14:40:18):** load 20.35 / 18.50 / 16.48. The only test process on the host was another project's (`mcp-claude-code` pytest); no process from this project. Commit `a5dcdc58`.
+- **Command:** `THE_ONE_TEST_NETNS=1 THE_ONE_REQUIRE_WEBKIT=1 PYTHON=.venv/bin/python make gate`, once. Gate wall 14:40:18 to 15:28:13 (47:55). Load at end 12.15 / 13.23 / 12.02. Load at the unit-to-browser change was not captured (about 14:46; the load in between stayed 12-24).
+- **Unit tier (AC3):** `12353 passed, 15 skipped in 312.14s (0:05:12)` at N=4, under load about 20. That is under 400 s, but it is a loaded reading, so **no T1 claim is made from it**; the clean readings from Leg 2 (180.6 s and 212.4 s) stand.
+- **Browser tier:** `PARALLEL_RESULT rc=137 total=2540s lanes=23`. The run was cut by the `--parallel` watchdog (TEST_TIMEOUT 2400 s), not by a test failure.
+
+  | lane | wall | budget | result |
+  |---|---|---|---|
+  | `agents` | 1431 s | 780 s | rc=0, passed |
+  | `routing` | 1448 s | 810 s | rc=0, 193 passed |
+  | `agent-tabs` | 1470 s | 750 s | rc=0, 221 passed |
+  | `library`, `chats`, `chats-transcript` | started at +1431/+1448/+1470 s, killed at 2400 s | 570/540/540 s | no failures logged, not finished |
+  | the other 17 lanes | never started | n/a | n/a |
+
+  The three finished lanes ran at 1.79x to 1.96x their budgets. My inference is that the load of 10-24 explains this, not a regression. The 2540 s browser total is 140 s above the 2400 s watchdog. The extra is not explained; it is probably start-up and teardown around the watchdog.
+- **AC4, AC5 re-budget parts, T2: deferred, no quiet host.** No lane was re-budgeted; the full-gate target and the Host policy unit note are not restated. `scripts/run-tests.sh` is unchanged.
+- **AC5, reduced:** one sentence added to the `the_one/agents.md` "Budget history" bullet.
+- **AC6 triage:** no test failed in either tier. The only non-zero result is the watchdog abort at 2400 s under load. I did not re-run lanes in isolation: no lane failed, 17 never ran, and a further run would add load to a host already at 10-24. **The browser tier is therefore not verified by this gate**; only 3 of 23 lanes ran to completion. Flight Director to decide whether to accept Leg 2 browser coverage from its own earlier lane runs or to take a quiet gate later.
+- **The post-gate browser sample (Flight Director), and its AC6 triage.** After the gate, the Flight Director ran two lanes, one at a time, with `TEST_TIMEOUT=3600`. Load was 7-12.
+  - `gleepglorp-chat`: 84 passed, rc=0.
+  - `shared`: 1 failed, 51 passed. The failure was `test_flow_hash_routing.py::test_hash_routing_admin_subpage_persists_on_refresh`.
+  - **Isolation:** that file failed 3 times out of 3 in isolation, at load about 5.5. It is therefore NOT the "flake that passes in isolation" case AC6 allows. A second test in the file, `test_hash_routing_settings_nav_pushes_history`, also failed, but only in the Developer's separate whole-file run without `-x` (2 failed, 4 passed). The lane run stopped at the first failure because of `-x`.
+  - **Diagnosis** (Developer, Sonnet): it is not caused by this flight. It fails the same way with `-p no:xdist`, and `the_one/` is unchanged apart from `agents.md`.
+  - **Cause:** at high load the bwrap sandbox probe (`timeout=5`) hits its timeout. The first `/api/config` therefore takes about 5 s, the router starts late, and an `app_clean` test that clicks a rail link straight after `page.goto` loses the click.
+  - **Logged as squawk [0424](../../../../squawks/0424-rail-click-races-router-boot-under-slow-bwrap-probe.md)** (routine), with a test-side fix suggested: a boot-ready wait in `_nav.py`.
+  - **Disposition:** a pre-existing, load-dependent failure, accepted for this flight's landing.
+  - **Not verified on a pre-Mission-37 commit.** The inference rests on the unchanged probe and router code, plus the `-p no:xdist` run.
+- **Browser coverage disposition (Flight Director).** This flight changed no app or UI code. Its only change that reaches the browser tests is Leg 2's environment isolation in `tests/conftest.py`, and the passing `gleepglorp-chat` sample exercises that in a browser run. Flight 2 changes `api.py`, so its closing gate must run every browser lane, and that gate is the full browser verification for both flights.
+- **Hygiene:** the gate ended on its own; no processes of mine remain. Logs are in the session scratchpad (`gate.log`).
+
 ## Decisions
 
 ## Deviations
@@ -145,3 +185,7 @@ The three runs have identical counts. **AC6 is not shown on a quiet host in this
     - the wording of the `agents.md` line was not checked.
 
   Legs 1 and 2 are marked `completed`, with a checkpoint commit before Leg 3.
+- **Leg 3 (`closing-quiet-gate`): risk tier low.** It is a procedure leg that edits only the budget table and the docs, so there is no design review.
+- **Bounded wait** (ATC suggestion, adopted 2026-11-25 at about 13:39). An unbounded wait had run since about 12:42. The bounded 60-minute wait replaced it and timed out at 14:39. The Flight Director waits up to 60 minutes for a quiet host: load below 1.0 for 3 consecutive minutes, with no test process. If the host stays loaded:
+  - Leg 3 runs as a correctness gate, with the load recorded next to every reading.
+  - Re-budgeting (T2) is not taken from a loaded run, per CLAUDE.md's quiet-host rule. The six unmeasured lanes stay as they are, and the deferral is recorded for the debrief.

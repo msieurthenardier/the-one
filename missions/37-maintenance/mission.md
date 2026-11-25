@@ -99,5 +99,5 @@ N/A.
 
 ## Flights
 
-- [ ] **Flight 1: Unit-tier runtime III** ([flight](flights/01-unit-tier-runtime-iii/flight.md)). Measure, then cut: sample the sweeps, use fake clocks, cache the static scans, and hoist or parallelize as the measurement directs. Re-budget the lanes from a closing quiet gate.
+- [x] **Flight 1: Unit-tier runtime III** ([flight](flights/01-unit-tier-runtime-iii/flight.md)). Measure, then cut: sample the sweeps, use fake clocks, cache the static scans, and hoist or parallelize as the measurement directs. Re-budget the lanes from a closing quiet gate.
 - [ ] **Flight 2: Backend boundaries before connectors** ([flight](flights/02-backend-boundaries/flight.md)). Split `api.py` into feature routers, add a per-agent write lock (0327), add a Python size ratchet, and optionally log on the write services (P5).
