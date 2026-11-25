@@ -1,6 +1,6 @@
 # Flight: Unit-tier runtime III
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Post-Mission-36 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
