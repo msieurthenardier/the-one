@@ -73,18 +73,31 @@
         f.select();
         return f.whenSettled(key).then(function (ok) { return ok ? null : 'editor_unavailable'; });
       }
-      f.beforeNavigate(view);
       // The kind's one-shot navigation flag is always cleared when this navigation ends (a Stay,
       // an open form or a superseded navigation never leak it to the next open).
+      // Every exit after beforeNavigate was called clears it: a throw (sync or async) from
+      // beforeNavigate, the navigation or the settle wait included (squawk 0408).
       function clearFlag() { f.afterNavigate(); }
-      return App.router.go(App.router.href(f.routeFor(view)), { opener: composerInput() })
-        .then(function (went) {
-          if (!went) { clearFlag(); return 'stay'; }
-          return f.whenSettled(key).then(function (ok) {
-            clearFlag();
-            return ok ? null : 'editor_unavailable';
+      var nav;
+      try {
+        f.beforeNavigate(view);
+        nav =Promise.resolve(App.router.go(App.router.href(f.routeFor(view)), { opener: composerInput() }))
+          .then(function (went) {
+            if (!went) return 'stay';
+            return Promise.resolve(f.whenSettled(key)).then(function (ok) {
+              return ok ? null : 'editor_unavailable';
+            });
           });
-        }, function () { clearFlag(); return 'editor_unavailable'; });
+      } catch (e) {
+        nav = Promise.reject(e);
+      }
+      return nav.then(function (problem) {
+        clearFlag();
+        return problem;
+      }, function () {
+        clearFlag();
+        return 'editor_unavailable';
+      });
     }
 
     function process(view, claim) {

@@ -1059,3 +1059,65 @@ def test_an_applied_mcp_create_links_to_the_new_server_by_its_applied_id(
     assert len(made) == 1
     link = _in(card, "proposal-open-item")
     expect(link).to_have_attribute("href", _nav.href(f"library/mcp/{made[0]['id']}"))
+
+
+# ── A replaced proposal folds live (squawk 0407) ───────────────────────────
+
+
+def test_a_replaced_proposal_folds_its_card_live_without_a_reload(
+    app_with_data_dir: tuple[str, Any], page: Page
+) -> None:
+    """Two real ``propose_change`` calls for the same target in one chat: when the second
+    arrives the server withdraws the first, and its card folds to the quiet withdrawn line with
+    no Approve or Dismiss button, in place (the same element), while the new card stays live."""
+    propose = {
+        "content": "Let me propose that.",
+        "tool_calls": [
+            {
+                "id": "mock-call",
+                "name": "propose_change",
+                "arguments": {
+                    "kind": "agent",
+                    "action": "change",
+                    "agent": "plain",
+                    "changes": {"description": "Replaced words"},
+                },
+            }
+        ],
+    }
+    w = _world(
+        app_with_data_dir,
+        provider_config={"responses": [propose, {"content": "Review the card."}]},
+    )
+    _open(page, w)
+
+    # [no proposal] -> [one card]: the first turn's proposal draws its card with live buttons.
+    _chats.send_first(page, "Change plain's description.")
+    expect(page.locator(CARD)).to_have_count(1, timeout=15000)
+    first = page.locator(CARD).first
+    first_id = first.get_attribute("data-proposal-id")
+    expect(first).to_have_attribute("data-state", "pending")
+    expect(_in(first, "proposal-approve")).to_be_visible()
+    page.evaluate(
+        "() => { window.__first = document.querySelector('[data-testid=\"proposal-card\"]'); }"
+    )
+    expect(page.locator('[data-testid="chat-stop-btn"]')).to_be_hidden(timeout=15000)
+
+    # [one card] -> [two cards]: the second proposal for the same target replaces the first.
+    _chats.send_first(page, "Make it different.")
+    expect(page.locator(CARD)).to_have_count(2, timeout=15000)
+    old = _card(page, int(first_id))
+    expect(old).to_have_attribute("data-state", "withdrawn")
+    expect(_in(old, "proposal-status-line")).to_have_text(
+        "Withdrawn · Change agent “plain”: replaced by the proposal below."
+    )
+    expect(old.locator("button")).to_have_count(0)
+    expect(_in(old, "proposal-approve")).to_have_count(0)
+    expect(_in(old, "proposal-dismiss")).to_have_count(0)
+    # The same element, folded in place; the new card is still live.
+    assert page.evaluate(
+        "() => document.querySelector('[data-testid=\"proposal-card\"]') === window.__first"
+    )
+    new = page.locator(f'{CARD}:not([data-proposal-id="{first_id}"])')
+    expect(new).to_have_attribute("data-state", "pending")
+    expect(_in(new, "proposal-approve")).to_be_visible()

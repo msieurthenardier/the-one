@@ -159,11 +159,13 @@ A check against a hardcoded guess is not a check: a stale guess returns a clean 
 Always drive a **dedicated dev instance**: a non-default port AND a scratch data directory, together, every time:
 
 ```bash
-mkdir -p $HOME/the-one-behavior-test-scratch/cwd && cd $HOME/the-one-behavior-test-scratch/cwd
-THE_ONE_PORT=8486 THE_ONE_DATA_DIR=$HOME/the-one-behavior-test-scratch/data THE_ONE_DEV_MODE=true \
-  <repo>/.venv/bin/the-one serve >serve.log 2>&1 &
-echo $! > serve.pid        # stop later with: kill $(cat serve.pid)
+S=$HOME/the-one-behavior-test-scratch; mkdir -p $S/cwd
+( cd $S/cwd && THE_ONE_PORT=8486 THE_ONE_DATA_DIR=$S/data THE_ONE_DEV_MODE=true \
+  exec <repo>/.venv/bin/the-one serve >serve.log 2>&1 ) &
+echo $! > $S/cwd/serve.pid        # stop later with: kill $(cat $S/cwd/serve.pid)
 ```
+
+`exec` makes `$!` the server itself; a bare `cd … && the-one serve &` backgrounds the whole `&&` list and records a wrapper's PID (squawk 0404). Before relying on the PID, confirm it owns the port: `ss -ltnp | grep :8486` shows `pid=<recorded>` (or `/proc/<pid>/cmdline` is the server).
 
 Start it from a **scratch working directory**, not the repo root, and not with `make up` (which runs from the repo): an agent's file tools resolve relative paths and `~`-scoped allowlists against the server's environment, so a repo cwd let an agent write into the repo (Mission 30, `tests/behavior/agent-notes-round-trip/runs/2026-10-14-15-03-23.md`). Keep the scratch data directory under `$HOME` rather than `/tmp` (bwrap mounts a fresh `/tmp`). Record the PID and stop the instance by that PID.
 Port alone is not enough: an instance on 8486 that still points at the operator's default data directory shares the same credential file, database and sessions as production. A spec's Preconditions must name (or require an operator-provided) port and data directory; never default to `:8484` or the default data directory.

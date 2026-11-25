@@ -1,10 +1,10 @@
 # Squawk 0376: The `mcp` browser lane sits at its time budget after sortie 18
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-17
-**Completed**: —
+**Completed**: 2026-11-24 (administrative closure, already fixed)
 
 ## Report
 Sortie 18's closing browser gate printed `OVER BUDGET` for the `mcp` lane: 331 s against a 330 s budget. The run was on a loaded host (start load about 3, about 7 during the run, with a dev instance up for the HAT), so by the quiet-host rule it is not a budget reading. The lane did grow, though: leg 2 added thirteen flow tests for the Arguments rows and the HAT fix added more, and before the sortie the lane measured 292 s.
@@ -19,10 +19,12 @@ Needed: one `--parallel 3` run on a quiet host (1-minute load below about 1.0, n
 - `scripts/run-tests.sh` — the budget table is the source of truth.
 
 ## Corrective Action
-*(written at completion)*
+Done by Mission 36 Flight 4 Leg 8's quiet-host re-budget (2026-11-23, commit `3178ae7d`): `mcp` moved from 330 s to 450 s, from a quiet `--parallel 3` wall of 350 s (`scripts/run-tests.sh`: `[mcp]=450   # M36 F4 L8, 2026-11-23, wall 350 s, quiet --parallel 3 (was 330)`). The Mission 36 Flight 5 closing gate read 343 s against 450 s. No change was made in this closure.
 
 ## Verification
-*(written at completion)*
+The 2026-11-24 routine maintenance's Squawk Verifier found the budget line at HEAD. The F5 quiet gate (`679ed850`) reports `mcp` within budget.
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Squawk Verifier agent (Sonnet), 2026-11-24 routine maintenance; administrative closure by the Flight Director
+**Verdict**: already fixed; closed with no code change
+**Commit**: `3178ae7d` (the fix); closure recorded with the 2026-11-24 maintenance report

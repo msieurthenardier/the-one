@@ -1,10 +1,10 @@
 # Squawk 0407: A replaced proposal's card keeps its Approve and Dismiss buttons
 
-**Status**: open
+**Status**: completed
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-11-24
-**Completed**: —
+**Completed**: 2026-11-24
 
 ## Report
 
@@ -28,9 +28,32 @@ Not specific to Flight 5's kinds: the replace rule is the one-open-per-chat rule
   `result {"reason":"replaced","by":3}`.
 
 ## Corrective Action
-*(written at completion)*
+Root cause: the store withdraws the replaced proposal inside `insert`, but `propose_change`
+(`the_one/gleepglorp/proposals/tool.py`) pushed only the NEW proposal's `proposal_changed` frame.
+The client keeps each card's view as last received, so the replaced card kept `status: "pending"`
+until a reload's `proposals_snapshot`.
+
+Fix: after `repo.insert`, the tool lists the chat's proposals, and for each one now `withdrawn` with
+`result = {"reason": "replaced", "by": <new id>}` it pushes that proposal's view through the
+existing `push_proposal_changed` frame, before the new proposal's frame. The client already folds a
+withdrawn view in place (`stateOf` / `renderWithdrawn`), so no client change. No frame shape, store,
+lifecycle or schema change. A previously `failed` open proposal that is replaced is covered too.
+Browser test `test_a_replaced_proposal_folds_its_card_live_without_a_reload` added to
+`tests/browser/test_flow_chat_proposals.py`.
 
 ## Verification
+Test falsified: with the loop emptied the new test failed (the old card still showed Approve and
+Dismiss); with the fix restored it passed.
+- `THE_ONE_TEST_NETNS=1 PYTHON=.venv/bin/python bash scripts/run-tests.sh --lane gleepglorp-chat`: 83 passed.
+- `pytest tests/test_ui_guards.py tests/test_token_definitions.py tests/test_design_tokens_a11y.py tests/test_gleepglorp_proposals_store.py tests/test_gleepglorp_proposals_api.py tests/test_gleepglorp_proposals_tool.py`: 433 passed.
+- `ruff check` and `ruff format --check` on `the_one/gleepglorp` and the test file: clean.
+
+Original check:
 A browser test: two proposals for the same target in one chat; after the second arrives, the
 first card shows the folded "Withdrawn · … replaced" line with no Approve or Dismiss button,
 without a reload.
+
+## Sign-Off
+**Reviewer**: Reviewer agent (Haiku), batch review of squawks 0403, 0404, 0405, 0407, 0408, 0409 and 0410; Accessibility Reviewer (Sonnet) for 0407 and 0408
+**Verdict**: confirmed. The Accessibility Reviewer's two non-blocking notes predate this fix in the card code and are logged as squawks 0411 (a pushed fold drops focus) and 0412 ("below" shown while the new card is held).
+**Commit**: `squawk: turnaround 2026-11-24` on squawk/turnaround-2026-11-24
