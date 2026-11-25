@@ -32,8 +32,23 @@ import pytest
 # by CI or by the per-subprocess browser-test isolation in
 # `tests/browser/conftest.py`. A session-persistent tmp dir (one path for the
 # whole pytest run) matches the live-server pattern.
+#
+# pytest-xdist (M37 F1 L2): workers inherit the controller's environment, so
+# the controller's `THE_ONE_DATA_DIR` would be shared by every worker (one
+# SQLite file, one encryption key, one credential file for N processes). The
+# marker `_THE_ONE_PYTEST_OWN_DATA_DIR` records that the value was minted here
+# (not set by CI or a browser-test override). A worker that sees the marker
+# always replaces the inherited directory with its own
+# `the-one-pytest-<worker>-` one; an explicit override carries no marker and
+# is kept. The encryption key and credential files live under
+# `settings.data_dir`, so they become per-worker too.
+_worker = os.environ.get("PYTEST_XDIST_WORKER")
+if "THE_ONE_DATA_DIR" not in os.environ:
+    os.environ["THE_ONE_DATA_DIR"] = tempfile.mkdtemp(prefix="the-one-pytest-")
+    os.environ["_THE_ONE_PYTEST_OWN_DATA_DIR"] = "1"
+elif _worker and os.environ.get("_THE_ONE_PYTEST_OWN_DATA_DIR") == "1":
+    os.environ["THE_ONE_DATA_DIR"] = tempfile.mkdtemp(prefix=f"the-one-pytest-{_worker}-")
 os.environ.setdefault("THE_ONE_TEST_MODE", "1")
-os.environ.setdefault("THE_ONE_DATA_DIR", tempfile.mkdtemp(prefix="the-one-pytest-"))
 
 from the_one.llm.base import LLMProvider, Message  # noqa: E402
 from the_one.platform.sandbox import SandboxProfile  # noqa: E402
@@ -576,6 +591,32 @@ def all_agents_connector_bound(monkeypatch):
         return _EveryAgent()
 
     monkeypatch.setattr("the_one.db.repositories.agent_names_in_use", _all)
+
+
+_BUILTIN_TOOL_NAMES: list[str] | None = None
+
+
+def _session_builtin_tool_names() -> list[str]:
+    """The real ``builtin_tool_names()``, evaluated once per session (tool names are static).
+
+    The real call builds every built-in tool, and the filesystem tools canonicalise their path
+    lists at construction, which costs about 0.15 s a call."""
+    global _BUILTIN_TOOL_NAMES
+    if _BUILTIN_TOOL_NAMES is None:
+        from the_one.tools.builtins import builtin_tool_names
+
+        _BUILTIN_TOOL_NAMES = builtin_tool_names()
+    return list(_BUILTIN_TOOL_NAMES)
+
+
+@pytest.fixture
+def fast_builtin_tool_names(monkeypatch):
+    """Make the ``tool_config`` kind's name checks cheap: its module-level reference to
+    ``builtin_tool_names`` returns a once-per-session copy of the real list. Other callers
+    (and the ``tools.builtins`` function itself) are untouched."""
+    monkeypatch.setattr(
+        "the_one.gleepglorp.kinds.tool_config.builtin_tool_names", _session_builtin_tool_names
+    )
 
 
 @pytest.fixture

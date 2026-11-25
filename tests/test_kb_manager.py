@@ -769,7 +769,7 @@ class _BlockingBackend:
 
     dim = 8
 
-    def __init__(self, delay: float = 2.0) -> None:
+    def __init__(self, delay: float = 0.8) -> None:
         self.model_id = "blocking-stub"
         self._delay = delay
         self._stub = StubEmbeddingBackend(dim=8)
@@ -844,7 +844,7 @@ class TestCooperativeStopAndCancelFallback:
         path.write_text("content that ignores stop")
         await item_repo.create(KBItem(id="item1", kb_id=kb.id, type="file", path_or_url=str(path)))
 
-        blocking_backend = _BlockingBackend(delay=2.0)
+        blocking_backend = _BlockingBackend(delay=0.8)
         manager = IndexingManager(
             conn_factory=_make_conn_factory(conn),
             store_factory=_make_store_factory(store),
@@ -890,7 +890,7 @@ class TestCooperativeStopAndCancelFallback:
         path.write_text("content that ignores stop")
         await item_repo.create(KBItem(id="item1", kb_id=kb.id, type="file", path_or_url=str(path)))
 
-        blocking_backend = _BlockingBackend(delay=2.0)
+        blocking_backend = _BlockingBackend(delay=0.8)
         manager = IndexingManager(
             conn_factory=_make_conn_factory(conn),
             store_factory=_make_store_factory(store),
@@ -923,7 +923,7 @@ class TestCooperativeStopAndCancelFallback:
         # so re-queue it to give the worker something to block on.
         async with write_transaction(conn):
             await conn.execute("UPDATE kb_items SET status='pending' WHERE id = 'item1'")
-        blocking_backend_2 = _BlockingBackend(delay=2.0)
+        blocking_backend_2 = _BlockingBackend(delay=0.8)
         manager._backend_factory = _make_backend_factory(blocking_backend_2)  # test-only swap
         manager.request_index(kb.id)
         await asyncio.to_thread(blocking_backend_2.started.get, True, 5.0)
@@ -1022,7 +1022,7 @@ class TestDrain:
         path.write_text("content that ignores stop")
         await item_repo.create(KBItem(id="item1", kb_id=kb.id, type="file", path_or_url=str(path)))
 
-        blocking_backend = _BlockingBackend(delay=2.0)
+        blocking_backend = _BlockingBackend(delay=0.8)
         manager = IndexingManager(
             conn_factory=_make_conn_factory(conn),
             store_factory=_make_store_factory(store),

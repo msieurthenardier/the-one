@@ -220,13 +220,17 @@ async def test_json_out_is_written(evals_isolation):
 
 def test_missing_tiktoken_gives_a_one_line_hint(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "tiktoken", None)  # import raises ImportError
+    # TiktokenCounter assigns the variable; setenv first so teardown restores it (xdist: a stale
+    # value leaked to later tests in the same worker, which then skipped "o200k_base not cached").
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", str(tmp_path / "cache"))
     with pytest.raises(tokens.TiktokenMissingError) as exc:
         tokens.TiktokenCounter(tmp_path / "cache")
     assert "\n" not in str(exc.value) and ".[evals]" in str(exc.value)
 
 
 def test_tiktoken_cache_dir_is_set_before_use(monkeypatch, tmp_path):
-    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+    monkeypatch.setenv("TIKTOKEN_CACHE_DIR", "unset-below")  # records the original for teardown
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR")
 
     class FakeEnc:
         def encode(self, text, disallowed_special=()):

@@ -528,9 +528,10 @@ async def test_stdio_test_stores_the_no_answer_fallback_and_a_prompt_test_remove
     monkeypatch.setenv("THE_ONE_SANDBOX_DISABLED", "1")
     monkeypatch.setattr("mcp.client.session.DISCOVER_TIMEOUT_SECONDS", 0.5)
     monkeypatch.setattr("the_one.mcp.PROBE_NO_ANSWER_FLOOR_SECONDS", 0.2)
-    monkeypatch.setattr("the_one.mcp.HANDSHAKE_RESERVE_SECONDS", 4.5)
-    # a 2.5 s window; 4 s remain after the 3 s delay for start-up and handshake
-    monkeypatch.setattr("the_one.mcp.MCP_DEFAULT_TIMEOUT_SECONDS", 7)
+    monkeypatch.setattr("the_one.mcp.HANDSHAKE_RESERVE_SECONDS", 9)
+    # a 5 s window (the prompt start must fit in it, slow on a loaded host); 8 s remain after
+    # the 6 s delay for start-up and handshake
+    monkeypatch.setattr("the_one.mcp.MCP_DEFAULT_TIMEOUT_SECONDS", 14)
 
     client, repo = client_and_repo
     base_args = ["-m", "tests.fixtures.mcp.hello_server", "--stdio", "--legacy-only"]
@@ -538,7 +539,7 @@ async def test_stdio_test_stores_the_no_answer_fallback_and_a_prompt_test_remove
         repo,
         "src-slow-legacy",
         command=sys.executable,
-        args=[*base_args, "--start-delay=3"],
+        args=[*base_args, "--start-delay=6"],
     )
 
     resp = await client.post("/api/mcp-sources/src-slow-legacy/test/connect", timeout=30.0)

@@ -176,7 +176,7 @@ gui = [
 # urllib3 floor is a toolchain-only CVE fix (reaches the tree solely via
 # requests, pulled by dev/test tooling — pip-audit/cachecontrol/pytest-base-url;
 # NOT in the runtime closure). Closes PYSEC-2026-142, PYSEC-2026-141.
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-timeout>=2.4", "ruff==0.15.15", "pre-commit>=3", "playwright==1.64.0", "pytest-playwright>=0.5", "pixelmatch>=0.3", "asgi-lifespan>=2.0", "pip-audit>=2.7", "urllib3>=2.8.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-timeout>=2.4", "pytest-xdist>=3.6", "ruff==0.15.15", "pre-commit>=3", "playwright==1.64.0", "pytest-playwright>=0.5", "pixelmatch>=0.3", "asgi-lifespan>=2.0", "pip-audit>=2.7", "urllib3>=2.8.0"]
 
 [project.scripts]
 the-one = "the_one.main:cli_entry"

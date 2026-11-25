@@ -197,11 +197,13 @@ async def test_stdio_silent_drop_waits_the_window_is_asked_again_then_remembered
     first connect asks again for the whole window, falls back and records the
     no-answer fallback; the second asks again (the first one is not remembered); after
     the second in a row the handshake revision is remembered and the third sends no probe."""
-    _short_window(monkeypatch, reserve=5.5)  # a 1.5 s window of a 7 s limit
+    # a 1 s window of an 11.5 s limit: the 10.5 s reserve is only a ceiling for the handshake
+    # after the window, so a loaded host (parallel unit tier) cannot starve it
+    _short_window(monkeypatch, reserve=10.5)
     source = _stdio("--legacy-only", "--drop-discover", source_id="fb-drop")
 
     async def connect() -> MCPClient:
-        c = MCPClient(source, timeout_seconds=7)
+        c = MCPClient(source, timeout_seconds=11.5)
         await c.connect()
         try:
             assert c.negotiated_protocol_version == "2025-11-25"
@@ -229,8 +231,8 @@ async def test_stdio_slow_dual_era_server_ends_modern_with_more_than_one_probe(
     monkeypatch, discover_spy
 ) -> None:
     """AC12: a server that starts after the SDK's probe timeout but inside the window."""
-    _short_window(monkeypatch, reserve=3)  # window 5 s of an 8 s limit
-    c = MCPClient(_stdio("--start-delay=1", source_id="slow-dual"), timeout_seconds=8)
+    _short_window(monkeypatch, reserve=8)  # window 5 s of a 13 s limit (wide reserve: load)
+    c = MCPClient(_stdio("--start-delay=1", source_id="slow-dual"), timeout_seconds=13)
     async with asyncio.timeout(60):
         await c.connect()
         try:
@@ -247,11 +249,11 @@ async def test_stdio_slow_legacy_server_past_the_window_records_the_fallback(
 ) -> None:
     """AC13 (client part): a handshake-only server that starts after the window ends on
     the handshake revision with the fallback recorded."""
-    # window 2.5 s of a 7 s limit: after the 3 s delay 4 s remain for the
+    # window 1 s of a 10.5 s limit: after the 2 s delay 8.5 s remain for the
     # interpreter's start-up (slow on a loaded host) and the handshake
-    _short_window(monkeypatch, reserve=4.5)
-    source = _stdio("--legacy-only", "--start-delay=3", source_id="slow-legacy")
-    c = MCPClient(source, timeout_seconds=7)
+    _short_window(monkeypatch, reserve=9.5)
+    source = _stdio("--legacy-only", "--start-delay=2", source_id="slow-legacy")
+    c = MCPClient(source, timeout_seconds=10.5)
     async with asyncio.timeout(60):
         await c.connect()
         try:
@@ -266,23 +268,25 @@ async def test_stdio_slow_legacy_server_past_the_window_records_the_fallback(
 async def test_stdio_a_modern_connect_in_between_resets_the_no_answer_count(
     monkeypatch, discover_spy
 ) -> None:
-    _short_window(monkeypatch, reserve=5.5)  # a 1.5 s window of a 7 s limit
+    # a 5 s window of a 15 s limit: the window must outlast the prompt server's start-up,
+    # which is slow on a loaded host (parallel unit tier)
+    _short_window(monkeypatch, reserve=10)  # window = limit - 10
     silent = _stdio("--legacy-only", "--drop-discover", source_id="fb-reset")
     modern = _stdio(source_id="fb-reset")  # the same source id, now a prompt dual-era server
     async with asyncio.timeout(60):
-        c = MCPClient(silent, timeout_seconds=7)
+        c = MCPClient(silent, timeout_seconds=15)
         await c.connect()
         assert c.negotiation_fallback == "no_answer"
         await c.disconnect()
         assert _era.era_for("fb-reset") is None
 
-        c = MCPClient(modern, timeout_seconds=7)
+        c = MCPClient(modern, timeout_seconds=15)
         await c.connect()
         assert c.negotiated_protocol_version == "2026-07-28"
         assert c.negotiation_fallback is None
         await c.disconnect()
 
-        c = MCPClient(silent, timeout_seconds=7)
+        c = MCPClient(silent, timeout_seconds=15)
         await c.connect()
         assert c.negotiation_fallback == "no_answer"
         await c.disconnect()
