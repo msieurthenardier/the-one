@@ -520,3 +520,14 @@ Taken with the operator on 2026-11-23, at Flight 5 planning:
 - [ ] **Flight 6 *(optional)*: Alignment.** A hands-on session to tune
   GleepGlorp's prompt, tone and overlay feel with the operator, against the
   evals and the real app.
+  - **Not flown (operator, 2026-11-24).** The operator was satisfied with the HAT rounds
+    during the flights, so the alignment flight is skipped.
+  - **Items that were deferred to it stay open.** The mission debrief records their
+    disposition:
+    - no GleepGlorp baseline since `m36f3`;
+    - the `p4c` control and the Flight 4 regression search;
+    - the prompt is shipped as `p5d`;
+    - Flight 5's exit-2 eval findings: secret value repeats, "Done!" and "I've set up"
+      claims, qwen3-4b's tool discovery.
+
+    The detail is in Flight 5's debrief and flight log.
