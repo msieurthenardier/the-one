@@ -1,6 +1,6 @@
 # Flight: The remaining kinds
 
-**Status**: landed
+**Status**: completed
 **Mission**: [GleepGlorp, the In-App Assistant](../../mission.md)
 
 ## Contributing to Criteria

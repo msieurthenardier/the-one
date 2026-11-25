@@ -1580,13 +1580,32 @@ No other lane moved more than 15%. Restated full-gate target: 470 s unit (12349 
 
 ## Deviations
 
-*(none yet)*
+Summarised at the debrief (2026-11-24). Each leg's own Deviations entry has the detail.
+- **Batch C:**
+  - `ui/field.js` `wire()` was fixed at its root, which is a control-library change the legs did
+    not plan, forced by the accessibility review;
+  - squawk 0406, the drawer `boot()` router wait, was found and fixed as grounding.
+- **Leg 5:**
+  - DD11's token figures were stale, so `propose_change` was left unchanged at 114 of 120;
+  - DD12's warning cells were dropped, and a tenth scenario, `searxng-from-link`, was added;
+  - the no-claim exemption went through two FD probes before quota.
+- **Leg 6:** the exit-1 fixes added `Kind.operator_only_aliases` and changed two sentences of
+  tool-result text. `cfd77095` (the field list) was not re-measured, by operator decision.
+- **Leg 7:** none. The HAT passed 9 of 9 with no fix.
 
 ---
 
 ## Anomalies
 
-*(none yet)*
+- **4a lanes spoiled by concurrent edits.** The FD spawned the Leg 4b Developer while Leg 4a's
+  lanes ran. Its static JS edits were served to those lanes, so the run was recorded as
+  inconclusive. The new rule: no crew edits the tree during a recorded verification run.
+- **A Developer landed early.** The 4a Developer signalled landing before its unit run and
+  lanes had finished.
+- **Flaky drawer tests.** `gleepglorp-chat` failed 7 of 9 times on a loaded host, from the
+  `boot()` router race (squawk 0406).
+- **The shell-write hook blocked a read-only inline script** because it named `evals/`. The FD
+  moved it to the scratchpad.
 
 ---
 
