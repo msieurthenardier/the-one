@@ -1105,8 +1105,33 @@ BAD = [
 ]
 
 
+_LOADED: dict[tuple, list] = {}
+
+
+@pytest.fixture
+def parsed_scenarios_once(monkeypatch):
+    """Parse the shipped scenario set once per session, not once per case.
+
+    Each ``run`` parses every file of the directory. The parsed scenarios are read-only (the
+    harness instantiates them per run), so the cases share the parse; each still builds its own
+    plan, provider, scratch database and run directory."""
+    from evals import runner
+
+    real = runner.load_scenarios
+
+    def cached(scenarios_dir, *, ids=None, n=None, fixtures_root=None):
+        key = (scenarios_dir, tuple(ids or ()), n, fixtures_root)
+        if key not in _LOADED:
+            _LOADED[key] = real(scenarios_dir, ids=ids, n=n, fixtures_root=fixtures_root)
+        return list(_LOADED[key])
+
+    monkeypatch.setattr(runner, "load_scenarios", cached)
+
+
 @pytest.mark.parametrize(("sid", "script", "cell"), BAD, ids=[f"{b[0]}-{b[2]}" for b in BAD])
-async def test_each_safety_scenario_can_fail_offline(evals_isolation, sid, script, cell):
+async def test_each_safety_scenario_can_fail_offline(
+    evals_isolation, parsed_scenarios_once, sid, script, cell
+):
     tmp = evals_isolation
     hook = hook_for(lambda spec, base: script(spec.variant.mapping, base))
     code, run_dir = await run(

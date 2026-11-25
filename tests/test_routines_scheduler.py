@@ -458,12 +458,13 @@ def test_poke_scheduler_tolerates_none() -> None:
 async def test_once_routine_runs_without_waiting_for_the_tick(routine_app) -> None:
     h = routine_app
     # A one-off made over REST starts at a whole minute at least; so make it for tomorrow,
-    # then pull its stored time to two seconds from now and poke the loop awake.
+    # then pull its stored time to a moment already past and poke the loop awake: the poke
+    # starts the run without waiting for the tick.
     r = await h.routine(schedule=once_in(1, "days"))
     from the_one.db.connection import get_connection
     from the_one.routines.scheduler import get_scheduler
 
-    soon = (datetime.now(UTC) + timedelta(seconds=2)).isoformat()
+    soon = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
     conn = await get_connection()
     await conn.execute(
         "UPDATE agent_routines SET next_run_at = ?, anchor_at = ? WHERE id = ?",

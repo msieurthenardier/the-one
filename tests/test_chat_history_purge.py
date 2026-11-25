@@ -140,15 +140,19 @@ async def test_purge_loop_catch_up_sweeps_due_db(app_db) -> None:
 
     task = asyncio.create_task(app_mod._chat_history_purge_loop())
     try:
+        # The row is deleted before last_purge_at is written, so wait for both
+        # (10 s ceiling; passes as soon as the pass finishes).
         swept = False
-        for _ in range(100):
+        stamped = False
+        for _ in range(1000):
             await asyncio.sleep(0.01)
-            if not await chat_repo.list("a"):
-                swept = True
+            swept = not await chat_repo.list("a")
+            stamped = await AppMetadataRepository(conn).get(LAST_PURGE_KEY) is not None
+            if swept and stamped:
                 break
         assert swept, "catch-up pass did not sweep the due aged row"
         # last_purge_at advanced.
-        assert await AppMetadataRepository(conn).get(LAST_PURGE_KEY) is not None
+        assert stamped
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):

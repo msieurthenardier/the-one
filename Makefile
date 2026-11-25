@@ -221,9 +221,12 @@ test: ## Run the default tests host-native (the unit tier under pyproject addopt
 	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -v --tb=short
 
 .PHONY: test-unit
-test-unit: ## Run unit tests only host-native (excludes browser, live, pixel, requires_bwrap)
+UNIT_WORKERS ?= 4
+
+test-unit: ## Run unit tests only host-native, in parallel (UNIT_WORKERS=0 for serial; excludes browser, live, pixel, requires_bwrap)
 	# Keep this -m in sync with pyproject.toml addopts' default-deselect set.
-	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel and not requires_bwrap' -v --tb=short
+	# pytest-xdist: -n $(UNIT_WORKERS) workers, each with its own THE_ONE_DATA_DIR (tests/conftest.py).
+	PYTHON=$(PY) bash scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel and not requires_bwrap' -n $(UNIT_WORKERS) --dist load -v --tb=short
 
 .PHONY: eval
 eval: ## Prompt evals (local only, never in CI): make eval ARGS="run --help"

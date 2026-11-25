@@ -49,7 +49,7 @@ async def _utc():
 
 
 @pytest.fixture
-async def world(tmp_path, monkeypatch):
+async def world(tmp_path, monkeypatch, fast_builtin_tool_names):
     _write_lock.reset_for_test()
     ns = await seed(tmp_path)
     conn, enc = ns.conn, ns.enc

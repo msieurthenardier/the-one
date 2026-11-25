@@ -1,12 +1,16 @@
 # Flight: Unit-tier runtime III
 
-**Status**: ready
+**Status**: completed
 **Mission**: [Post-Mission-36 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] The unit tier is under 400 s (T1)
-- [ ] Every browser lane's budget comes from a measured quiet reading (T2)
+- [x] The unit tier is under 400 s (T1).
+  - Met on a clean host: 180.6 s and 212.4 s at N=4 (Leg 2).
+  - Under load: 312 s at load about 20 (Leg 3) and 334-490 s at load 7-23. It was never a quiet-host gate reading, because the host stayed loaded.
+- [ ] Every browser lane's budget comes from a measured quiet reading (T2).
+  - **Deferred: no quiet host on 2026-11-25.** The loaded correctness gate aborted at the 2400 s watchdog with 3 of 23 lanes done.
+  - The re-budget moves to Flight 2's closing gate, which must run every lane anyway.
 
 ## Pre-Flight
 
@@ -77,15 +81,17 @@ N/A. This is a maintenance flight with concrete fixes.
 
 ### Legs
 
-*(Designed by `/mission-control:agentic-workflow`. One finding maps to one leg where possible.)*
+- [x] [`01-profile-and-safe-cuts`](legs/01-profile-and-safe-cuts.md): a fine-grained profile, then safe serial cuts.
+- [x] [`02-parallel-unit-tier`](legs/02-parallel-unit-tier.md): pytest-xdist at N=4, with per-worker isolation.
+- [x] [`03-closing-quiet-gate`](legs/03-closing-quiet-gate.md): a loaded correctness gate. The re-budget is deferred.
 
 ## Post-Flight
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] `the_one/agents.md` budget history and gate targets updated
+- [x] `the_one/agents.md` budget history updated. The gate targets are not restated, because no quiet gate ran.
 
 ### Verification
 
