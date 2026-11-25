@@ -1,6 +1,6 @@
 # Mission: GleepGlorp, the In-App Assistant
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -140,7 +140,7 @@ at `9fea53cd`; each flight design re-verifies them.
 
 ## Success Criteria
 
-- [ ] **GleepGlorp is ready once its model is chosen.**
+- [x] **GleepGlorp is ready once its model is chosen.**
   - The operator picks a model provider and model for GleepGlorp in Settings.
   - Until both are chosen, the corner button and a GleepGlorp chat show setup
     guidance with a link to that setting, and they work once a model is chosen.
@@ -150,7 +150,7 @@ at `9fea53cd`; each flight design re-verifies them.
     Nothing else about it can be configured.
   - The daily chat-history purge removes GleepGlorp chats older than that
     retention, as it does for every agent.
-- [ ] **Help is one click away on every page.**
+- [x] **Help is one click away on every page.**
   - The corner button opens GleepGlorp beside the current page in every
     destination, in the browser and in the desktop app.
   - GleepGlorp knows which page and item are open, and correctly answers
@@ -164,7 +164,7 @@ at `9fea53cd`; each flight design re-verifies them.
   - The overlay conversation continues across page changes and can be reopened
     later from Chats.
   - *(Behavior-test-backed: real overlay, real model, real page.)*
-- [ ] **GleepGlorp fills the form; the operator saves it.**
+- [x] **GleepGlorp fills the form; the operator saves it.**
   - Asked in the overlay to configure something, GleepGlorp opens the matching
     editor and fills its fields in place.
   - The editor behaves exactly as if the operator had typed: its validation
@@ -179,7 +179,7 @@ at `9fea53cd`; each flight design re-verifies them.
     proposals, because the operator will rework connectors after this
     mission. GleepGlorp's existing read-only view of connectors stays.)*
   - *(Behavior-test-backed: an MCP server set up from a pasted link.)*
-- [ ] **GleepGlorp proposes; the operator approves.**
+- [x] **GleepGlorp proposes; the operator approves.**
   - Asked in a chat to create or change something, GleepGlorp answers with a
     proposal that shows exactly what will change.
   - A request with several steps becomes one proposal per step. Each later
@@ -193,7 +193,7 @@ at `9fea53cd`; each flight design re-verifies them.
     reload, and an unsaved edit there is never overwritten silently.
   - *(Behavior-test-backed: create an agent, and attach an existing MCP server
     to an agent, both by approval.)*
-- [ ] **Nothing changes without the operator's click.**
+- [x] **Nothing changes without the operator's click.**
   - No GleepGlorp turn can change the app's configuration (agents, MCP servers,
     providers, knowledge bases, connectors, routines, secrets, settings, or
     GleepGlorp's own settings) by any route. This holds by construction: each
@@ -209,7 +209,7 @@ at `9fea53cd`; each flight design re-verifies them.
   - It never puts a secret value into a form or a proposal.
   - When a step needs a secret or a sign-in, it says so and links to the exact
     page where the operator enters it.
-- [ ] **GleepGlorp sticks to the app.**
+- [x] **GleepGlorp sticks to the app.**
   - It declines requests that are not about the app and points the operator to
     their own agents.
   - Its tools are only: reading the app's configuration and status, filling
@@ -218,7 +218,7 @@ at `9fea53cd`; each flight design re-verifies them.
   - It cannot be bound to a connector or own a routine.
   - A proposal or form fill made after it read untrusted content (a web page,
     an MCP server's tool descriptions) is marked "Check this".
-- [ ] **The Default agent is gone.**
+- [x] **The Default agent is gone.**
   - "Default agent" no longer appears anywhere in the app.
   - At upgrade, the stored `default` agent (if any) is deleted, and so is
     every chat that belonged to it or has no agent. Nothing is kept (operator
@@ -455,7 +455,15 @@ Taken with the operator on 2026-11-23, at Flight 5 planning:
 
 ## Known Issues
 
-*(none yet)*
+Recorded at the mission debrief (2026-11-24); detail in [mission-debrief.md](mission-debrief.md).
+
+- **"Secrets never pass through GleepGlorp" is partly met.** It is met in code: no value is read,
+  stored, filled or proposed. It is not met in model behaviour: Haiku repeats a pasted secret
+  value in its handoff (6 of 20 at the last measurement). The operator accepted this for now.
+- **"Quality is measured on every default eval model" is partly met.** The shipped prompt `p5d`
+  has no baseline (the last is `m36f3`), and the Flight 4 safety failures were never attributed.
+- **Both go to a follow-up sortie** (operator, 2026-11-24): re-measure, add a code-level reply
+  check for the hard lines, and record a baseline.
 
 ## Flights
 
