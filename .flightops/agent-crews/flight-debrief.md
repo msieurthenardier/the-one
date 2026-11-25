@@ -55,7 +55,11 @@ briefing the Developer, the Flight Director decides:
 - **Reuse** the flight's last full gate (a unit run plus a quiet-host
   `--parallel 3` browser run, both on the same commit) when
   `git diff <gate commit>..HEAD` touches nothing under `the_one/`, `tests/` or
-  `scripts/` except the lane-budget table in `scripts/run-tests.sh`. Record the
+  `scripts/` except the lane-budget table in `scripts/run-tests.sh` and Markdown
+  under `the_one/` (`the_one/agents.md` and other developer docs; a closing
+  re-budget always edits `the_one/agents.md`). The app guide
+  `the_one/gleepglorp/guide/*.md` is shipped product text with a drift test
+  (`tests/test_gleepglorp_guide.py`), so it stays a trigger. Record the
   gate's commit, its `PARALLEL_RESULT` line, the per-lane times and the unit
   counts, and compare those against prior debriefs.
 - **Run fresh** otherwise, including when the gate ran on a loaded host or the
@@ -64,6 +68,10 @@ briefing the Developer, the Flight Director decides:
   before starting the browser run. A browser run that starts right after the
   unit tier (load 1.19 at the Mission 34 Flight 2 debrief) does not count for
   budgets.
+- **Operator-deferred timing:** when the operator has explicitly deferred the
+  timing re-measure (for example a loaded gate whose re-measure moved to a later
+  flight), reuse the gate's counts and record its timings as reference only,
+  citing the deferral.
 - **Either way,** say which run each number came from.
 
 ## Template Variables

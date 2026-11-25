@@ -171,6 +171,16 @@ class ProposeChangeTool(Tool):
                 f"Proposal {e.open_id} is still waiting for the operator. "
                 "Wait for their answer before the next step."
             )
+        # The insert withdrew every open proposal it replaced (``result.by`` is the new id); push
+        # each one's view so its card folds now, not at the next reload (squawk 0407).
+        for old in await repo.list_for_session(session_id):
+            if (
+                old.status == "withdrawn"
+                and old.result
+                and old.result.get("reason") == "replaced"
+                and old.result.get("by") == proposal_id
+            ):
+                await push_proposal_changed(session_id, await proposal_view(conn, old))
         stored = await repo.get(proposal_id)
         if stored is not None:
             await push_proposal_changed(session_id, await proposal_view(conn, stored))

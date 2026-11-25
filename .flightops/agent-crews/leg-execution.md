@@ -190,7 +190,10 @@ background and wait for its completion notification, then read its output. Do no
 start backgrounded `sleep N` timers or `pgrep` wait loops. Every background task you
 start must have ended by the time you report. (Mission 34 squawk turnaround: one crew
 missed its own finished unit run, and finished crew left a dozen 15-30 minute
-`sleep` timers on the host.)
+`sleep` timers on the host.) `pgrep -f <pattern>` also matches your own shell command,
+so a wait loop on it never ends; wait for the run's completion notification instead.
+Logs and scratch files go only in the session scratchpad (the directory the Flight
+Director names in the spawn prompt), never in the repo or `$HOME` (squawk 0410).
 
 When a change renames or deletes a selector, class, testid, symbol or path, or adds
 or removes fields in a response shape, grep the tests (every lane, plus `scripts/` and
@@ -246,7 +249,9 @@ implemented in this flight. Evaluate against:
 When running browser tests yourself, pass `-m browser` with a bare browser file
 path to `scripts/run-tests.sh` (else every test is deselected and nothing is
 verified), and on this WSL host set `THE_ONE_TEST_NETNS=1` for every browser run and
-gate (Mission 28 finding).
+gate (Mission 28 finding). Run long tests in the background and wait for their
+completion notification; never poll with `pgrep -f <pattern>`, which matches your own
+shell command and never ends. Logs go only in the session scratchpad (squawk 0410).
 
 Signal [HANDOFF:confirmed] if all changes are satisfactory.
 If issues found, list them with severity (blocking/non-blocking) and specific
@@ -294,6 +299,12 @@ Process hygiene: kill only PIDs or PGIDs you recorded yourself (or the `.pgids`
 files `scripts/run-tests.sh --parallel` writes), never by name or pattern —
 no `pkill`, `killall` or `kill $(pgrep ...)`. A pattern can hit the operator's own
 processes (a `make up` server, another session's tests) (squawk 0160).
+
+Waiting on a long run (a browser lane, the unit tier): run it in the background and
+wait for its completion notification. `pgrep -f <pattern>` also matches your own shell
+command, so a wait loop on it never ends. Logs and scratch files go only in the
+session scratchpad (the directory the Flight Director names in the spawn prompt),
+never in the repo or `$HOME` (squawk 0410).
 
 Shared working tree: other crew and the Flight Director may have uncommitted edits
 in this tree. Never run `git stash`, `git checkout -- <path>`, `git restore`,

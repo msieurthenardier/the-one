@@ -318,6 +318,27 @@ def test_a_fill_that_arrives_during_a_save_waits_for_it(
     assert _count(page, "PUT", "/api/tools/configs/shell") == 1
 
 
+def test_a_fill_whose_navigation_throws_does_not_leave_the_next_open_without_title_focus(
+    app_with_data_dir: tuple[str, Any], page: Page
+) -> None:
+    """Squawk 0408: ``keepFocus`` is cleared on every exit of the fill's navigation."""
+    w = _world(app_with_data_dir, page)
+    # The wait for the editor to settle throws midway through the navigation.
+    page.evaluate(
+        "() => { App.gleepglorpKinds.get('tool_config').fill.whenSettled ="
+        " function () { throw new Error('boom'); }; }"
+    )
+    fid = _fill(w, "shell", {"output_cap_bytes": 65536})
+    _deliver(page, w, fid)
+    done = _wait_status(page, w, fid, "not_filled")
+    assert done["outcome"] == {"kept": [], "reason": "editor_unavailable"}
+    assert page.evaluate("App.admin.toolsPage.keepFocus") is False
+    # An ordinary open of another tool's editor focuses its title.
+    _nav.set_route(page, "settings/tools/web_search")
+    title = page.locator('[data-testid="tool-editor-header"] h2[tabindex="-1"]')
+    expect(title).to_be_focused(timeout=10000)
+
+
 def _fake_impact(page: Page, tool: str) -> list:
     """Hold each ``/impact`` preview for *tool*; the test answers it (a narrowing result)."""
     held: list = []

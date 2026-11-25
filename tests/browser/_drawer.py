@@ -125,14 +125,11 @@ def boot(page: Page, base: str, route: str, *, connected: bool = True) -> None:
         "() => App.gleepglorpDrawer && App.gleepglorpDrawer.state() !== null", timeout=8000
     )
     if connected:
+        # wait_socket also waits for the router to start; only the route check remains.
         wait_socket(page)
-    wait_router(page, route)
-
-
-def wait_router(page: Page, route: str) -> None:
-    """Wait until ``App.router`` has committed a route, then that it is *route* (canonical)."""
-    wait_router_started(page)
-    _nav.expect_route(page, route, timeout=15000)
+        _nav.expect_route(page, route, timeout=15000)
+    else:
+        _nav.wait_router(page, route)
 
 
 def wait_socket(page: Page) -> None:
@@ -143,14 +140,7 @@ def wait_socket(page: Page) -> None:
     )
     # The socket opens at DOMContentLoaded; the router only after the config fetches resolve
     # (squawk 0406), so a page that reloaded or opened here is not usable until it committed.
-    wait_router_started(page)
-
-
-def wait_router_started(page: Page) -> None:
-    page.wait_for_function(
-        "() => !!(window.App && App.router && App.router.current && App.router.current())",
-        timeout=15000,
-    )
+    _nav.wait_router_started(page)
 
 
 def drawer_sent(page: Page) -> list[dict]:

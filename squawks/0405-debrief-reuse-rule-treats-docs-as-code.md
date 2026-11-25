@@ -1,10 +1,10 @@
 # Squawk 0405: The debrief's gate-reuse rule treats a doc under `the_one/` as code
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-23
-**Completed**: —
+**Completed**: 2026-11-24
 
 ## Report
 
@@ -24,8 +24,19 @@ trigger. Found by the Flight 4 debrief.
   11898/15 in 384 s.
 
 ## Corrective Action
-*(written at completion)*
+In `.flightops/agent-crews/flight-debrief.md` "Test metrics: reuse the flight's gate": the reuse
+check now also ignores Markdown under `the_one/` (`the_one/agents.md` and other developer docs).
+Code, tests and scripts stay triggers. The app guide `the_one/gleepglorp/guide/*.md` stays a
+trigger: it is shipped product text with a drift test (`tests/test_gleepglorp_guide.py`). A new
+bullet covers the operator-deferred timing re-measure: reuse the gate's counts, record its timings
+as reference only, cite the deferral (gap recorded at the Mission 36 Flight 3 debrief).
 
 ## Verification
-The rule's wording exempts `*.md` under `the_one/` (and keeps code and tests as triggers). This is
-an operator-owned methodology file, so the operator approves the wording.
+The rule's wording exempts Markdown under `the_one/` except the app guide (and keeps code and tests
+as triggers). This is an operator-owned methodology file, so the operator approves the wording.
+Wording approved by the operator, 2026-11-24 (as drafted; the app guide stays a trigger).
+
+## Sign-Off
+**Reviewer**: Reviewer agent (Haiku), batch review of squawks 0403, 0404, 0405, 0407, 0408, 0409 and 0410; wording approved by the operator
+**Verdict**: confirmed
+**Commit**: `squawk: turnaround 2026-11-24` on squawk/turnaround-2026-11-24

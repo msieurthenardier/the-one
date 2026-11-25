@@ -385,6 +385,21 @@ def expect_route(page: Page, route: str, timeout: float = 5000) -> None:
         got = current_route(page)
 
 
+def wait_router_started(page: Page, timeout: float = 15000) -> None:
+    """Wait until ``App.router`` has committed some route (squawk 0406: the app shell mounts at
+    DOMContentLoaded, the router only after ``/api/config`` and ``/api/time-settings`` resolve)."""
+    page.wait_for_function(
+        "() => !!(window.App && App.router && App.router.current && App.router.current())",
+        timeout=timeout,
+    )
+
+
+def wait_router(page: Page, route: str, timeout: float = 15000) -> None:
+    """Wait until ``App.router`` has committed a route, then that it is *route* (canonical)."""
+    wait_router_started(page, timeout)
+    expect_route(page, route, timeout=timeout)
+
+
 def wait_for_route_prefix(
     page: Page, prefix: str, *, not_equal: str | None = None, timeout: float = 5000
 ) -> str:
