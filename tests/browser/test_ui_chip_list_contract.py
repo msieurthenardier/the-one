@@ -186,6 +186,37 @@ def test_remove_button_removes_chip_and_fires(engine_page: Page) -> None:
     assert p.evaluate("() => window.__ch") == [["alpha"]]
 
 
+_ACTIVE = """() => { const a = document.activeElement;
+  return a === document.body ? 'BODY' : a === window.__cl.input ? 'INPUT'
+    : a.getAttribute('aria-label'); }"""
+
+
+def test_remove_button_keyboard_moves_focus_to_next_previous_then_input(
+    engine_page: Page,
+) -> None:
+    _mount(engine_page, "{values: ['a', 'b', 'c']}")
+    p = engine_page
+    p.get_by_role("button", name="Remove b").focus()
+    p.keyboard.press("Enter")
+    assert _values(p) == ["a", "c"]
+    assert p.evaluate(_ACTIVE) == "Remove c"
+    p.keyboard.press("Enter")  # last chip: focus goes to the previous one
+    assert _values(p) == ["a"]
+    assert p.evaluate(_ACTIVE) == "Remove a"
+    p.keyboard.press("Enter")  # none left: focus goes to the input
+    assert _values(p) == []
+    assert p.evaluate(_ACTIVE) == "INPUT"
+
+
+def test_remove_button_focus_skips_locked_chips(engine_page: Page) -> None:
+    _mount(engine_page, "{values: ['a', 'b'], locked: ['a']}")
+    p = engine_page
+    p.get_by_role("button", name="Remove b").focus()
+    p.keyboard.press("Enter")
+    assert _values(p) == ["a"]
+    assert p.evaluate(_ACTIVE) == "INPUT"
+
+
 def test_validate_accept_reject_and_message(engine_page: Page) -> None:
     _mount(
         engine_page,

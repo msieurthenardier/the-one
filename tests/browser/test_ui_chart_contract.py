@@ -473,6 +473,30 @@ def test_keyboard_moves_between_positions(engine_page: Page) -> None:
     expect(tip).to_be_hidden()
 
 
+def test_escape_claims_the_key_only_while_the_tooltip_shows(engine_page: Page) -> None:
+    """Squawk 0414: Esc that hides the tooltip is defaultPrevented, so an enclosing Esc handler
+    (the drawer) leaves it alone; the next Esc, with no tooltip, reaches that handler."""
+    page = engine_page
+    _mount(page, VALID["bar-all-keys.json"])
+    _laid_out(page)
+    page.evaluate(
+        """() => {
+          window.__esc = [];
+          document.getElementById('frame').addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') window.__esc.push(e.defaultPrevented);
+          });
+        }"""
+    )
+    tip = page.get_by_test_id("c-tooltip")
+    page.get_by_test_id("c-plot").focus()
+    expect(tip).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(tip).to_be_hidden()
+    assert page.evaluate("window.__esc") == [True]
+    page.keyboard.press("Escape")
+    assert page.evaluate("window.__esc") == [True, False]
+
+
 def test_pie_and_scatter_keyboard_positions(engine_page: Page) -> None:
     page = engine_page
     _mount(page, VALID["pie-minimal.json"])

@@ -6,6 +6,9 @@ name: lint
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: lint-${{ github.ref }}
   cancel-in-progress: true

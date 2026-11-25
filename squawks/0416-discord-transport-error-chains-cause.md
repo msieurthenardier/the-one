@@ -1,10 +1,10 @@
 # Squawk 0416: Discord's transport error chains the httpx cause; Telegram's does not
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-24
-**Completed**: —
+**Completed**: 2026-11-25
 
 ## Report
 
@@ -15,7 +15,12 @@
 - `the_one/connectors/telegram/_api.py` (about lines 83-86) raises `from None`.
 
 ## Corrective Action
-*(written at completion)*
+In `the_one/connectors/discord/_rest.py` the `DiscordTransportError` raise now uses `from None`, matching Telegram's `_api.py`. Added `test_transport_error_does_not_chain_the_httpx_cause` to `tests/test_discord_visuals.py`.
 
 ## Verification
-The Discord raise uses `from None`. A unit test asserts that `__cause__` is None and `__suppress_context__` is set on a transport error, as Telegram's test does if one exists.
+The new test asserts `__cause__ is None` and `__suppress_context__ is True`. Falsified: with `from exc` restored the test failed; with `from None` back it passes. `tests/test_discord_visuals.py` passes, ruff check and format clean.
+
+## Sign-Off
+**Reviewer**: Reviewer agent (Sonnet; connector token surface), batch review of squawks 0411-0419
+**Verdict**: confirmed. Nothing in `the_one/` reads `__cause__` or relies on the chain.
+**Commit**: `squawk: turnaround 2026-11-25` on squawk/turnaround-2026-11-25

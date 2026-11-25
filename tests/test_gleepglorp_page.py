@@ -303,6 +303,25 @@ async def test_a_repository_error_falls_back_and_never_raises(world, monkeypatch
     assert (await page.resolve_page(world.conn, d))["line"] == "Library › MCP servers › Kept"
 
 
+async def test_a_lookup_failure_is_logged_at_debug_and_the_line_has_no_name(
+    world, monkeypatch, caplog
+):
+    from the_one.db.repositories import MCPSourceRepository
+
+    async def boom(self, source_id):
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(MCPSourceRepository, "get", boom)
+    d = {"destination": "library", "section": "mcp", "item": "m-http"}
+    with caplog.at_level("DEBUG", logger="the_one.gleepglorp.page"):
+        out = await page.resolve_page(world.conn, d)
+    assert out["line"] == "Library › MCP servers › m-http"
+    records = [r for r in caplog.records if r.name == "the_one.gleepglorp.page"]
+    assert len(records) == 1
+    assert records[0].levelname == "DEBUG"
+    assert records[0].exc_info is not None
+
+
 async def test_a_create_page_is_never_resolved(world):
     d = {"destination": "library", "section": "mcp", "create": True, "item": "m-http"}
     assert (await page.resolve_page(world.conn, d))["line"] == (

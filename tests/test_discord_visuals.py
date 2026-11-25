@@ -237,6 +237,14 @@ async def test_transport_error_raises_transport_error_without_resend(exc):
     assert len(h.requests) == 1
 
 
+async def test_transport_error_does_not_chain_the_httpx_cause():
+    client, _ = _client([httpx.ConnectError("boom")])
+    with pytest.raises(DiscordTransportError) as info:
+        await client.send_visual(CHANNEL, "t", _images(1))
+    assert info.value.__cause__ is None
+    assert info.value.__suppress_context__ is True
+
+
 async def test_create_dm_failure_propagates_unchanged():
     client, h = _client([(403, {"message": "no dm"})])
     with pytest.raises(DiscordRestError) as info:

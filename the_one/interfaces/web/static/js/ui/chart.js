@@ -347,7 +347,12 @@
         else if (key === 'ArrowLeft' || key === 'ArrowUp') show(active < 0 ? 0 : Math.max(0, active - 1), true);
         else if (key === 'Home') show(0, true);
         else if (key === 'End') show(n - 1, true);
-        else if (key === 'Escape') { hide(); return; }
+        else if (key === 'Escape') {
+          // Esc only dismisses the tooltip when one is showing; otherwise it must reach an
+          // enclosing Esc handler (the drawer) unclaimed.
+          if (active < 0) return;
+          hide();
+        }
         else return;
         ev.preventDefault();
       });

@@ -197,10 +197,9 @@ def _oauth_driver_headers(version: str) -> dict[str, str]:
 
 M11 F9 L5 — added as a required side-effect of the leg. ``api.py``
 previously lacked a module-level ``logger``; some functions defined
-their own local ``_log`` (see :func:`delete_mcp_source` at the comment
-block citing the uvicorn-root-logger-threshold precedent). The
-module-level handle is the convention everywhere else in ``the_one/``;
-new endpoints log through it directly.
+their own local ``_log`` (``delete_mcp_source`` was one, since moved to
+this handle, squawk 0418). The module-level handle is the convention
+everywhere else in ``the_one/``; new endpoints log through it directly.
 """
 
 
@@ -3247,12 +3246,9 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
     # ("operation succeeded normally") but it's the simplest visibility
     # fix; the alternative is structured response fields, which the
     # architect ruled out (silent UX).
-    import logging
-
-    _log = logging.getLogger(__name__)
     if not (runtime and package):
         # Unsupported runtime — nothing to reclaim.
-        _log.warning(
+        logger.warning(
             "delete_mcp_source(%s): no cleanup applicable for command %r",
             source_id,
             command,
@@ -3260,7 +3256,7 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
     elif skip_reason:
         # Refcount survivor — log and skip. The shared cache stays put
         # for the surviving source.
-        _log.warning("delete_mcp_source(%s): %s", source_id, skip_reason)
+        logger.warning("delete_mcp_source(%s): %s", source_id, skip_reason)
     else:
         await cleanup_runtime_cache(runtime, package)
 

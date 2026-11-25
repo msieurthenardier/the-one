@@ -256,10 +256,7 @@
     var mq = typeof window.matchMedia === 'function' ? window.matchMedia(PUSH_QUERY) : null;
     function applyMode() { drawer.setMode(mq && !mq.matches ? 'overlay' : 'push'); }
     applyMode();
-    if (mq) {
-      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', applyMode);
-      else if (typeof mq.addListener === 'function') mq.addListener(applyMode);
-    }
+    if (mq) mq.addEventListener('change', applyMode);
 
     row.appendChild(button.el);
 
