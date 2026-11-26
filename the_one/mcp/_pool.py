@@ -203,11 +203,12 @@ async def _entry_worker(
     # None, so the auth_required broadcast is a no-op — appropriate for
     # the agent-build path where there's no chat UI to surface a modal.
     # If the SDK invokes redirect_handler on stale tokens (refresh
-    # failed), callback_handler awaits a code that never arrives; the
-    # outer ``MCPClient.connect`` timeout fires and graceful-skip kicks
-    # in via L2's MCPAuthRequired translation.
+    # failed), the handler refuses at once for an agent-build csid (no
+    # code can ever arrive); ``MCPClient.connect`` translates that to
+    # MCPAuthRequired and graceful-skip kicks in (squawk 0422).
     from the_one.agent._context import current_chat_session_id, current_tool_call_id
     from the_one.mcp.oauth import build_oauth_provider_for_source
+    from the_one.mcp.oauth.handlers import agent_build_csid
 
     # Construction must run INSIDE the try: an exception from the resolver, the
     # OAuth-provider build (DB reads) or MCPClient.__init__ (e.g. a future
@@ -235,7 +236,7 @@ async def _entry_worker(
             csid = current_chat_session_id.get(None)
             tcid = current_tool_call_id.get(None)
             if csid is None and source.secrets.get("access_token"):
-                csid = f"agent_build:{source.id}"
+                csid = agent_build_csid(source.id)
             conn = await get_connection()
             encryptor = get_encryptor(settings.data_dir)
             repo = MCPSourceRepository(conn, encryptor)

@@ -57,6 +57,17 @@ from mcp.shared.auth import AuthorizationCodeResult
 
 from the_one.mcp.oauth import _state
 
+AGENT_BUILD_CSID_PREFIX = "agent_build:"
+
+
+def agent_build_csid(source_id: str) -> str:
+    """The synthetic chat-session id for an agent-build connection (no chat)."""
+    return f"{AGENT_BUILD_CSID_PREFIX}{source_id}"
+
+
+def is_agent_build_csid(chat_session_id: str) -> bool:
+    return chat_session_id.startswith(AGENT_BUILD_CSID_PREFIX)
+
 
 def make_oauth_handlers(
     chat_session_id: str,
@@ -102,6 +113,11 @@ def make_oauth_handlers(
 
     async def redirect_handler(authorization_url: str) -> None:
         """SDK-provided callback. Parse state, register, broadcast."""
+        if is_agent_build_csid(chat_session_id):
+            # An agent build has no chat to sign in through, so no code can
+            # ever arrive: refuse at once instead of waiting out the connect
+            # timeout. ``MCPClient.connect`` translates this to MCPAuthRequired.
+            raise OAuthFlowError("Authorization is required and no chat is available to sign in")
         qs = parse_qs(urlsplit(authorization_url).query)
         states = qs.get("state", [])
         state = states[0] if states else None

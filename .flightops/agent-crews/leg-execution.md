@@ -195,6 +195,12 @@ so a wait loop on it never ends; wait for the run's completion notification inst
 Logs and scratch files go only in the session scratchpad (the directory the Flight
 Director names in the spawn prompt), never in the repo or `$HOME` (squawk 0410).
 
+Never add CPU, memory or I/O load to the host on purpose: no stress tools, CPU
+burners or parallel load generators. The host is shared with other projects' sessions
+and tests (squawk 0427). To reproduce a timing failure, use deterministic means: a
+shorter window or delay in a scratch copy, a route stub, or a slow fake. If a load
+test seems necessary, report that instead of running it.
+
 When a change renames or deletes a selector, class, testid, symbol or path, or adds
 or removes fields in a response shape, grep the tests (every lane, plus `scripts/` and
 `tests/behavior/`) for its pins, including exact-dict assertions on that shape, and
@@ -252,6 +258,9 @@ verified), and on this WSL host set `THE_ONE_TEST_NETNS=1` for every browser run
 gate (Mission 28 finding). Run long tests in the background and wait for their
 completion notification; never poll with `pgrep -f <pattern>`, which matches your own
 shell command and never ends. Logs go only in the session scratchpad (squawk 0410).
+Never add CPU, memory or I/O load to the host on purpose (stress tools, CPU burners,
+parallel load generators); the host is shared with other projects' sessions and tests
+(squawk 0427). If a load test seems necessary, report that instead of running it.
 
 Signal [HANDOFF:confirmed] if all changes are satisfactory.
 If issues found, list them with severity (blocking/non-blocking) and specific
@@ -305,6 +314,12 @@ wait for its completion notification. `pgrep -f <pattern>` also matches your own
 command, so a wait loop on it never ends. Logs and scratch files go only in the
 session scratchpad (the directory the Flight Director names in the spawn prompt),
 never in the repo or `$HOME` (squawk 0410).
+
+Never add CPU, memory or I/O load to the host on purpose: no stress tools, CPU
+burners or parallel load generators. The host is shared with other projects' sessions
+and tests (squawk 0427). To reproduce a timing failure, use deterministic means: a
+shorter window or delay in a scratch copy, a route stub, or a slow fake. If a load
+test seems necessary, report that instead of running it.
 
 Shared working tree: other crew and the Flight Director may have uncommitted edits
 in this tree. Never run `git stash`, `git checkout -- <path>`, `git restore`,

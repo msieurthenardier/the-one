@@ -526,7 +526,7 @@ def test_deleted_and_unknown_agents_show_no_settings_link(
     page.set_viewport_size({"width": 1440, "height": 900})
     _nav.goto(page, base, f"chats/{_nav.seg(gone)}")
     page.wait_for_function(
-        "(id) => { const a = App.areas.find((x) => x.id === 'chat'); const s = a._sessionState(); return s.name === 'joined' && s.id === id; }",
+        "(id) => { const a = App.areas.find((x) => x.id === 'chat'); const s = a && a._sessionState && a._sessionState(); return !!s && s.name === 'joined' && s.id === id; }",
         arg=gone,
     )
     drawer = page.locator(DRAWER)

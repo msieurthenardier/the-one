@@ -1,10 +1,10 @@
 # Squawk 0426: `the_one/agents.md` does not describe the xdist isolation patterns
 
-**Status**: open
+**Status**: completed
 **Type**: servicing
 **Severity**: routine
 **Reported**: 2026-11-25
-**Completed**: —
+**Completed**: 2026-11-25
 
 ## Report
 
@@ -22,10 +22,14 @@ The next person to add a test-isolation resource, or to write a slow sweep, will
 - `missions/37-maintenance/flights/01-unit-tier-runtime-iii/flight-log.md`: the Leg 1 and Leg 2 entries.
 
 ## Corrective Action
-*(written at completion)*
+`the_one/agents.md` gains a subsection "Unit-tier isolation under xdist (Mission 37 F1)" after "Test databases come from the session template", with three bullets: the per-worker data dir (marker, why, child inheritance, the 0425 cleanup), the opt-in once-per-session fixtures (`fast_builtin_tool_names`, `parsed_scenarios_once`, real function asserted once), and the MCP-spawn window rule (window above the 1.2 s interpreter start-up; reserves are ceilings).
 
 ## Verification
-`the_one/agents.md` describes all three patterns. The likely home is "Test databases come from the session template", or a new subsection of the test-runner sections. A reader can find each pattern by searching for `PYTEST_XDIST_WORKER`, `fast_builtin_tool_names` and "spawn".
+Done: the three patterns are findable by `PYTEST_XDIST_WORKER`, `fast_builtin_tool_names` and "MCP servers". Tests reading `agents.md`/`CLAUDE.md` pass (`test_evals_cli`, `test_shell_write_hook`, `test_mcp_oauth_errors`, `test_design_tokens_a11y`, `test_routine_log_vocabulary`, `test_studio_editor_contracts_static`, `test_store_static`, `test_schema_frozen_imports`: 525 passed). There is no `tests/test_claude_md*.py`.
+
+Criterion: `the_one/agents.md` describes all three patterns. The likely home is "Test databases come from the session template", or a new subsection of the test-runner sections. A reader can find each pattern by searching for `PYTEST_XDIST_WORKER`, `fast_builtin_tool_names` and "spawn".
 
 ## Sign-Off
-*(written at completion)*
+**Reviewer**: Reviewer agent (Sonnet), batch review of squawks 0422 and 0424-0427
+**Verdict**: confirmed. The subsection matches the conftest behaviour. The fixture names and the 1.2 s figure were not re-checked against the code.
+**Commit**: `squawk: turnaround 2026-11-25-2` on squawk/turnaround-2026-11-25-2
