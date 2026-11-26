@@ -26,6 +26,7 @@ from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
 from the_one.encryption import Encryptor
 from the_one.interfaces.web import api as api_mod
+from the_one.interfaces.web import mcp_connection_api as conn_mod
 from the_one.mcp import _era, _pool
 
 URL = "http://localhost/mcp"
@@ -231,7 +232,7 @@ async def test_live_tokens_keep_phase_a(client_and_repo):
 
     with (
         patch("the_one.mcp.client.MCPClient", _Client),
-        patch.object(api_mod, "_build_and_test_no_auth_mcp", no_helper),
+        patch.object(conn_mod, "_build_and_test_no_auth_mcp", no_helper),
     ):
         body = (await c.post(f"/api/mcp-sources/{SID}/test/connect")).json()
     assert body["status"] == "ok"
@@ -256,8 +257,8 @@ async def test_a_stdio_source_with_a_blank_env_value_takes_no_special_path(clien
         raise AssertionError("not for stdio")
 
     with (
-        patch.object(api_mod, "_build_and_test_stdio_mcp", fake_stdio),
-        patch.object(api_mod, "_build_and_test_no_auth_mcp", no_helper),
+        patch.object(conn_mod, "_build_and_test_stdio_mcp", fake_stdio),
+        patch.object(conn_mod, "_build_and_test_no_auth_mcp", no_helper),
     ):
         body = (await c.post(f"/api/mcp-sources/{SID}/test/connect")).json()
     assert body["status"] == "ok"
@@ -277,7 +278,7 @@ async def test_no_auth_helper_cache_write_modes(
     _, repo = client_and_repo
     src = await repo.get(SID)
     async with serve_asgi(monkeypatch, make_http_app()):
-        result = await api_mod._build_and_test_no_auth_mcp(src, SID, repo, cache_write=mode)
+        result = await conn_mod._build_and_test_no_auth_mcp(src, SID, repo, cache_write=mode)
     assert result["status"] == "ok"
     cache = _cache(await repo.get(SID))
     assert ("tools" in cache) is expect_tools
@@ -318,7 +319,7 @@ async def test_stdio_helper_cache_write_modes(client_and_repo, mode, writes):
     src = src.model_copy(update={"type": "stdio", "config": {"command": "echo", "args": []}})
     await repo.update(src)
     with patch("the_one.mcp.client.MCPClient", _fake_stdio_client([])):
-        result = await api_mod._build_and_test_stdio_mcp(src, SID, repo, cache_write=mode)
+        result = await conn_mod._build_and_test_stdio_mcp(src, SID, repo, cache_write=mode)
     assert result["status"] == "ok"
     cache = _cache(await repo.get(SID))
     assert ("capabilities" in cache) is writes
@@ -331,7 +332,7 @@ async def test_existing_call_style_without_cache_write_still_writes_the_shared_f
     _, repo = client_and_repo
     src = await repo.get(SID)
     async with serve_asgi(monkeypatch, make_http_app()):
-        await api_mod._build_and_test_no_auth_mcp(src, SID, repo)
+        await conn_mod._build_and_test_no_auth_mcp(src, SID, repo)
     assert _cache(await repo.get(SID))["auth_posture"] == "no_auth"
 
 
@@ -353,11 +354,11 @@ async def test_no_auth_helper_classify(
         make_http_app(), fail_methods=ALL_401, resource_metadata=resource_metadata
     )
     async with serve_asgi(monkeypatch, wrapper):
-        result = await api_mod._build_and_test_no_auth_mcp(
+        result = await conn_mod._build_and_test_no_auth_mcp(
             src, SID, repo, from_fallthrough=True, classify=classify, cache_write="none"
         )
     if expected == "signin":
-        assert result is api_mod._SIGNIN_REQUIRED
+        assert result is conn_mod._SIGNIN_REQUIRED
     else:
         assert result["status"] == "error"
         assert result["error"].startswith("MCPCredentialsRejected: ")

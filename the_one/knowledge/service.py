@@ -22,6 +22,7 @@ unit with the row), and the embedding warm-up after a create.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
     from the_one.db.repositories import KnowledgeBaseRepository
 
 OnCommit = Callable[[aiosqlite.Connection], Awaitable[None]]
+
+logger = logging.getLogger(__name__)
 
 #: The fields :func:`change_knowledge_base` may set.
 CHANGE_FIELDS = ("name", "description")
@@ -150,6 +153,7 @@ async def create_knowledge_base(
     # M24 F02 L03, DD-1: kick the embedding warm-up on the operator's first knowledge base
     # after a cold start. Idempotent; the task handle is held inside ``the_one.embeddings``.
     deps.warm_up()
+    logger.info("knowledge base %s: created", kb.id)
     return kb
 
 
@@ -178,6 +182,7 @@ async def replace_knowledge_base(
     except KeyError:
         raise KbNotFound(kb_id) from None
     await _carry_rename(deps, before, after)
+    logger.info("knowledge base %s: replaced", kb_id)
     return after
 
 
@@ -216,4 +221,5 @@ async def change_knowledge_base(
     except KeyError:
         raise KbNotFound(kb_id) from None
     await _carry_rename(deps, before, after)
+    logger.info("knowledge base %s: changed", kb_id)
     return after

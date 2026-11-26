@@ -6,10 +6,11 @@ agent would see. It is the Library Test's sibling, not a variant of it: it never
 runs the auth-posture probe or the sign-in flow, never clears or refreshes tokens,
 never evicts a pool connection and never writes ``auth_posture`` or ``last_check``.
 
-The logic lives here and the route in ``api.py`` is a one-line delegate. The
+The logic lives here and the route in ``mcp_connection_api.py`` is a one-line delegate. The
 ``api.py`` helpers it reuses are reached through a call-time proxy (``api`` imports
 the router layer, so a module-top import would be a cycle), the precedent set by
-``routines_api.py``.
+``routines_api.py``. The connection helpers moved with the connection routes and are reached as
+module attributes of ``mcp_connection_api`` / ``mcp_connection_flow``.
 
 Security: no credential value appears in a response, an error string or a log line.
 Header and environment NAMES do (``needs_values``).
@@ -23,6 +24,8 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from the_one.db.repositories import AgentMcpToolCacheRepository
+from the_one.interfaces.web import mcp_connection_api as _conn
+from the_one.interfaces.web import mcp_connection_flow as _flow
 from the_one.mcp._overrides import (
     MCP_OVERRIDE_CREDENTIAL_KEYS,
     has_credential_override,
@@ -170,7 +173,7 @@ async def _connect(effective: Any, source_id: str, repo: Any, cache_write: str) 
     from the_one.mcp.errors import MCPAuthRequired, MCPConnectionError, MCPVersionMismatch
 
     if effective.type == "stdio":
-        return await _api._build_and_test_stdio_mcp(
+        return await _conn._build_and_test_stdio_mcp(
             effective, source_id, repo, cache_write=cache_write, record_era=False
         )
     if effective.type != "streamable-http":
@@ -180,7 +183,7 @@ async def _connect(effective: Any, source_id: str, repo: Any, cache_write: str) 
         }
     if _has_live_tokens(effective):
         try:
-            return await _api._connect_with_tokens(
+            return await _flow._connect_with_tokens(
                 effective, source_id, repo, record_era=False, cache_write=cache_write
             )
         except MCPAuthRequired:
@@ -189,7 +192,7 @@ async def _connect(effective: Any, source_id: str, repo: Any, cache_write: str) 
             return {"status": "error", "error": f"{type(e).__name__}: {e}"}
         except Exception as e:
             return {"status": "error", "error": type(e).__name__}
-    result = await _api._build_and_test_no_auth_mcp(
+    result = await _conn._build_and_test_no_auth_mcp(
         effective,
         source_id,
         repo,
@@ -198,6 +201,6 @@ async def _connect(effective: Any, source_id: str, repo: Any, cache_write: str) 
         cache_write=cache_write,
         classify=True,
     )
-    if result is _api._SIGNIN_REQUIRED:
+    if result is _conn._SIGNIN_REQUIRED:
         return {"status": "auth_required"}
     return result

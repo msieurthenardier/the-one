@@ -21,7 +21,7 @@ from tests._schema_template import connect_template_db
 from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
 from the_one.encryption import Encryptor
-from the_one.interfaces.web import api as api_mod
+from the_one.interfaces.web import mcp_connection_api as conn_mod
 from the_one.mcp import _pool
 
 SID = "src-last-check"
@@ -131,7 +131,7 @@ def _stub_inner(monkeypatch, result, recordable_hint=None):
             recordable_hint
         )
 
-    monkeypatch.setattr(api_mod, "_test_mcp_connection_inner", _inner, raising=False)
+    monkeypatch.setattr(conn_mod, "_test_mcp_connection_inner", _inner, raising=False)
 
 
 # ── merge_cache ──────────────────────────────────────────────────────────
@@ -309,7 +309,7 @@ async def test_sequence_keeps_every_key_then_reset_drops_all(client_and_repo, mo
         await c.post(f"/api/mcp-sources/{SID}/test/connect")
     with patch("the_one.mcp.client.MCPClient", _err_client()):
         await c.post(f"/api/mcp-sources/{SID}/test/connect")
-    await api_mod._persist_oauth_posture(repo, SID)
+    await conn_mod._persist_oauth_posture(repo, SID)
     _stub_inner(monkeypatch, {"status": "auth_required", "consent_url": "u"})
     await c.post(f"/api/mcp-sources/{SID}/test/connect")
     monkeypatch.undo()
@@ -356,11 +356,11 @@ async def test_posture_helpers_use_merge_and_keep_other_keys(client_and_repo) ->
         cache={**FULL_CACHE, "auth_posture": "no_auth", "last_check": {"status": "ok", "at": 1.0}},
     )
     before = await repo.get(SID)
-    await api_mod._persist_oauth_posture(repo, SID)
+    await conn_mod._persist_oauth_posture(repo, SID)
     mid = await repo.get(SID)
     assert mid.config["_cache"]["auth_posture"] == "oauth"
     assert mid.config["_cache"]["last_check"] == {"status": "ok", "at": 1.0}
-    await api_mod._clear_auth_posture(repo, SID)
+    await conn_mod._clear_auth_posture(repo, SID)
     end = await repo.get(SID)
     assert "auth_posture" not in end.config["_cache"]
     assert end.config["_cache"]["tools"] == FULL_CACHE["tools"]
@@ -503,7 +503,7 @@ async def test_stdio_test_with_cache_write_none_writes_nothing_about_the_fallbac
     source = await repo.get(SID)
     before = dict(source.config["_cache"])
     with patch("the_one.mcp.client.MCPClient", _Fell):
-        result = await api_mod._build_and_test_stdio_mcp(source, SID, repo, cache_write="none")
+        result = await conn_mod._build_and_test_stdio_mcp(source, SID, repo, cache_write="none")
     assert result["status"] == "ok"
     assert (await repo.get(SID)).config["_cache"] == before
 

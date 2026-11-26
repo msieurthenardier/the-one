@@ -35,17 +35,17 @@ async def _post(w, agent, overrides=None):
 
 
 def _spy(name):
-    """Wrap an api.py helper so the kwargs it is given can be read back."""
-    from the_one.interfaces.web import api
+    """Wrap an ``mcp_connection_api`` helper so the kwargs it is given can be read back."""
+    from the_one.interfaces.web import mcp_connection_api
 
     calls: list[dict] = []
-    real = getattr(api, name)
+    real = getattr(mcp_connection_api, name)
 
     async def wrapper(*a, **k):
         calls.append(dict(k))
         return await real(*a, **k)
 
-    return calls, patch.object(api, name, wrapper)
+    return calls, patch.object(mcp_connection_api, name, wrapper)
 
 
 # --- AC7: the contract of the route ---------------------------------------------------
@@ -239,9 +239,9 @@ async def test_stdio_sources_use_the_stdio_helper_in_each_mode(world_):
             seen.append((dict(source.secrets), kw))
             return {"status": "ok", "tools": [{"name": "t"}], "capabilities": {}}
 
-        from the_one.interfaces.web import api
+        from the_one.interfaces.web import mcp_connection_api
 
-        with patch.object(api, "_build_and_test_stdio_mcp", fake):
+        with patch.object(mcp_connection_api, "_build_and_test_stdio_mcp", fake):
             resp = await w.api.post(
                 "/api/mcp-sources/std/test/agent", json={"agent": "s", "overrides": None}
             )
@@ -279,9 +279,9 @@ async def test_live_tokens_run_phase_a_against_the_effective_source(world_, monk
             seen.append((dict(source.secrets), kw))
             return {"status": "ok", "tools": [{"name": "t"}], "capabilities": {}}
 
-        from the_one.interfaces.web import api
+        from the_one.interfaces.web import mcp_connection_flow
 
-        monkeypatch.setattr(api, "_connect_with_tokens", fake)
+        monkeypatch.setattr(mcp_connection_flow, "_connect_with_tokens", fake)
         resp = await _post(w, "a")
         assert resp.json()["status"] == "ok"
         secrets, kw = seen[0]
@@ -298,7 +298,7 @@ async def test_live_tokens_run_phase_a_against_the_effective_source(world_, monk
         async def spy_evict(*a, **k):
             evicted.append(a)
 
-        monkeypatch.setattr(api, "_connect_with_tokens", needs_auth)
+        monkeypatch.setattr(mcp_connection_flow, "_connect_with_tokens", needs_auth)
         with patch("the_one.mcp._pool._evict_all_for_source", spy_evict):
             resp = await _post(w, "a")
         assert resp.json() == {"status": "auth_required"}
@@ -309,7 +309,7 @@ async def test_live_tokens_run_phase_a_against_the_effective_source(world_, monk
         async def conn_error(*a, **k):
             raise MCPConnectionError("initialize timed out")
 
-        monkeypatch.setattr(api, "_connect_with_tokens", conn_error)
+        monkeypatch.setattr(mcp_connection_flow, "_connect_with_tokens", conn_error)
         resp = await _post(w, "a")
         assert resp.json()["status"] == "error"
         assert (await w.repo.get(SID)).secrets.get("access_token") == "tok-aaaa-bbbb"

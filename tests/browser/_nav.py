@@ -286,13 +286,20 @@ def href(route: str) -> str:
 # ── Page operations ───────────────────────────────────────────────────────
 
 
-def goto(page: Page, base: str, route: str, **kw):
+def goto(page: Page, base: str, route: str, *, boot: bool = True, **kw):
     """Navigate *page* to *route* on the app at *base*.
 
     Passes an absolute URL to ``page.goto`` so the conftest wrapper (credential
     + handoff, keyed on the origin) is never re-implemented here.
+
+    With ``boot=True`` (default, squawk 0428) it then waits for the router to have started,
+    so a first ``expect`` is not racing a slow first ``/api/config`` under load; instant on a
+    warm page.  Pass ``boot=False`` for a page where ``window.App`` never boots.
     """
-    return page.goto(base.rstrip("/") + "/" + hash_for(route), **kw)
+    resp = page.goto(base.rstrip("/") + "/" + hash_for(route), **kw)
+    if boot:
+        wait_router_started(page)
+    return resp
 
 
 # In-page fetch tracker for ``goto_settled`` / ``wait_settled``.  Registered as

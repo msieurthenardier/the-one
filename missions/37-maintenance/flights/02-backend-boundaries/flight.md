@@ -1,13 +1,13 @@
 # Flight: Backend boundaries before connectors
 
-**Status**: ready
+**Status**: completed
 **Mission**: [Post-Mission-36 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] The web API is split into feature routers (P1)
-- [ ] Concurrent agent writes cannot drop credentials (squawk 0327)
-- [ ] Python modules have a size ratchet (T3)
+- [ ] The web API is split into feature routers (P1). *Partly: the MCP and connector groups moved in Leg 1. The agent group is deferred to the connectors mission's leg 0, because Sortie 20 was open.*
+- [x] Concurrent agent writes cannot drop credentials (squawk 0327, completed)
+- [x] Python modules have a size ratchet (T3)
 
 ## Pre-Flight
 
@@ -29,6 +29,21 @@ N/A for the fixes. The router split's exact module boundaries are settled at leg
 
 **The size ratchet follows `tests/test_area_module_size.py`.** Every Python module under `the_one/` is capped at 800 lines. A module already over the cap is pinned at its current size and may only shrink.
 
+*Design decisions added 2026-11-25, at flight start (Flight Director, after the Flight 1 debrief):*
+
+**Sequencing with Sortie 20.** Sortie 20 ("deleting an agent deletes its chats", branch `sortie/20-deleting-an-agent-deletes-its-chats`) is in flight in a parallel worktree. It changes `delete_agent` in `api.py`, `app.py`, `db/schema.py` (v57), `db/connection.py` and `db/repositories.py`.
+- The MCP and connector router group moves first, because Sortie 20 does not touch it.
+- The agent route group moves only if Sortie 20 has merged when that leg starts. The Flight Director checks `main` immediately before.
+- Otherwise the agent group is deferred, which is this flight's existing "acceptable variation". It is recorded for the connectors mission's leg 0.
+- The 0327 lock leg reads `main` again first, because Sortie 20's `delete_agent` change sits next to the agent write path.
+
+**Closing gate: a quiet-host readiness check and a fallback** (Flight 1 debrief, recommendation 2).
+- **Readiness check:** the gate starts only after the 1-minute load has been below 1.0 for 3 consecutive minutes, with no test process from any worktree. The wait is bounded at 60 minutes.
+- **Fallback if no quiet window comes:** run the unit tier and each browser lane one at a time with `TEST_TIMEOUT=3600`, as a correctness check, recording the load next to each reading. Never start a full `--parallel 3` gate above load 10. Never re-budget from a loaded run.
+- **T2 is carried from Flight 1.** The quiet gate re-budgets every lane, including the six with no measurement note, and restates the full-gate target and the unit tier's xdist reading at N=4. If T2 slips again, it goes to the mission debrief as unmet.
+
+**Squawk 0428 is folded in** (`_nav.goto` has no boot-ready wait). It sits directly in the closing gate's path, because under load it fails lanes. It is fixed before the closing gate, and validated by that gate's full browser run.
+
 ### Citation Audit
 
 From the 2026-11-24 report (P1, T3, SV3):
@@ -41,8 +56,8 @@ These are re-checked at leg design.
 
 ### Prerequisites
 
-- [ ] PR #388 is merged.
-- [ ] The connectors rework has not started on these files.
+- [x] PR #388 is merged.
+- [x] The connectors rework has not started on these files.
 
 ### Pre-Flight Checklist
 
@@ -67,9 +82,9 @@ N/A. This is a maintenance flight with concrete fixes.
 
 ### Checkpoints
 
-- [ ] The routes have moved, and the `/openapi.json` before-and-after diff is empty.
-- [ ] The lock is in place and the race test passes.
-- [ ] The size ratchet test is in place.
+- [x] The routes have moved, and the `/openapi.json` before-and-after diff is empty (the MCP and connector groups).
+- [x] The lock is in place and the race test passes.
+- [x] The size ratchet test is in place.
 
 ### Adaptation Criteria
 
@@ -81,13 +96,20 @@ N/A. This is a maintenance flight with concrete fixes.
 
 *(Designed by `/mission-control:agentic-workflow`.)*
 
+1. [`mcp-connector-routers`](legs/01-mcp-connector-routers.md): completed.
+2. [`agent-write-lock`](legs/02-agent-write-lock.md): completed.
+3. [`python-size-ratchet`](legs/03-python-size-ratchet.md): completed.
+4. [`closing-gate`](legs/04-closing-gate.md): completed.
+
+The planned `agent-routers` leg was deferred (see the flight log, Leg 2 decision).
+
 ## Post-Flight
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] `the_one/agents.md` module map updated for the new routers
+- [x] All legs completed
+- [ ] Code merged (PR #394)
+- [x] `the_one/agents.md` module map updated for the new routers ("Web route modules (M37 F2 L1)")
 
 ### Verification
 

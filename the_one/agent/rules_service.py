@@ -8,12 +8,15 @@ status and ``detail`` the route returned before this module existed. Nothing her
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from the_one.agent.service import AgentStaleError, AgentWriteError, OnCommit
 from the_one.db._rules import RuleLimitError
 from the_one.db.models import AgentRule
 from the_one.db.repositories import AgentRuleRepository
+
+logger = logging.getLogger(__name__)
 
 # The fields change_rule may set (a move is the reorder route's job).
 CHANGEABLE_RULE_FIELDS = ("text", "enabled")
@@ -34,9 +37,11 @@ async def create_rule(
     """Add a rule for ``agent`` (``position`` None appends; an int inserts there, the rest
     move down). The total-characters limit is a 422 on the same detail as the route's."""
     try:
-        return await repo.create(agent, text, enabled, position=position, on_commit=on_commit)
+        rule = await repo.create(agent, text, enabled, position=position, on_commit=on_commit)
     except RuleLimitError as e:
         raise AgentWriteError(422, e.detail) from None
+    logger.info("agent %s rule %s: created", agent, rule.id)
+    return rule
 
 
 async def change_rule(
@@ -79,7 +84,7 @@ async def change_rule(
             raise AgentStaleError(stale)
 
     try:
-        return await repo.update(
+        rule = await repo.update(
             agent,
             rule_id,
             text=changes.get("text"),
@@ -91,3 +96,5 @@ async def change_rule(
         raise _not_found(rule_id) from None
     except RuleLimitError as e:
         raise AgentWriteError(422, e.detail) from None
+    logger.info("agent %s rule %s: changed", agent, rule_id)
+    return rule

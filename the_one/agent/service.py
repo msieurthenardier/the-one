@@ -22,7 +22,10 @@ Three entry points:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -47,6 +50,7 @@ __all__ = [
     "AgentWriteDeps",
     "AgentWriteError",
     "OnCommit",
+    "agent_write_lock",
     "change_agent",
     "comparable_value",
     "create_agent",
@@ -87,9 +91,38 @@ _COMPARE_FIELDS = (
 )
 
 # One load-merge-validate-save attempt, plus at most two retries.
+logger = logging.getLogger(__name__)
+
 _MAX_ATTEMPTS = 3
 
 MSG_CHANGED_WHILE_APPLYING = "This agent changed while the change was being applied. Try again."
+
+# Squawk 0327: per-agent write ordering. Every whole-row agent writer (load, merge across
+# awaits, save the whole row) holds ``agent_write_lock(name)`` from its load through its save,
+# so two writers to one agent cannot drop each other's changes. Ordering only: nothing about
+# what is merged, validated or refused changes. The server is one process and all coroutines
+# share one aiosqlite connection, so an in-process ``asyncio.Lock`` is enough. Lock order is
+# always agent lock first, then the store's write lock; never take it inside a store
+# ``precheck`` or ``on_commit`` hook, and never nest two writers.
+# Bounded: a refcounted registry ``{name: [lock, holders_and_waiters]}``; the entry is popped
+# when the count reaches zero (no await between the decrement and the pop).
+_agent_locks: dict[str, list[Any]] = {}
+
+
+@asynccontextmanager
+async def agent_write_lock(name: str) -> AsyncIterator[None]:
+    """Serialize agent writers for ``name`` (the stored name, as the store keys rows)."""
+    entry = _agent_locks.get(name)
+    if entry is None:
+        entry = _agent_locks[name] = [asyncio.Lock(), 0]
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            yield
+    finally:
+        entry[1] -= 1
+        if entry[1] == 0:
+            del _agent_locks[name]
 
 
 @dataclass(frozen=True)
@@ -197,6 +230,7 @@ async def create_agent(
     await write_checks.evict_changed_mcp_credentials(
         cfg.name, None, cfg.mcp_overrides, deps.mcp_repo
     )
+    logger.info("agent %s: created", cfg.name)
     return cfg, rows
 
 
@@ -209,8 +243,16 @@ async def replace_agent(
     surface row is carried in ``mcp_source_ids``; ``self_revision_requires_approval``,
     ``notes_enabled``, ``rich_visuals``, ``kb_ids``, ``secret_ids`` and ``tool_overrides`` keep
     their stored value when omitted; the Routines switches always keep theirs; stored
-    ``mcp_overrides`` credentials are merged in (AC5 / DD5 / D4). Last write wins.
+    ``mcp_overrides`` credentials are merged in (AC5 / DD5 / D4). Last write wins, but writes to
+    one agent are serialized (:func:`agent_write_lock`, squawk 0327).
     """
+    async with agent_write_lock(name):
+        return await _replace_agent_locked(deps, name, data)
+
+
+async def _replace_agent_locked(
+    deps: AgentWriteDeps, name: str, data: dict[str, Any]
+) -> tuple[AgentConfig, dict]:
     try:
         existing = await deps.store.load(name)
     except KeyError:
@@ -257,6 +299,7 @@ async def replace_agent(
     await write_checks.evict_changed_mcp_credentials(
         name, existing.mcp_overrides, cfg.mcp_overrides, deps.mcp_repo
     )
+    logger.info("agent %s: replaced", name)
     return cfg, rows
 
 
@@ -319,8 +362,25 @@ async def change_agent(
 
     ``override`` bypasses only the touched-field compare. ``on_commit`` runs inside the save's
     transaction; a raise from it rolls the agent write back.
+
+    The whole body, retry loop included, runs under :func:`agent_write_lock` (squawk 0327).
     """
     _refuse_keys(changes)
+    async with agent_write_lock(name):
+        return await _change_agent_locked(
+            deps, name, changes, base=base, override=override, on_commit=on_commit
+        )
+
+
+async def _change_agent_locked(
+    deps: AgentWriteDeps,
+    name: str,
+    changes: dict[str, Any],
+    *,
+    base: dict[str, Any] | None,
+    override: bool,
+    on_commit: OnCommit | None,
+) -> AgentConfig:
     for _attempt in range(_MAX_ATTEMPTS):
         try:
             existing = await deps.store.load(name)
@@ -372,5 +432,6 @@ async def change_agent(
             await deps.store.save(cfg, precheck=precheck, on_commit=on_commit)
         except _RetryError:
             continue
+        logger.info("agent %s: changed", name)
         return cfg
     raise AgentWriteError(409, [{"loc": [], "msg": MSG_CHANGED_WHILE_APPLYING}])

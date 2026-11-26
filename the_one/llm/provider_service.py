@@ -28,6 +28,7 @@ saves too):
 from __future__ import annotations
 
 import copy
+import logging
 import sqlite3
 import uuid
 from collections.abc import Awaitable, Callable
@@ -48,6 +49,8 @@ if TYPE_CHECKING:
     from the_one.db.repositories import LLMProviderRepository
 
 OnCommit = Callable[[aiosqlite.Connection], Awaitable[None]]
+
+logger = logging.getLogger(__name__)
 
 #: Provider types that skip URL safety validation. ``mock`` has no real URL; ``ollama`` is
 #: local-by-design and operators frequently point it at a LAN host that is trusted.
@@ -313,6 +316,7 @@ async def create_provider(
         raise ProviderWriteError(
             409, f"A model provider with id {provider.id} already exists."
         ) from None
+    logger.info("provider %s: created", provider.id)
     return provider
 
 
@@ -385,6 +389,7 @@ async def replace_provider(
     except KeyError:
         raise ProviderNotFound(provider_id) from None
     _after_write(provider_id)
+    logger.info("provider %s: replaced", provider_id)
     return after
 
 
@@ -546,4 +551,5 @@ async def change_provider(
     except KeyError:
         raise ProviderNotFound(provider_id) from None
     _after_write(provider_id)
+    logger.info("provider %s: changed", provider_id)
     return after

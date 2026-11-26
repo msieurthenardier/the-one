@@ -55,19 +55,25 @@ def test_no_module_under_the_one_mcp_imports_httpx() -> None:
 def test_the_two_oauth_flow_drivers_in_api_use_httpx2() -> None:
     """The two OAuth flow drivers hand the SDK's provider (an ``httpx2.Auth``) to a
     client, so they must build an ``httpx2.AsyncClient``; ``api.py`` keeps ``httpx``
-    for its non-MCP uses."""
-    api = MCP_DIR.parent / "interfaces" / "web" / "api.py"
-    tree = ast.parse(api.read_text(encoding="utf-8"))
+    for its non-MCP uses. One driver is in ``api.py`` (the provider OAuth flow); the other
+    moved to ``mcp_connection_flow.py``, which reaches ``httpx2`` as ``_api.httpx2`` so a patch
+    on ``api.httpx2`` still applies."""
+    web = MCP_DIR.parent / "interfaces" / "web"
     auth_clients: list[str] = []
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "AsyncClient"
-            and isinstance(node.func.value, ast.Name)
-            and any(kw.arg == "auth" for kw in node.keywords)
-        ):
-            auth_clients.append(node.func.value.id)
+    for name in ("api.py", "mcp_connection_flow.py"):
+        tree = ast.parse((web / name).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "AsyncClient"
+                and any(kw.arg == "auth" for kw in node.keywords)
+            ):
+                target = node.func.value
+                if isinstance(target, ast.Name):
+                    auth_clients.append(target.id)
+                elif isinstance(target, ast.Attribute):
+                    auth_clients.append(target.attr)
     assert auth_clients == ["httpx2", "httpx2"]
 
 

@@ -197,8 +197,26 @@ def test_goto_builds_absolute_url_and_passes_kwargs():
         def goto(self, url, **kw):
             calls.append((url, kw))
 
-    _nav.goto(FakePage(), "http://127.0.0.1:9/", "library/providers/~new", wait_until="commit")
+    _nav.goto(
+        FakePage(), "http://127.0.0.1:9/", "library/providers/~new", boot=False, wait_until="commit"
+    )
     assert calls == [("http://127.0.0.1:9/#studio/providers/new", {"wait_until": "commit"})]
+
+
+def test_goto_waits_for_the_router_unless_boot_is_false():
+    waits = []
+
+    class FakePage:
+        def goto(self, url, **kw):
+            return "resp"
+
+        def wait_for_function(self, expr, timeout=None):
+            waits.append(expr)
+
+    assert _nav.goto(FakePage(), "http://127.0.0.1:9/", "chats") == "resp"
+    assert len(waits) == 1 and "App.router" in waits[0]
+    _nav.goto(FakePage(), "http://127.0.0.1:9/", "chats", boot=False)
+    assert len(waits) == 1
 
 
 def test_legacy_url_tests_are_well_formed():

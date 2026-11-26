@@ -103,6 +103,7 @@ Four layers compose bottom-up: **Interfaces** (CLI + Web/FastAPI) -> **Agent** (
 ## Conventions
 
 - Python 3.12+, async throughout. ruff (rules E, F, I, N, W), line length 100.
+- The 800-line module rule is enforced for Python by `tests/test_python_module_size.py` (its `ALLOWANCE` of ceilings only shrinks; a PR that must grow a listed module raises the ceiling with a reason) as for JS areas by `tests/test_area_module_size.py`.
 - Tools return strings; errors are caught and wrapped by the agent loop. LLM provider schemas default to OpenAI function-calling format; override `tool_schema()` for others.
 - Named project-wide patterns (`trust-the-runtime`, `canonical-import + convenience-re-export`, `removing-dead-code`, `landmark-elements-over-aria-roles`, ...) live in `the_one/agents.md` "Project Conventions".
 - A change to a page, form, label or route updates the app guide (`the_one/gleepglorp/guide/*.md`) in the same flight; `tests/test_gleepglorp_guide.py` is the drift alarm.

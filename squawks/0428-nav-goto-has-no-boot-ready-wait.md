@@ -1,6 +1,6 @@
 # Squawk 0428: `_nav.goto` does not wait for the app to boot, so first expectations time out under load
 
-**Status**: open
+**Status**: in-progress
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-11-25
@@ -29,12 +29,16 @@ The full list is in `sorties/20-deleting-an-agent-deletes-its-chats/flight-log.m
 - `tests/browser/test_flow_chat_composer_library.py:134-136`: `_nav.goto(...)` then `expect(welcome).to_be_visible()`, with the default 5 s timeout.
 
 ## Corrective Action
-*(written at completion)*
+`tests/browser/_nav.py::goto` now takes a keyword-only `boot: bool = True` and, after `page.goto`, calls `wait_router_started(page)` (15 s, instant on a warm page). `boot=False` skips the wait for a page where `window.App` never boots. Caller audit (grep over `tests/browser/`, about 107 files): no caller loads a non-app page or a deliberately failing `/api/config`, so none needs `boot=False`. `test_flow_chat_time_zone.py::test_boot_waits_at_most_two_seconds_for_the_time_zone` holds `/api/time-settings`, but the boot waits at most 2 s, so the router still starts inside 15 s. `tests/test_nav_helper.py` gains a boot/no-boot test and its kwargs test passes `boot=False` (its fake page has no `wait_for_function`).
 
-Suggested direction: `goto` calls `wait_router_started(page)` after `page.goto`. That costs nothing on a warm page. A full browser run must validate it, because every lane uses `goto`. Check first for callers that load a page without `window.App`.
+Original suggested direction: `goto` calls `wait_router_started(page)` after `page.goto`. That costs nothing on a warm page. A full browser run must validate it, because every lane uses `goto`. Check first for callers that load a page without `window.App`.
 
 ## Verification
-At high load (above 10), the failing test passes 3 of 3 in isolation. A full browser gate on a quiet host stays green.
+Progress (Flight 2 Leg 4): `tests/test_nav_helper.py` passes; the failing test passed 3 of 3 in isolation at load 12 to 15 (it was not failing before the change at that load, so this is not a reproduction of the race).
+
+The full fallback gate (23 lanes one at a time, load 2 to 25) found the same race in tests that call a raw `page.goto(base)` (the 0428 evidence list), which `_nav.goto` does not cover. Fixed in place with a `_nav.wait_router_started(page)` line after the goto: `test_flow_new_chat.py` (4 tests) and `test_flow_provider_setup.py::test_first_start_provider_setup_flow`; all 13 pass at load 18 to 22 after, 4 and 1 failed before. `test_flow_context_overlay_thresholds.py` had an `httpx` 5 s read timeout, raised to 30 s; it passes. **Not done:** about 98 other raw `page.goto(<base>)` call sites remain (they passed in the gate, so are not failing today); a helper or a conftest wrapper wait is a follow-up. `test_flow_chat_live_updates.py` mid-turn join is a different class: squawk 0433. Status stays `in-progress` until a quiet-host gate stays green.
+
+Criteria: at high load (above 10), the failing test passes 3 of 3 in isolation. A full browser gate on a quiet host stays green.
 
 ## Sign-Off
 *(written at completion)*
