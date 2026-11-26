@@ -102,7 +102,8 @@ def _visible_h1s(page: Page) -> list[str]:
 
 def _wait_state(page: Page, name: str, timeout: float = 10000) -> None:
     page.wait_for_function(
-        "n => App.areas.find(a => a.id === 'chat')._sessionState().name === n",
+        "n => { const a = App.areas.find(x => x.id === 'chat');"
+        " return !!(a && a._sessionState) && a._sessionState().name === n; }",
         arg=name,
         timeout=timeout,
     )

@@ -263,8 +263,9 @@ def test_reconnect_while_joined_rejoins_the_session(app_with_agent: SeededApp, p
         what="exactly one re-join",
     )
     page.wait_for_function(
-        "(id) => { const st = App.areas.find(a => a.id === 'chat')._sessionState();"
-        " return st.name === 'joined' && st.id === id; }",
+        "(id) => { const a = App.areas.find(x => x.id === 'chat');"
+        " const st = a && a._sessionState && a._sessionState();"
+        " return !!st && st.name === 'joined' && st.id === id; }",
         arg=sid,
         timeout=10000,
     )

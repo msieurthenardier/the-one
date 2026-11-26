@@ -62,7 +62,12 @@ def _token(page: Page, prop: str, value: str) -> str:
 
 
 def _wait_state(page: Page, name: str, timeout: float = 10000) -> None:
-    page.wait_for_function(f"n => ({_STATE})() === n", arg=name, timeout=timeout)
+    page.wait_for_function(
+        "n => { const a = App.areas.find(x => x.id === 'chat');"
+        " return !!(a && a._sessionState) && a._sessionState().name === n; }",
+        arg=name,
+        timeout=timeout,
+    )
 
 
 def _composer_view(page: Page) -> dict[str, str]:

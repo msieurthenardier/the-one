@@ -448,5 +448,11 @@ def destination_panel(page: Page, name: str):
 
 
 def open_destination(page: Page, name: str) -> None:
-    """Open a top-level destination: chats | agents | library | settings."""
+    """Open a top-level destination: chats | agents | library | settings.
+
+    Waits for the router to have started first (squawk 0424): the rail renders at
+    DOMContentLoaded but the router starts only after ``/api/config`` resolves, and a click
+    before that is overridden by the router's start. Instant when the router is already up.
+    """
+    wait_router_started(page)
     destination_locator(page, name).click()

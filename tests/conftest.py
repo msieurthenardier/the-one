@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import atexit
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -42,12 +44,21 @@ import pytest
 # `the-one-pytest-<worker>-` one; an explicit override carries no marker and
 # is kept. The encryption key and credential files live under
 # `settings.data_dir`, so they become per-worker too.
+#
+# Squawk 0425: each process removes only the directory it minted itself, at
+# interpreter exit (after every test and teardown). An explicit override and
+# the controller's directory inherited by a worker are never removed here.
 _worker = os.environ.get("PYTEST_XDIST_WORKER")
+_minted_data_dir: str | None = None
 if "THE_ONE_DATA_DIR" not in os.environ:
-    os.environ["THE_ONE_DATA_DIR"] = tempfile.mkdtemp(prefix="the-one-pytest-")
+    _minted_data_dir = tempfile.mkdtemp(prefix="the-one-pytest-")
+    os.environ["THE_ONE_DATA_DIR"] = _minted_data_dir
     os.environ["_THE_ONE_PYTEST_OWN_DATA_DIR"] = "1"
 elif _worker and os.environ.get("_THE_ONE_PYTEST_OWN_DATA_DIR") == "1":
-    os.environ["THE_ONE_DATA_DIR"] = tempfile.mkdtemp(prefix=f"the-one-pytest-{_worker}-")
+    _minted_data_dir = tempfile.mkdtemp(prefix=f"the-one-pytest-{_worker}-")
+    os.environ["THE_ONE_DATA_DIR"] = _minted_data_dir
+if _minted_data_dir is not None:
+    atexit.register(shutil.rmtree, _minted_data_dir, ignore_errors=True)
 os.environ.setdefault("THE_ONE_TEST_MODE", "1")
 
 from the_one.llm.base import LLMProvider, Message  # noqa: E402

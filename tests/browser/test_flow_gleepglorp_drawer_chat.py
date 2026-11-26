@@ -288,8 +288,9 @@ def test_the_log_is_a_live_region_only_while_the_drawer_is_shown(
 
 def _chats_joined_js(sid: str) -> str:
     return (
-        "() => { const a = App.areas.find(x => x.id === 'chat'); const st = a._sessionState();"
-        f" return st.name === 'joined' && st.id === '{sid}'; }}"
+        "() => { const a = App.areas.find(x => x.id === 'chat');"
+        " const st = a && a._sessionState && a._sessionState();"
+        f" return !!st && st.name === 'joined' && st.id === '{sid}'; }}"
     )
 
 
