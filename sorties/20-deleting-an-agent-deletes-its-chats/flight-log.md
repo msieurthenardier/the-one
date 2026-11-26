@@ -236,3 +236,35 @@ Developer design review (Sonnet). Folded in:
 - Tests (`test_flow_agents_delete_dialog.py`, now 10): `test_running_moves_focus_to_cancel_announces_and_failure_focuses_delete` (new), `test_opener_is_free_again_after_an_escaped_request_fails` (new), and an opener-click-after-Escape assertion added to the Escape-mid-request test.
 - Falsified (fix edited out, test failed, restored): focus to Cancel yes; focus to Delete on failure yes; status text yes; `aria-busy` yes; opener guard held in flight yes; guard released after settle yes.
 - `the_one/agents.md` dialog paragraph updated.
+
+### Gate triage after rebase
+
+**Rebase**: onto origin/main 7518aefa (#391), no conflicts (including `the_one/agents.md`); HEAD was 61da5b47 before this commit. `.venv` is Python 3.12.3.
+
+**Cause of the gate noise**: the killed gate ran on the pre-rebase tree (several chats failures were `a._sessionState is not a function`, the predicates #391 fixed), under host load 16-26 with other sessions running browser lanes. A first chats-lane run hit the 1200 s TEST_TIMEOUT; reruns used `TEST_TIMEOUT=3600`.
+
+**Fixed (ours)**: three tests in `test_flow_chat_transcript_library.py` deleted an agent over HTTP to reach the deleted-agent state (`test_a_deleted_agents_chat_makes_no_context_window_request`, `test_the_step_limit_notice_for_a_deleted_agent_is_plain_text`, `test_a_blocked_chat_renders_no_continue_button`). They now seed a chat for a never-existed agent name (`seed_session`, a user message for the two that need one) and keep their assertions. The step-limit test also asserts the no-button sentence (the chat is blocked) and waits for the disabled input first. File run alone: 30 passed. Falsification: not applicable (test moves; the old form could not pass after the cascade).
+
+**Multi-line grep for agent deletion over HTTP** (tests/, tests/browser, tests/behavior; `.delete(` with `api/agents`, DELETE methods, wrapper helpers):
+- `test_flow_chat_transcript_library.py` (3 sites): moved.
+- `test_flow_chat_pane.py:374`, `test_flow_chat_start_flow.py:368,488,503`: not affected; they delete from a pending (`~new`) chat before any session exists and assert no sessions.
+- `test_flow_agent_crud.py`, `_agent_delete.py`, `test_flow_agents_delete_dialog.py`: this sortie's UI delete tests.
+- `test_flow_chat_composer_library.py`, `test_flow_chat_picker.py` and others: already moved in leg 1.
+- Unit tier (`test_ws_start_session`, `test_self_configuration_api/_external`, `test_routines_self_config_api`, `test_agent_rules_api`, `test_db_api`, `test_mcp_pool_resolve`, `test_routines_service`): not affected; the full unit tier passes (below).
+- Behavior specs (`workbench-navigation`, `list-and-detail`, `start-a-chat`, `studio-agent-crud`): teardown deletes only; `start-a-chat` deletes sessions first.
+
+**Failures, classified** (isolated runs and a pristine origin/main worktree at 7518aefa, since removed):
+- PRE-EXISTING on pristine main, fail identically there: `test_flow_new_chat.py` (4: `test_welcome_no_setup_shows_both_links`, `_provider_only_shows_studio_link`, `_with_agent_shows_the_empty_state`, `test_empty_state_new_chat_opens_the_picker_and_starts_a_chat`; empty `<main>`, `chat-welcome` never appears); `test_flow_chat_composer_library.py::test_the_empty_states_text_column_is_centred`; `test_flow_chat_live_updates.py` (2: `test_joining_mid_turn_ends_the_running_work_line_after_the_turn`, `test_a_message_sent_during_a_mid_turn_join_is_held_then_delivered`); `test_flow_provider_setup.py::test_first_start_provider_setup_flow`; `test_flow_provider_library.py::test_bare_providers_section_is_an_alias_for_the_library_root`; `test_flow_admin_navigation.py` (3); `test_flow_settings_window_chrome_signal.py` (3); `test_flow_context_overlay_thresholds.py::test_overlay_custom_warn_threshold_moves_transition`. Main run: 12 failed, 5 passed for that set; new_chat file alone 4 failed, 8 passed on both trees. Cause not investigated (not ours; likely host/environment).
+- LOAD FLAKES (pass in isolation on our tree): `test_flow_gleepglorp_fill_provider.py` (gate: `test_cancel_restores...` KeyError: 1; lane: `test_an_options_only_fill...`; file alone 22 passed with the openrouter file), `test_flow_studio_openrouter_picker.py::test_rapid_provider_switch_uses_final_selection`, `tests/test_mcp_pool.py::test_acquire_lazy_spawn_creates_worker_and_returns_client` (unit tier under xdist; passes alone; MCP code is not in our diff).
+- Ours: none remaining.
+
+**Verification on the final tree** (`TEST_TIMEOUT=3600`, `THE_ONE_TEST_NETNS=1`, `THE_ONE_REQUIRE_WEBKIT=1`, one lane at a time; load 5-23, other sessions busy):
+- chats (before the final step-limit edit): 171 passed, 7 failed, all pre-existing (above), 1491 s.
+- chats-transcript: 151 passed, 1 failed (overlay threshold, pre-existing), 1548 s; the edited file alone passes.
+- settings: 120 passed, 6 failed (admin_navigation x3, chrome_signal x3, all pre-existing), 1275 s.
+- gleepglorp-kinds: 101 passed, 1 failed (load flake), 1123 s.
+- providers: 142 passed, 2 failed (pre-existing), 1123 s.
+- agents: 195 passed, 1 failed (openrouter picker, load flake), 1928 s.
+- routing: 193 passed, 1830 s.
+- `make test-unit`: 12346 passed, 40 skipped, 1 failed (mcp_pool flake, passes alone), 159 s, load about 5.
+- `ruff check` and `ruff format --check` on `the_one/ tests/ scripts/ evals/`: clean.
