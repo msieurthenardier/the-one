@@ -1,13 +1,13 @@
 # Flight: Backend boundaries before connectors
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Post-Mission-36 Maintenance](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] The web API is split into feature routers (P1)
-- [ ] Concurrent agent writes cannot drop credentials (squawk 0327)
-- [ ] Python modules have a size ratchet (T3)
+- [ ] The web API is split into feature routers (P1). *Partly: the MCP and connector groups moved in Leg 1. The agent group is deferred to the connectors mission's leg 0, because Sortie 20 was open.*
+- [x] Concurrent agent writes cannot drop credentials (squawk 0327, completed)
+- [x] Python modules have a size ratchet (T3)
 
 ## Pre-Flight
 
@@ -56,8 +56,8 @@ These are re-checked at leg design.
 
 ### Prerequisites
 
-- [ ] PR #388 is merged.
-- [ ] The connectors rework has not started on these files.
+- [x] PR #388 is merged.
+- [x] The connectors rework has not started on these files.
 
 ### Pre-Flight Checklist
 
@@ -82,9 +82,9 @@ N/A. This is a maintenance flight with concrete fixes.
 
 ### Checkpoints
 
-- [ ] The routes have moved, and the `/openapi.json` before-and-after diff is empty.
-- [ ] The lock is in place and the race test passes.
-- [ ] The size ratchet test is in place.
+- [x] The routes have moved, and the `/openapi.json` before-and-after diff is empty (the MCP and connector groups).
+- [x] The lock is in place and the race test passes.
+- [x] The size ratchet test is in place.
 
 ### Adaptation Criteria
 
@@ -96,13 +96,20 @@ N/A. This is a maintenance flight with concrete fixes.
 
 *(Designed by `/mission-control:agentic-workflow`.)*
 
+1. [`mcp-connector-routers`](legs/01-mcp-connector-routers.md): completed.
+2. [`agent-write-lock`](legs/02-agent-write-lock.md): completed.
+3. [`python-size-ratchet`](legs/03-python-size-ratchet.md): completed.
+4. [`closing-gate`](legs/04-closing-gate.md): completed.
+
+The planned `agent-routers` leg was deferred (see the flight log, Leg 2 decision).
+
 ## Post-Flight
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] `the_one/agents.md` module map updated for the new routers
+- [x] All legs completed
+- [ ] Code merged (PR #394)
+- [x] `the_one/agents.md` module map updated for the new routers ("Web route modules (M37 F2 L1)")
 
 ### Verification
 
