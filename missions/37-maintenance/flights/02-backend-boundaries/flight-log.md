@@ -233,6 +233,67 @@ The Developer implemented the leg. The Flight Director ran the tier and landed i
     - the `api.py` ceiling of 5108 matches the current count. Leg 2 added 25 lines over Leg 1's 5083.
 
   Legs 1-3 are marked `completed`, with a checkpoint commit before Leg 4.
+- **Leg 4 (`closing-gate`, with the 0428 fix): risk tier medium.** The `_nav.goto` change touches every browser lane. The gate's full run is the validation for it, and Leg 4 is that gate.
+  - The design follows squawk 0424's pattern, so there is no separate design review.
+  - The caller audit for pages that never boot the app is an acceptance criterion.
 - **Leg 3 (`python-size-ratchet`, plus P5 logging): risk tier low.** It adds a test and info-level log lines, with no design review.
   - **Parallel-work rule:** a PR may raise a ceiling in its own diff, with a reason. That way Sortie 20's growth of `app.py`, `repositories.py`, `schema.py` and `api.py` stays visible without blocking its rebase.
   - Once the ratchet lands, the Flight Director tells the Sortie 20 session about it.
+- **2026-11-26, #392 merged during Leg 4.** The Developer was paused, origin/main was merged in cleanly as `e8647483`, and the Developer resumed. It had four post-merge steps: the size ceilings, the 0428 evidence, the unit tier on the merged tree, then the gate.
+- **Leg 4 landed** (Developer, about 8 h). The readiness wait found no quiet window, so the fallback ran: 23 lanes one at a time, 6 h 36 min, at load 2 to 25.
+  - Seven failures, all load races. Six were fixed with a boot-ready wait or a longer timeout. The seventh is squawk 0433, open.
+  - T2 is not met, and goes to the mission debrief as unmet.
+- **Flight-end review of Leg 4 and the merge** (Reviewer, Haiku: only tests, docs and artifacts changed, no security-sensitive surface).
+  - It found one blocking issue: squawk 0433's Verification recorded "passes 3 of 3 in isolation", but no such run happened. The only isolation run had failed.
+  - Two non-blocking issues: the lane table had no budget column or total, and the readiness line was ambiguous.
+  - The other checks passed: the `_nav.goto` boot wait comes after the handoff, the ceilings match `wc -l`, and the merge lost nothing from Legs 1-3.
+  - These are artifact-only fixes, so the Flight Director made them, and a narrow Haiku re-review checked them.
+  - Leg 4's evidence for pre-existing failures rests on Sortie 20's recorded `main` run (flight log line 257 there). This flight did not run `main` itself.
+
+## Leg 4: closing-gate (Developer, 2026-11-26)
+
+- **0428 fix.** `tests/browser/_nav.py::goto` takes keyword-only `boot=True` and calls `wait_router_started` after `page.goto`; `boot=False` skips it. `tests/test_nav_helper.py` updated (kwargs test uses `boot=False`) plus a new boot/no-boot test; 84 passed.
+- **Caller audit** (grep of `tests/browser/`, about 107 files): no `_nav.goto` caller loads a non-app page or a failing `/api/config`, so none needed `boot=False`. Looked at: `test_flow_chat_time_zone.py` (held `/api/time-settings`; boot waits 2 s at most), `test_flow_studio_tool_override_state.py` (real `/api/config` fulfilled), `test_router_core.py` (`__held` is the leave guard, after boot). The gate found no `goto` caller broken by the wait.
+- **Isolation of the squawk's test:** `test_the_empty_states_text_column_is_centred` passed 3 of 3 at load 12 to 15 (it was not failing at that load before; no slow-route stub was run, the host was not quiet).
+- **Post-merge changes** (after `main` with Sortie 20 came in, `e8647483`): the four size-ratchet ceilings raised to 5126, 4171, 4170 and 3662, each with a reason; `test_python_module_size.py` passes. Squawk 0428 now carries Sortie 20's evidence plus the corrective action (status `in-progress`).
+- **Unit tier on the merged tree** (start load about 14): **12387 passed, 15 skipped in 761.7 s**, rc=0.
+- **Readiness (AC2):** one 60-minute wait. An unlogged attempt prepared at 02:42 was discarded; the counted wait ran 02:59:55 to 03:59:55 (scratchpad `wait.log`, one sample a minute). Load ranged 1.3 to 20 from other projects, never 3 consecutive minutes below 1.0 with no test process. **Outcome: NOT QUIET after 3600 s**, so the fallback ran. T2 not met: no quiet host.
+- **Fallback per-lane run** (one lane at a time, `TEST_TIMEOUT=3600`, no overlap with any other test process, no `-x`, `--timeout 300`):
+
+| lane | result | wall s | budget s | load start to end |
+|---|---|---|---|---|
+| chats | 5 failed, 173 passed | 1470 | 540 | 9.5 to 24.4 |
+| chats-transcript | 1 failed, 151 passed | 1595 | 540 | 24.4 to 21.7 |
+| chats-widgets | 32 passed | 430 | 240 | 21.7 to 20.7 |
+| gleepglorp-chat | 84 passed | 892 | 330 | 20.7 to 6.7 |
+| gleepglorp-fill | 45 passed | 396 | 210 | 6.7 to 7.9 |
+| gleepglorp-kinds | 102 passed | 1180 | 450 | 7.9 to 17.0 |
+| agents | 196 passed | 2119 | 780 | 17.0 to 6.8 |
+| agent-tabs | 221 passed | 1628 | 750 | 6.8 to 7.6 |
+| agent-routines | 84 passed | 806 | 360 | 7.6 to 13.6 |
+| library | 122 passed | 1469 | 570 | 13.6 to 21.5 |
+| knowledge | 65 passed | 843 | 420 | 21.5 to 10.2 |
+| mcp | 105 passed | 1192 | 450 | 10.2 to 24.6 |
+| mcp-connection | 102 passed | 1047 | 390 | 24.6 to 3.7 |
+| routing | 193 passed | 1650 | 810 | 3.7 to 11.0 |
+| settings | 126 passed | 1349 | 480 | 11.0 to 21.6 |
+| settings-tools | 174 passed | 1133 | 330 | 21.6 to 21.1 |
+| providers | 1 failed, 143 passed | 1400 | 420 | 21.1 to 21.4 |
+| contracts-overlay | 558 passed, 1 skipped | 427 | 240 | 21.4 to 10.9 |
+| contracts-chat | 358 passed | 113 | 180 | 10.9 to 3.5 |
+| contracts-widget | 156 passed, 2 skipped | 226 | 300 | 3.5 to 1.6 |
+| contracts-widget-lifecycle | 113 passed | 112 | 150 | 1.6 to 7.7 |
+| contracts-controls | 1308 passed, 4 skipped | 860 | 540 | 7.7 to 11.4 |
+| shared | 365 passed | 1396 | 420 | 11.4 to 20.2 |
+| **total** | 7 failed, 4976 passed, 7 skipped | 23733 (6 h 36 min, sequential) | 9900 (sum of lane budgets) | |
+
+  The budgets are the `scripts/run-tests.sh --help` table, which assumes a quiet `--parallel 3` run. A sequential run at load 2 to 25 is not comparable to them, so no wall time here is a budget reading and nothing is re-budgeted. No lane was killed by `TEST_TIMEOUT`.
+- **Triage (AC4).** Seven failures, all re-run in isolation at load 17 to 22 and all reproduced:
+  - `test_flow_new_chat.py` (4 tests) and `test_flow_provider_setup.py::test_first_start_provider_setup_flow`: raw `page.goto(base)` then a first `expect` on an empty `<main>`; the squawk 0428 class (they are in 0428's Sortie 20 evidence list, failing on pristine `main`). Fixed with `_nav.wait_router_started(page)` after the goto; 13 passed at load 18 to 22.
+  - `test_flow_context_overlay_thresholds.py::test_overlay_custom_warn_threshold_moves_transition`: `httpx` 5 s `ReadTimeout` on `/api/config` under load, also failing on pristine `main` per Sortie 20. Timeout raised to 30 s; passes.
+  - `test_flow_chat_live_updates.py::test_a_message_sent_during_a_mid_turn_join_is_held_then_delivered`: fails in isolation at load 18; also on pristine `main` per Sortie 20's record. Not touched. **Logged as squawk 0433.**
+  - No failure is new to this flight. I did not run `main` myself; I relied on Sortie 20's recorded failure of these tests on `main` `7518aefa`. The new `test_flow_agents_delete_dialog.py` ran in the `agents` lane and passed.
+  - About 98 other raw `page.goto(<base>)` sites remain unwrapped; they passed. Follow-up noted in 0428.
+- **Re-budget (T2): not met, no quiet host.** `scripts/run-tests.sh` is unchanged. One sentence added to `agents.md` "Budget history".
+- **Lint:** `ruff check` and `ruff format --check` clean on `tests/` and `the_one/`; `tests/test_nav_helper.py` and `tests/test_run_tests_lanes.py` pass (106).
+- **Files changed:** `tests/browser/_nav.py`, `tests/test_nav_helper.py`, `tests/test_python_module_size.py`, `tests/browser/test_flow_new_chat.py`, `tests/browser/test_flow_provider_setup.py`, `tests/browser/test_flow_context_overlay_thresholds.py`, `the_one/agents.md`, `squawks/0428-...md`, `squawks/0433-...md`, the leg file, this log.

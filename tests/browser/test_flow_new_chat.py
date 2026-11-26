@@ -53,6 +53,7 @@ def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
     (``#library/providers/~new``, sortie 02, DD6); it was Settings › Providers.
     """
     page.goto(app_clean)
+    _nav.wait_router_started(page)  # squawk 0428: a bare-origin goto races the boot under load
     welcome = _chats.welcome(page)
     expect(welcome).to_be_visible(timeout=5000)
 
@@ -73,6 +74,7 @@ def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
 def test_welcome_provider_only_shows_studio_link(app_with_provider: SeededApp, page: Page) -> None:
     """Provider seeded, no agents → guidance only points to Agents."""
     page.goto(app_with_provider.base_url)
+    _nav.wait_router_started(page)  # squawk 0428
     welcome = _chats.welcome(page)
     expect(welcome).to_be_visible(timeout=5000)
 
@@ -94,6 +96,7 @@ def test_welcome_with_agent_shows_the_empty_state(app_with_agent: SeededApp, pag
     opens from it). No guidance, no header.
     """
     page.goto(app_with_agent.base_url)
+    _nav.wait_router_started(page)  # squawk 0428
     welcome = _chats.welcome(page)
     expect(welcome).to_be_visible(timeout=5000)
 
@@ -126,6 +129,7 @@ def test_empty_state_new_chat_opens_the_picker_and_starts_a_chat(
     seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="picker-agent")
 
     page.goto(app_with_provider.base_url)
+    _nav.wait_router_started(page)  # squawk 0428
     expect(_chats.welcome(page)).to_be_visible(timeout=5000)
 
     new_btn = _chats.empty_new_button(page)

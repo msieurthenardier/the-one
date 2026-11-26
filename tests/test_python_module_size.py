@@ -27,14 +27,14 @@ REMEDY = "split the module, or raise its ALLOWANCE ceiling in this PR with a one
 
 # path relative to the_one/ -> ceiling (the line count when the guard landed).
 ALLOWANCE: dict[str, int] = {
-    # The route table; the connector and MCP routes already moved out (M37 F2 L1).
-    "interfaces/web/api.py": 5108,
-    # The app factory and its wiring.
-    "interfaces/web/app.py": 4139,
-    # Every repository in one module; the split is its own flight.
-    "db/repositories.py": 4121,
-    # The schema and its migration chain; append-only by design.
-    "db/schema.py": 3627,
+    # The route table; routes moved out in M37 F2 L1. Raised 5108 -> 5126 (Sortie 20, PR #392).
+    "interfaces/web/api.py": 5126,
+    # The app factory and its wiring. Raised 4139 -> 4171 (Sortie 20, PR #392: agent delete).
+    "interfaces/web/app.py": 4171,
+    # Every repository in one module. Raised 4121 -> 4170 (Sortie 20, PR #392: delete cascade).
+    "db/repositories.py": 4170,
+    # The schema and its migration chain, append-only. Raised 3627 -> 3662 (Sortie 20, schema v57).
+    "db/schema.py": 3662,
     # The diagnostics report builders.
     "diagnostics.py": 1364,
     # The MCP client.

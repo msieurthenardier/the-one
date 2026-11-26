@@ -138,7 +138,7 @@ def test_overlay_custom_warn_threshold_moves_transition(tmp_path: Path, page: Pa
         import httpx
 
         cfg = httpx.get(
-            f"{base_url}/api/config", timeout=5.0, headers=auth_headers_for(base_url)
+            f"{base_url}/api/config", timeout=30.0, headers=auth_headers_for(base_url)
         ).json()
         assert cfg["context_warn_pct"] == 50, cfg
 
