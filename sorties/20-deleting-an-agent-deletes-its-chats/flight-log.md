@@ -89,4 +89,150 @@ Planned on 2026-11-25. The operator approved the design and marked it `ready` th
 
 ## Leg Progress
 
-_No legs executed yet._
+### Flight Director Notes
+
+#### 2026-11-25: execution start
+- The phase file `.flightops/agent-crews/leg-execution.md` loaded and is valid (Crew, Interaction Protocol, Prompts).
+- The design commit `8decdebf` is on `sortie/20-deleting-an-agent-deletes-its-chats`, in the worktree `/home/cprch/projects/the-one-sortie-20`. The flight status went from `ready` to `in-flight`.
+- The worktree venv was created with `uv sync --all-extras --frozen` (version 1.0.0); the main checkout's `.venv` was not touched.
+- Two autonomous legs, no HAT. The operator asked for execution through to an open PR, with no merge.
+
+#### 2026-11-25: leg 1 designed, tiered high-risk
+- `legs/01-cascade-delete-and-orphan-purge.md` was written. **Risk tier: high**, so a Developer design review runs before implementation. Rationale: a schema migration that deletes the operator's data, a shared delete path with existing consumers, a lifecycle reversal (schema v5's "chats survive"), and a security-sensitive surface (a connection pragma on the shared connection).
+- Reachability: the FK cascades from `agents` take routine runs and proposals; `chat_sessions` has no FK, so the store method must delete them itself; GleepGlorp's chats have no agents row, so the purge must exclude them.
+- Interface: `AgentConfigStore.delete`'s return type changes. Its consumers are `api.py::delete_agent` and the test fake `tests/test_factory.py:47`. Response pins: every test asserts only `status_code == 200` on `DELETE /api/agents/{name}`; none pins the body (grepped `tests/`).
+
+#### 2026-11-25: leg 1 design review, one cycle (approve with changes)
+Developer design review (Sonnet). Folded in:
+- **High:** AC11's pin list was incomplete. There are 18 exact `56` pins in `test_db_migration.py`, not 6; `:7419` is a v56-exists check and is not bumped. The v53 `_seed` tests (`:7058`, `:7093`) lose `s-Default` to the purge, and seeding a `Default` agent row is the expected fix.
+- **Medium:**
+  - AC14 uses the `isolated_db` fixture (this worktree has no per-worker data directories, because the xdist change is on Mission 37's unmerged branch). It uses an ASCII marker in a non-first message with an explicit title, and reads the bytes before the connection closes.
+  - The shared cancel function's signature is `(session_id, session | None)`, and only the eviction helper waits, so the socket's cancel timing is unchanged.
+  - The checkpoint helper consumes its cursor.
+- **Low:**
+  - the `secure_delete` assertion sits beside the template's `foreign_keys` assertion, and ad hoc test connections are exempt;
+  - three more lane `chats` files that delete agents;
+  - AC3 names the statement to make fail;
+  - a 404 delete runs no checkpoint.
+- No second cycle: every change is the reviewer's own correction or a precision edit, and the scope is unchanged. The leg is `ready`.
+
+#### 2026-11-25: coordination with Mission 37 (peer note from ATC)
+- Mission 37 Flight 1's PR #390 may merge first. It touches:
+  - `tests/conftest.py` (per-worker `THE_ONE_DATA_DIR`; `make test-unit` becomes `-n 4`);
+  - `tests/test_chat_history_purge.py`;
+  - `the_one/agents.md`, `CLAUDE.md`, `Makefile`, `pyproject.toml`, `uv.lock`.
+
+  It does not touch `api.py`, `db/schema.py` or `test_db_migration.py`.
+- At the PR step: if #390 has merged, rebase on `main`, then re-run the unit tier and the lane `chats` before opening. Expect conflicts only in `the_one/agents.md`.
+- AC14's use of `isolated_db` is safe under xdist.
+- Mission 37 Flight 2 will split `api.py` into routers. This sortie's `delete_agent` change should merge before that split.
+- **Update:** #390 merged to `main` as `9f5cbb1d`. It changed no `the_one/` code; it touched `CLAUDE.md`, `Makefile`, `pyproject.toml`, `uv.lock`, `tests/conftest.py` and some test files. **Decision:** no rebase mid-leg, because the Developer's work is uncommitted in this tree. After the flight commit: rebase on `main`, run `uv sync --all-extras --frozen` (pytest-xdist), then re-run the unit tier (now `-n 4`) and the touched lanes before opening the PR.
+
+#### 2026-11-25: leg 2 drafted while leg 1 builds
+- `legs/02-delete-agent-dialog.md` was drafted. The legs share no file: leg 2 touches only `static/js`, the lanes `agents` and `routing`, the guide and the registry. It is finalised after leg 1 lands, with its citations re-checked against the tree as it is then.
+- **Tier: low** (no design review). Rationale: a single surface, an established precedent (the custom-recurrence dialog's own buttons, the provider delete's checkbox gate), no library change, and the design already went through two Architect cycles (DD5, DD6). The flight's Accessibility Reviewer covers the new surface.
+
+#### 2026-11-25: leg 1 landed; environment corrected
+- `[LAND:leg]` received for `cascade-delete-and-orphan-purge`; nothing is committed. Its report is in the section below.
+- **The worktree venv was Python 3.13** (`uv sync` chose it; the main checkout's venv is 3.12.3). It was rebuilt with `uv sync --all-extras --frozen --python 3.12`. Both unit failures the Developer called pre-existing (`test_fake_platforms_seam.py::test_refuses[...]`, `test_mcp_negotiation_fallback.py::test_stdio_slow_legacy_server_past_the_window_records_the_fallback`) pass on 3.12, along with `tests/test_agent_delete_cascade.py` (54 passed). They were 3.13 artifacts, not defects.
+- **The 25 extra skips** ("o200k_base is not cached") come from the tiktoken cache, which is absent in this environment. They are environmental and none is in this flight's scope.
+- **The four lane `chats` failures** (`TypeError: a._sessionState is not a function`) ran at load 5.2, beside another session's lane `shared`, on the 3.13 venv. The hook is set when the chat area mounts (`static/js/areas/chat.js:70`); a `wait_for_function` that evaluates before that throws instead of retrying. Not attributed to leg 1. The closing gate (quiet host, 3.12) decides; if any persists there, it is triaged then.
+- The Developer used `sed -i` once on the leg's status line (an artifact, not source); the hook did not block it. Noted, not repeated.
+- Squawk candidates carried to landing: remove the legacy deleted-agent UI (DD7); the Purge route does not evict live sessions; the `_sessionState` race if the gate reproduces it.
+
+#### 2026-11-25: leg 2 finalised
+- Citations re-checked: leg 1 changed nothing under `static/`, so leg 2's citations hold. Status set to `ready` (tier low, no design review, per the earlier note).
+
+#### 2026-11-25: leg 2 landed; flight review
+- `[LAND:leg]` received for `delete-agent-dialog`. Both autonomous legs are landed and uncommitted.
+- The lane readings (`agents` 2034 s, `routing` 1705 s) ran at load 8 to 25, beside another session's browser run. They are not budget readings. The closing gate after the rebase provides those.
+- The Developer attempted one `sed -i` on a source file; the permission classifier denied it and it was redone with Edit. No source was written by shell.
+- Reviewer: **Sonnet**. The diff touches a security-sensitive surface: deletion of user data, a pragma on the shared connection, and the threat model text. The Accessibility Reviewer (Sonnet) runs in parallel, because leg 2 adds a user-facing dialog.
+
+#### 2026-11-25: reviews confirmed; commit and rebase
+- **Code Reviewer (Sonnet): `[HANDOFF:confirmed]`, no blocking issues.** It ran the static guards and the cascade, migration and schema tests (615 passed). Two non-blocking observations were accepted:
+  - the lazy imports inside `delete_agent` avoid a circular import;
+  - the checkpoint runs before `cascade_delete` and eviction, which is harmless.
+- **Accessibility Reviewer (Sonnet): `[HANDOFF:confirmed]`, no blocking issues.** The Flight Director chose to fix three non-blocking findings anyway:
+  - focus during the request and after a failure;
+  - a "Deleting…" status;
+  - the opener guarded until an escaped request settles.
+
+  One fix pass, with 6 of 6 assertions falsified. The re-review confirmed it.
+- **Accepted:**
+  - `aria-busy` on the dialog may defer the status announcement in some screen readers. The text is set first, so it is probably queued; recorded as a squawk candidate if a screen-reader check shows it silent.
+  - The wordy `aria-describedby`.
+- **Deviation from the fix prompt:** the fix pass ran only the dialog file and the guards, not the full unit tier and lanes. The closing gate runs both right after the commit and the rebase onto `main` (`9f5cbb1d`), on the final tree.
+- Both legs `completed`. Next: the commit (Developer), the rebase, `uv sync`, then the closing gate.
+
+### Leg 1: cascade-delete-and-orphan-purge
+
+**Landed (Developer), 2026-11-25. Not committed.**
+
+**Implemented**
+- `SQLiteAgentStore.delete` is one transaction (chat ids, GleepGlorp proposals and fills, chats, connector clearing, agents row) returning the chat ids. The `AgentConfigStore` protocol and the `tests/test_factory.py` fake return `list[str]`.
+- `app.py`: `_cancel_session_tasks(session_id, session | None)` (the socket's `cancel` action calls it, no wait) and `_evict_deleted_sessions(ids)` (cancel, bounded `asyncio.wait` of 5 s, `session_deleted` broadcast, evict). `_run_purge_sweep_and_evict` uses the helper (log line and return value unchanged).
+- Route: `chats_deleted`, `checkpoint_wal` (new, in `the_one/db/connection.py`), PTY release, one `notify_sessions_changed()`.
+- Schema v57 (`CURRENT_VERSION` 57) with the `NOT EXISTS` predicate and a post-commit `wal_checkpoint(TRUNCATE)`. `PRAGMA secure_delete=ON` in `connection.py` and the template's three builders.
+- Documents: `the_one/agents.md` (new section "Deleting an agent (sortie 20)", the drawer deleted-state note, the `sessions` paragraph), `SECURITY-MODEL.md` (DD8's three statements and the out-of-scope remnants).
+- No change under `static/`.
+
+**AC11 replay tests, per-test decision**
+- `test_db_migration.py::TestSchemaV16::test_v16_legacy_v15_row_decodes_with_null_external_key_columns` (`seeded-session` for `test-agent`): subject is the v16 columns, so an `agents` row for `test-agent` is seeded.
+- `TestSchemaV53._seed` (`s-Default`; feeds `test_v52_database_loses_the_default_agent_and_its_data` and `test_a_live_gleepglorp_agents_chats_survive`): subject is what v53 keeps, so a `Default` agents row is seeded in `_seed`. `s-research` and `s-gleep` already had live agent rows.
+- `:2973` (`agent-1`) is seeded already; `tests/test_name_repair.py:228` saves the `Default` agent first. Neither needed a change.
+- The 18 `56` pins moved to 57; `:7419` (`WHERE version = 56` count) is untouched and still passes; the `TestSchemaV56` rewind comment was reworded.
+
+**AC15/AC16 test moves**
+- `test_db_repositories.py::test_agent_delete_does_not_cascade_to_sessions` renamed `test_agent_delete_cascades_to_sessions` and rewritten. `tests/test_schema.py::test_v5_agent_delete_does_not_cascade_to_sessions` is a raw-SQL schema test (no FK since v5): assertion kept, docstring says the cascade is the store's.
+- Browser: `test_flow_chat_composer_library.py` (two tests) and `test_flow_chat_picker.py` (`Ghost`) now use a never-existed agent name. The drawer, list and session-state files already used never-created names (the flight's reconnaissance line numbers there were not HTTP deletes). The remaining HTTP deletes (`test_flow_chat_pane.py:373`, `test_flow_chat_start_flow.py:367,487,502`) delete an agent with no chats (a pending chat), so they behave as before; `test_flow_chat_proposals.py:772` deletes a proposal's target agent whose chat is GleepGlorp's, so no chat is deleted. They were left in place.
+
+**Falsification** (edit out, test fails, edit back)
+1. drop the `chat_sessions` delete: yes (AC2 test, the route test, the raw-bytes test and the repository test failed).
+2. connector update outside the transaction: yes (the atomicity test failed).
+3. `NOT IN (SELECT name FROM agents)`: yes (both full V57 tests failed).
+4. remove the `'GleepGlorp'` exclusion: yes.
+5. remove `secure_delete` from `connection.py`: yes, at step 5 (the marker stays on disk after delete plus checkpoint). The first version of the raw-bytes test PASSED without the pragma, so it was vacuous: a page emptied by the delete is reset by SQLite regardless. The test now keeps a surviving neighbour chat (rows `keep-1` and `keep-2` around the deleted one) so the page stays alive; with that, the pragma is what scrubs it. `busy == 0` held either way. Also `test_the_app_connection_has_secure_delete_on` failed without the pragma.
+6. skip the broadcast: yes (the eviction test failed).
+
+**Results (host-native, `THE_ONE_TEST_NETNS=1`)**
+- Unit tier, serial (`run-tests.sh tests/ -m 'not browser and not live and not pixel and not requires_bwrap'`), load 1.4 at start, no other test process: 12325 passed, 2 failed, 40 skipped in 580 s. The two failures also fail in isolation and on a pristine `git archive HEAD` copy (so not caused by this leg): `tests/test_fake_platforms_seam.py::test_refuses[http://[::ffff:127.0.0.1]:8490]` and `tests/test_mcp_negotiation_fallback.py::test_stdio_slow_legacy_server_past_the_window_records_the_fallback`. The worktree venv is Python 3.13 (the project targets 3.12), which is the likely cause of the first. Skip count is 40, not 15: 25 are `o200k_base is not cached` (no network cache of that tokenizer in this worktree).
+- A doc/guide/DB subset re-run after the document edits: 1347 passed (load 3.6).
+- Lane `chats` (`TEST_TIMEOUT=3600`): 174 passed, 4 failed in 794 s. NOT alone on the host: another session's lane `shared` was running in `/home/cprch/projects/the-one` (load 5.2). The 4 failures: `test_flow_chat_drawer.py::test_deleted_and_unknown_agents_show_no_settings_link`, `test_flow_chat_pane.py::test_header_while_joining_reads_the_store_and_no_empty_state_flashes`, `test_flow_chat_start_flow.py::test_a_late_cold_load_join_cannot_take_over_a_pending_chat` and `::test_new_chat_route_hydrates_and_heals`. All are `TypeError: a._sessionState is not a function` raised by the test's own `wait_for_function` (no guard that the area has mounted). They fail 4 of 4 in isolation (load 5.0), and the first two also fail on the pristine HEAD copy. None touches agent deletion or a file this leg changed. Needs a squawk (not fixed here).
+- `ruff check` and `ruff format --check` on `the_one/ tests/ scripts/ evals/`: clean.
+
+**Notes for the Flight Director**
+- Squawk candidates: (a) the `_sessionState` race above; (b) the Purge route `DELETE /agents/{name}/chat/sessions` does not stop or evict live sessions (out of scope, as the leg says); (c) the DD7 squawk to remove the legacy deleted-agent UI is still to be logged at landing.
+- Mission 37 coordination: leg 1 changes `the_one/db/connection.py` (one pragma line plus the new `checkpoint_wal` helper) and claims schema v57.
+- Housekeeping (leg 1): the leg status is `landed`. I used `sed -i` once on the leg's status line (an artifact under `sorties/`, not source) before reading the hook rule; no source or test file was written by shell.
+
+### Leg 2: delete-agent-dialog
+
+**Landed (Developer), 2026-11-25. Not committed.**
+
+**Implemented**
+- New `static/js/areas/studio/agent-delete-dialog.js` (`App.studio.agentDeleteDialog.open/flashText`), loaded in `index.html`; three CSS rules in `studio.css`. Modal owns its Cancel and Delete buttons (`footerEnd`); module-level `busy` flag gives one dialog per click burst.
+- `general-tab.js`: Delete uses `beforeArm` (calls `callbacks.onDelete(button)`, never `proceed`), new description (AC8). `agent-editor-controller.js`: `handleDeleteEditor` opens the dialog; `afterDelete` does invalidate sessions and agents, `loadAll`, navigation, DD8 focus and the flash from `chats_deleted`.
+- Re-grep of `delete-agent-btn`: only the files the leg listed (plus old run logs, left alone). Nothing new.
+- Tests: new `tests/browser/test_flow_agents_delete_dialog.py` (8 tests, lane `agents` via the `test_flow_agents_*` glob) and helper `tests/browser/_agent_delete.py`; moved `test_flow_agent_crud.py` (lapse test renamed in place to `test_delete_agent_cancel_leaves_the_agent_and_the_button_unarmed`), `test_flow_agents_list.py`, `test_flow_agent_general_tab.py`, `test_flow_studio_purge_now_button.py` (AC8 text), `test_store.py` (also asserts `sessions` invalidated), `test_nav_guard.py`.
+- Documents: `docs/ui-testid-registry.md`, `the_one/gleepglorp/guide/agents.md`, `the_one/agents.md` (General tab danger zone), `tests/behavior/studio-agent-crud.md` (not run). No inventory row was needed (`test_ui_control_inventory.py` passes).
+
+**Falsification**: (1) checkbox enabling dropped: yes, gate test failed. (2) `proceed()` in `beforeArm`: yes, "not armed" assertion failed. (3) flash a pre-read count: yes, the count-changes-after-open test failed. All restored by edit.
+
+**Results (host-native, `THE_ONE_TEST_NETNS=1`)**
+- New file alone: 8 passed (load 13).
+- Lane `agents`: 194 passed, 2034 s. Lane `routing`: 193 passed, 1705 s. Not on a quiet host: another session's browser run was in progress, load 22-25 during `agents`, 8-13 during `routing`.
+- Guards (`test_ui_guards`, `test_token_definitions`, `test_design_tokens_a11y`, `test_ui_ownership`, `test_ui_emitted_classes`, `test_ui_control_inventory`, `test_gleepglorp_guide`, `test_run_tests_lanes`, `test_nav_helper`): 610 passed. `ruff check` and `ruff format` on `the_one/ tests/ scripts/ evals/`: clean.
+
+**Notes**: a first draft of a second-click test used a forced pointer click, which stole the dialog's focus (backdrop mousedown); it now uses `dispatch_event`. I also attempted one `sed -i` on `agent-editor-callbacks.js`; it was denied and redone with Edit.
+
+### Review fixes
+
+#### 2026-11-25: accessibility review fixes (agent-delete-dialog.js)
+
+- WCAG 2.4.3: starting the request moves focus to Cancel (Delete and the checkbox just disabled); a failed request returns focus to Delete (still ticked, retry possible).
+- WCAG 4.1.3: a `visually-hidden` `role="status"` span in the dialog body reads "Deleting…" while running and is cleared on failure; the dialog carries `aria-busy="true"` while running.
+- WCAG 2.4.3 minor: `busy` is no longer released by the modal's `onClose` while the request is in flight; it is released when the request settles (success, or failure after Escape), so the opener opens nothing in that window.
+- Tests (`test_flow_agents_delete_dialog.py`, now 10): `test_running_moves_focus_to_cancel_announces_and_failure_focuses_delete` (new), `test_opener_is_free_again_after_an_escaped_request_fails` (new), and an opener-click-after-Escape assertion added to the Escape-mid-request test.
+- Falsified (fix edited out, test failed, restored): focus to Cancel yes; focus to Delete on failure yes; status text yes; `aria-busy` yes; opener guard held in flight yes; guard released after settle yes.
+- `the_one/agents.md` dialog paragraph updated.

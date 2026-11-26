@@ -6,7 +6,7 @@
 //   var bag = cb.build(isCreate);
 //
 // ctx (controller -> module): self, agentData (the agent-data handle), writeUrl() and the
-// controller's handlers: onDelete(revertFn), onPurge(revertFn), save(isCreate), cancel(),
+// controller's handlers: onDelete(openerEl), onPurge(revertFn), save(isCreate), cancel(),
 // setActiveTab(tab), testProvider(), onChange().
 // handle: build(isCreate).
 (function () {

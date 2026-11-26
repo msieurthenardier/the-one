@@ -55,7 +55,7 @@ def new(session="s1", agent="a", **kw) -> NewFill:
 async def test_the_table_has_its_columns_and_indexes(conn) -> None:
     from the_one.db.schema import CURRENT_VERSION
 
-    assert CURRENT_VERSION == 56
+    assert CURRENT_VERSION == 57
     async with conn.execute("PRAGMA table_info(gleepglorp_fills)") as cur:
         cols = [r[1] for r in await cur.fetchall()]
     assert cols == [

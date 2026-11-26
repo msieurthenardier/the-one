@@ -358,13 +358,14 @@ async def test_fresh_db_chat_sessions_index_recreated(fresh_db):
 
 @pytest.mark.asyncio
 async def test_v5_agent_delete_does_not_cascade_to_sessions(fresh_db):
-    """Regression guard for Leg 02 design intent.
+    """Schema-level guard: v5 dropped the foreign key on chat_sessions.agent_name.
 
-    Deleting an agent must NOT delete its chat_sessions rows, and
-    `agent_name` must be preserved as a free-text value (not nulled out,
-    not removed). This is what enables `_restore_session` to surface the
-    `agent_deleted` health state instead of silently falling back to the
-    default agent.
+    A raw ``DELETE FROM agents`` does NOT delete chat_sessions rows, and
+    `agent_name` is preserved as a free-text value. Since sortie 20 the
+    cascade is the store's job (``SQLiteAgentStore.delete`` removes the
+    chats in the same transaction) and migration v57 purges the orphans
+    earlier deletions left; this test only pins that the schema itself
+    carries no foreign key.
     """
     await ensure_schema(fresh_db)
     await fresh_db.execute("PRAGMA foreign_keys=ON")

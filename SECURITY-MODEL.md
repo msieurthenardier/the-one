@@ -440,6 +440,24 @@ provenance.
   auto-revokes every external grant for that agent — an external principal
   can never outlive the operator closing the surface. (An agent rename keeps
   the row id stable, so grants survive a rename untouched.)
+- **Deleting an agent deletes its chats, and the deleted content is scrubbed
+  (sortie 20).** (1) `DELETE /api/agents/{name}` removes the agent, its chat
+  sessions (interactive and connector-keyed), the GleepGlorp proposals and fills of
+  those chats, and the connector bindings that name it, in ONE transaction: the
+  agent and its chats are deleted together or not at all. Open sessions for those
+  chats are cancelled, told (`session_deleted`) and evicted from memory. (2) Schema
+  v57 purged, once on upgrade, the chats earlier agent deletions had left behind
+  (it is irreversible on the operator's database). (3) Deleted content is scrubbed
+  from the database files: the shared connection runs `PRAGMA secure_delete=ON`
+  (freed pages are zeroed, for every delete path) and the route and the v57 step
+  run `PRAGMA wal_checkpoint(TRUNCATE)` after committing, so pre-delete page images
+  do not linger in the `-wal` file; a busy checkpoint is logged and tolerated.
+  **Out of scope, still possible remnants:** copies and backups the operator made
+  of the data directory, filesystem-level remnants (SSD wear levelling, journals,
+  snapshots), `gleepglorp_notes.origin_session_id` (provenance text only), and
+  GleepGlorp proposals and fills in GleepGlorp's own chats that name the deleted
+  agent. A connector turn already running for the deleted agent finishes (its save
+  is dropped) because the connector path is outside the in-memory session registry.
 - **External writes are provenance-tagged and honor the approval gate.** A
   write from an external principal is recorded in the F02 revision log with
   `source='external'` and `source_principal` = the `ext_` identifier (the

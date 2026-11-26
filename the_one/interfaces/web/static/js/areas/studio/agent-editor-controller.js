@@ -242,7 +242,7 @@
       self: self,
       agentData: agentData,
       writeUrl: function () { writeUrl_(); },
-      onDelete: function (revertFn) { handleDeleteEditor(revertFn); },
+      onDelete: function (openerEl) { handleDeleteEditor(openerEl); },
       onPurge: function (revertFn) { handlePurgeHistory(revertFn); },
       save: function (isCreate) { save(isCreate); },
       cancel: function () { cancelEdit(); },
@@ -336,25 +336,29 @@
       }
     }
 
-    // Editor's Delete (General's danger zone): the library arms the button
-    // (App.ui.confirm via dangerZone, "Confirm delete?") and calls this on the
-    // second click with its revert function.
-    function handleDeleteEditor(revertFn) {
+    // Editor's Delete (General's danger zone): one click opens the confirmation dialog
+    // (agent-delete-dialog.js, sortie 20); nothing is armed. The dialog sends the DELETE and
+    // calls onDeleted with the response, so the navigation and flash below also run when
+    // Escape closed the dialog while the request was in flight.
+    function handleDeleteEditor(openerEl) {
       var name = self._selectedAgent ? self._selectedAgent.name : null;
       if (!name) return;
       // DD8 focus: the deleted row's visible index, read BEFORE the request
       // (the row is about to leave the list).
       var rowIndex = visibleIndexOf(name);
-      fetch('/api/agents/' + encodeURIComponent(name), { method: 'DELETE' })
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
-        })
-        .then(function () {
-          App.store.invalidate('agents');
-          self._selectedAgent = null;
-          state.dirty = false;
-          return agentData.loadAll();
-        })
+      App.studio.agentDeleteDialog.open({
+        name: name,
+        opener: openerEl,
+        onDeleted: function (resp) { afterDelete(name, rowIndex, resp); }
+      });
+    }
+
+    function afterDelete(name, rowIndex, resp) {
+      App.store.invalidate('sessions');
+      App.store.invalidate('agents');
+      self._selectedAgent = null;
+      state.dirty = false;
+      Promise.resolve(agentData.loadAll())
         .then(function () {
           // Post-delete navigation (M25 F3 L3, DD8): replace the deleted
           // agent's entry with the Agents root -- the empty detail state,
@@ -365,9 +369,10 @@
           discardOpen_();
           replaceWithAgentsRoot_();
           focusAgentRowNear(rowIndex);
+          App.ui.flash(App.studio.agentDeleteDialog.flashText(name, (resp && resp.chats_deleted) || 0));
         })
         .catch(function (err) {
-          revertFn();
+          // The agent is already gone; only the list refresh failed.
           App.ui.flash((err && err.message) || 'Delete failed', { error: true });
         });
     }

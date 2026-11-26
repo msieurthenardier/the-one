@@ -1724,17 +1724,49 @@ async def _purge_due() -> bool:
     return retention.is_purge_due(last, datetime.now(timezone.utc))
 
 
-async def _run_purge_sweep_and_evict() -> dict:
-    """Run the DB sweep, then evict swept ids from the in-memory
-    _sessions registry (DD4). Three-phase, reaper shape (app.py:485–509):
-    pop under _sessions_lock; close + lock-map-pop outside it."""
-    conn = await get_connection()
-    result = await retention.run_purge_sweep(conn)
-    ids = result["ids"]
+_EVICT_CANCEL_WAIT_SECONDS = 5.0
+
+
+async def _cancel_session_tasks(session_id: str, session: Session | None) -> list[asyncio.Task]:
+    """Cancel every not-done in-flight task for ``session_id`` and return the batch.
+
+    Shared by the socket's operator ``cancel`` action and :func:`_evict_deleted_sessions`.
+    Uses module globals only. Token first, before any ``t.cancel()`` (0120); when nothing
+    had started, no body code will ever send ``cancelled``, so notify here (skipped when
+    ``session`` is ``None``). Does not wait: only the eviction helper waits for the batch.
+    """
+    batch = [t for t in _session_inflight.get(session_id, ()) if not t.done()]
+    if batch:
+        _cancel_tokens[session_id] = {
+            "sent": False,
+            "running": any(t in _running_tasks for t in batch),
+        }
+        for t in batch:
+            t.cancel()
+        if session is not None and not any(t in _started_tasks for t in batch):
+            await _notify_cancelled_once(session)
+    return batch
+
+
+async def _evict_deleted_sessions(session_ids: list[str]) -> list[str]:
+    """Stop, tell and evict each deleted chat; return the ids that had a cached session.
+
+    Per id, in order: (1) cancel in-flight tasks (reading the cached ``Session`` before any
+    pop) and wait briefly for them to unwind; (2) broadcast ``session_deleted`` to the chat's
+    subscribers; (3) evict (pop under ``_sessions_lock``; ``session_locks.pop`` and
+    ``agent.aclose()`` outside it, reaper hygiene). Used by the agent delete route and the
+    purge sweep. A no-op for ids with no cached session, tasks or subscribers.
+    """
     evicted: list[tuple[str, Agent]] = []
-    if ids:
+    for sid in session_ids:
+        batch = await _cancel_session_tasks(sid, _sessions.get(sid))
+        if batch:
+            await asyncio.wait(batch, timeout=_EVICT_CANCEL_WAIT_SECONDS)
+        with contextlib.suppress(Exception):
+            await _broadcast_to_session(sid, {"type": "session_deleted", "session_id": sid})
+    if session_ids:
         async with _sessions_lock:
-            for sid in ids:
+            for sid in session_ids:
                 sess = _sessions.pop(sid, None)
                 if sess is not None:
                     evicted.append((sid, sess.agent))
@@ -1743,7 +1775,18 @@ async def _run_purge_sweep_and_evict() -> dict:
             try:
                 await agent.aclose()
             except Exception:
-                logger.exception("agent.aclose() raised during purge eviction: sid=%r", sid)
+                logger.exception("agent.aclose() raised during eviction: sid=%r", sid)
+    return [sid for sid, _ in evicted]
+
+
+async def _run_purge_sweep_and_evict() -> dict:
+    """Run the DB sweep, then evict swept ids from the in-memory
+    _sessions registry (DD4). Three-phase, reaper shape (app.py:485–509):
+    pop under _sessions_lock; close + lock-map-pop outside it."""
+    conn = await get_connection()
+    result = await retention.run_purge_sweep(conn)
+    ids = result["ids"]
+    evicted = await _evict_deleted_sessions(ids) if ids else []
     # One line per sweep, including a sweep that deleted nothing; the ids list is not logged.
     logger.info(
         "purge sweep deleted=%d runs_deleted=%d routines_deleted=%d proposals_deleted=%d "
@@ -4065,18 +4108,7 @@ async def _websocket_loop(ws: WebSocket) -> None:
             # the race with natural completion.
             if action == "cancel":
                 if session is not None:
-                    batch = [t for t in _session_inflight.get(session.id, ()) if not t.done()]
-                    if batch:
-                        # Token first, before any `t.cancel()` (0120).
-                        _cancel_tokens[session.id] = {
-                            "sent": False,
-                            "running": any(t in _running_tasks for t in batch),
-                        }
-                        for t in batch:
-                            t.cancel()
-                        if not any(t in _started_tasks for t in batch):
-                            # Nothing started: no body code will ever send.
-                            await _notify_cancelled_once(session)
+                    await _cancel_session_tasks(session.id, session)
                 continue
 
             # Regular message. M16 F12 L08: `images` is an optional list of

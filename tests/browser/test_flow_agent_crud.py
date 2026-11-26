@@ -111,25 +111,21 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     # is disabled (clean state) — same sync idiom as the MCPs/Tools tests.
     expect(save_btn).to_be_disabled(timeout=5000)
 
-    # 14. First click on Delete — confirm state ("Confirm delete?"). The
-    # armed state auto-reverts after 3s (App.confirmDelete revertMs), so the
-    # second click follows immediately.
+    # 14. Click Delete — the confirmation dialog opens (nothing is armed).
     delete_btn.click()
-    expect(delete_btn).to_have_text("Confirm delete?")
+    expect(page.locator('[data-testid="delete-agent-dialog"]')).to_be_visible(timeout=8000)
 
-    # 15. Second click — DELETE fires, agent removed, empty state returns.
-    #     expect_response makes a silent re-arm (revert-window expiry under
-    #     load) fail loudly as a missing-DELETE timeout instead of a
-    #     confusing downstream visibility failure.
-    #     The list refetch that repaints the (now empty) list follows the DELETE;
-    #     wait for it too so the visibility checks below race nothing.
+    # 15. Tick the acknowledgement, press Delete — DELETE fires, agent removed, empty
+    #     state returns. The list refetch that repaints the (now empty) list follows the
+    #     DELETE; wait for it too so the visibility checks below race nothing.
+    page.locator('[data-testid="delete-agent-ack-checkbox"]').check()
     with (
         page.expect_response(
             lambda r: "/api/agents/" in r.url and r.request.method == "DELETE"
         ) as delete_resp,
         page.expect_response(_is_agents_list_get),
     ):
-        delete_btn.click()
+        page.locator('[data-testid="delete-agent-confirm-btn"]').click()
     assert delete_resp.value.status == 200, (
         f"DELETE failed: {delete_resp.value.status} {delete_resp.value.text()}"
     )
@@ -142,12 +138,11 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
 
 
 @pytest.mark.browser
-def test_delete_agent_confirm_lapse_is_visually_distinct(
+def test_delete_agent_cancel_leaves_the_agent_and_the_button_unarmed(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Mission 24 Flight 7 confirm-lapse leg, AC-4: the agent editor's
-    Delete confirm (`studio.js:2080`) is distinguishable on screen from one
-    that was never armed, past the real 3s `revertMs`."""
+    """Sortie 20: Delete agent opens a dialog instead of arming; Cancel closes it with
+    nothing deleted and the button untouched (it replaces the old arm-lapse test)."""
     base_url = app_with_agent.base_url
     _nav.goto(page, base_url, "agents")
     expect(_nav.destination_panel(page, "agents")).to_be_visible(timeout=8000)
@@ -158,13 +153,14 @@ def test_delete_agent_confirm_lapse_is_visually_distinct(
 
     delete_btn = page.locator('[data-testid="delete-agent-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
-    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-lapsed\b"))
     delete_btn.click()
-    expect(delete_btn).to_have_text("Confirm delete?")
-    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
-
-    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"), timeout=4000)
-    expect(delete_btn).to_have_class(re.compile(r"\bconfirm-lapsed\b"))
+    dialog = page.locator('[data-testid="delete-agent-dialog"]')
+    expect(dialog).to_be_visible(timeout=8000)
+    expect(delete_btn).not_to_have_class(re.compile(r"\bconfirm-delete\b"))
+    expect(delete_btn).to_have_text("Delete agent")
+    page.locator('[data-testid="delete-agent-cancel-btn"]').click()
+    expect(dialog).to_have_count(0)
+    expect(delete_btn).to_be_focused()
     expect(delete_btn).to_have_text("Delete agent")
     # Never committed: the agent is still there.
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(1)

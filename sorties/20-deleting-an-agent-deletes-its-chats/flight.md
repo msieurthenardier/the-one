@@ -1,6 +1,6 @@
 # Sortie: Deleting an agent deletes its chats
 
-**Status**: ready
+**Status**: in-flight
 
 ## Charter
 

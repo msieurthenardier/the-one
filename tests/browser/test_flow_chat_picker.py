@@ -191,7 +191,9 @@ def test_recently_used_and_all_agents(app_with_provider: SeededApp, page: Page) 
     sixth web agent (Charlie) is past the cap. All agents: every live agent
     A-Z, the recent ones included."""
     base, pid = app_with_provider.base_url, app_with_provider.provider_id
-    for n in ("Hotel", "Golf", "Foxtrot", "Echo", "Delta", "Charlie", "Bravo", "Alpha", "Ghost"):
+    # Ghost is never created (sortie 20: deleting an agent deletes its chats, so a deleted
+    # agent's session is now a session for a name that has no agent).
+    for n in ("Hotel", "Golf", "Foxtrot", "Echo", "Delta", "Charlie", "Bravo", "Alpha"):
         seed_mock_agent(base, pid, name=n)
     now = datetime.now(UTC)
 
@@ -208,8 +210,6 @@ def test_recently_used_and_all_agents(app_with_provider: SeededApp, page: Page) 
     seed_session(base, "Echo", "e", at(8))
     seed_session(base, "Foxtrot", "f", at(9))
     seed_session(base, "Charlie", "c", at(10))
-    r = httpx.delete(f"{base}/api/agents/Ghost", headers=auth_headers_for(base), timeout=5)
-    assert r.status_code == 200, r.text
 
     _settled(page, base)
     _chats.open_picker(page)

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from browser import _lists, _nav
+from browser import _agent_delete, _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_mock_agent
 from playwright.sync_api import Page, expect
@@ -495,10 +495,9 @@ def test_agent_create_and_delete_invalidate_agents(
         "() => App.store.peek('agents').value.some(a => a.name === 'made-in-ui')"
     )
     page.evaluate("() => { window.__inv = []; }")
-    delete = page.locator('[data-testid="delete-agent-btn"]')
-    delete.click()
-    delete.click()
+    _agent_delete.confirm_delete(page)
     page.wait_for_function("() => window.__inv.indexOf('agents') >= 0")
+    page.wait_for_function("() => window.__inv.indexOf('sessions') >= 0")
     page.wait_for_function(
         "() => !App.store.peek('agents').value.some(a => a.name === 'made-in-ui')"
     )

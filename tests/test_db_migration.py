@@ -1954,7 +1954,9 @@ class TestSchemaV16:
                 "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
                 ")"
             )
-            # Seed rows against the v15 shape.
+            # Seed rows against the v15 shape. The chat's agent exists: v57 purges chats
+            # whose agent has no row, and this test's subject is the v16 columns.
+            await conn.execute("INSERT INTO agents (name) VALUES ('test-agent')")
             await conn.execute(
                 "INSERT INTO chat_sessions (id, agent_name, title) VALUES (?, ?, ?)",
                 ("seeded-session", "test-agent", "Pre-v16 session"),
@@ -5032,7 +5034,7 @@ class TestSchemaV41:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             assert (await cur.fetchone())[0] == CURRENT_VERSION
-        assert CURRENT_VERSION == 56
+        assert CURRENT_VERSION == 57
 
         await conn.close()
 
@@ -5388,7 +5390,7 @@ class TestSchemaV42:
         await ensure_schema(conn)
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 57 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agent_rules)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert list(cols) == [
@@ -5534,7 +5536,7 @@ class TestSchemaV43:
         conn = await _open(tmp_path / "fresh43.db")
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56 == CURRENT_VERSION
+            assert (await cur.fetchone())[0] == 57 == CURRENT_VERSION
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             acols = {r["name"]: r for r in await cur.fetchall()}
         for name, default in (("notes_enabled", "0"), ("notes_next_number", "1")):
@@ -5675,13 +5677,13 @@ class TestSchemaV44:
         return conn
 
     async def test_current_version_is_45(self) -> None:
-        assert CURRENT_VERSION == 56
+        assert CURRENT_VERSION == 57
 
     async def test_v43_to_v44_preserves_rows_secrets_and_agent_link(self, tmp_path) -> None:
         conn = await self._v43_db(tmp_path)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56
+            assert (await cur.fetchone())[0] == 57
         async with conn.execute(
             "SELECT id, name, type, base_url, api_key, config, secrets FROM llm_providers"
         ) as cur:
@@ -5814,7 +5816,7 @@ class TestSchemaV45:
         fk = (await _fk_rows(conn, "agent_routine_runs"))["routine_id"]
         assert (fk["table"], fk["on_delete"]) == ("agent_routines", "CASCADE")
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56
+            assert (await cur.fetchone())[0] == 57
         await conn.close()
 
     async def test_v44_database_migrates(self, tmp_path) -> None:
@@ -5966,7 +5968,7 @@ class TestSchemaV46:
         await ensure_schema(conn)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56
+            assert (await cur.fetchone())[0] == 57
         async with conn.execute(
             "SELECT routines_self_config_enabled, routines_require_approval FROM agents"
         ) as cur:
@@ -6013,7 +6015,7 @@ class TestSchemaV47:
         await ensure_schema(conn)
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56
+            assert (await cur.fetchone())[0] == 57
         async with conn.execute("PRAGMA table_info(agent_routine_runs)") as cur:
             assert [r["name"] for r in await cur.fetchall()] == _RUN_COLS
         async with conn.execute(
@@ -6372,7 +6374,7 @@ class TestSchemaV48:
         second = await _routine(conn, "d")
         assert first[:4] == second[:4]
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56
+            assert (await cur.fetchone())[0] == 57
         await conn.close()
 
     async def test_database_without_routine_tables_migrates(self, tmp_path) -> None:
@@ -6385,7 +6387,7 @@ class TestSchemaV48:
         await conn.commit()
         await ensure_schema(conn)
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56
+            assert (await cur.fetchone())[0] == 57
         await conn.close()
 
 
@@ -6577,7 +6579,7 @@ class TestSchemaV49:
             ("u2", None, 1, "still_running"),
         ]
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56
+            assert (await cur.fetchone())[0] == 57
         await conn.close()
 
     async def test_indexes_unique_checks_and_foreign_keys_survive(self, tmp_path) -> None:
@@ -6872,7 +6874,7 @@ class TestSchemaV54:
     async def test_fresh_database_has_the_table(self, tmp_path) -> None:
         conn = await _open(tmp_path / "fresh54.db")
         await ensure_schema(conn)
-        assert CURRENT_VERSION == 56
+        assert CURRENT_VERSION == 57
         async with conn.execute("PRAGMA table_info(gleepglorp_proposals)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert set(cols) == {
@@ -6959,6 +6961,9 @@ class TestSchemaV53:
     async def _seed(self, conn, *, gleep_agent: bool = False) -> None:
         await conn.execute("INSERT INTO agents (name) VALUES ('default')")
         await conn.execute("INSERT INTO agents (name) VALUES ('research')")
+        # 'Default' (capitalised) is the case-sensitive survivor v53 keeps, so its chat must
+        # belong to a live agent or v57 purges it as an orphan.
+        await conn.execute("INSERT INTO agents (name) VALUES ('Default')")
         if gleep_agent:
             await conn.execute("INSERT INTO agents (name) VALUES ('GleepGlorp')")
         await conn.execute(
@@ -7080,7 +7085,7 @@ class TestSchemaV53:
         assert any(r["name"] == "idx_gleepglorp_notes_number" for r in uniques)
         async with conn.execute("SELECT id, next_number FROM gleepglorp_notes_counter") as cur:
             assert [tuple(r) for r in await cur.fetchall()] == [(1, 1)]
-        assert await self._count(conn, "SELECT MAX(version) FROM schema_version") == 56
+        assert await self._count(conn, "SELECT MAX(version) FROM schema_version") == 57
         await conn.close()
 
     async def test_a_live_gleepglorp_agents_chats_survive(self, tmp_path) -> None:
@@ -7130,7 +7135,7 @@ class TestSchemaV52:
     async def test_fresh_replay_has_the_column(self, tmp_path) -> None:
         conn = await _open(tmp_path / "fresh52.db")
         await ensure_schema(conn)
-        assert CURRENT_VERSION == 56
+        assert CURRENT_VERSION == 57
         async with conn.execute("PRAGMA table_info(agents)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
         assert cols["rich_visuals"]["notnull"] == 1
@@ -7152,7 +7157,7 @@ class TestSchemaV52:
         async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 52") as cur:
             assert (await cur.fetchone())[0] == 1
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
-            assert (await cur.fetchone())[0] == 56
+            assert (await cur.fetchone())[0] == 57
         await conn.close()
 
 
@@ -7162,7 +7167,7 @@ class TestSchemaV55:
     async def test_fresh_database_has_the_table_and_indexes(self, tmp_path) -> None:
         conn = await _open(tmp_path / "fresh55.db")
         await ensure_schema(conn)
-        assert CURRENT_VERSION == 56
+        assert CURRENT_VERSION == 57
         async with conn.execute("PRAGMA table_info(gleepglorp_fills)") as cur:
             cols = {r["name"] for r in await cur.fetchall()}
         assert "claim_token" in cols and "outcome" in cols and "kind" in cols
@@ -7246,7 +7251,10 @@ class TestSchemaV56:
     FILL_STATUSES = ("sent", "applying", "filled", "partly_filled", "not_filled", "replaced")
 
     async def _to_v55_shape(self, conn, *, proposals: bool = True, fills: bool = True) -> None:
-        """Recreate the v55 table shapes by hand and rewind the version (the template is v56)."""
+        """Recreate the v55 table shapes by hand and rewind the version.
+
+        The template is v57; the rewind drops both stamps, so v56 and v57 replay.
+        """
         if proposals:
             await conn.execute("DROP TABLE gleepglorp_proposals")
             await conn.execute(_V55_PROPOSALS_DDL)
@@ -7280,7 +7288,7 @@ class TestSchemaV56:
     async def test_fresh_database_shapes(self, tmp_path) -> None:
         conn = await _open(tmp_path / "fresh56.db")
         await ensure_schema(conn)
-        assert CURRENT_VERSION == 56
+        assert CURRENT_VERSION == 57
         sql = await self._one(
             conn, "SELECT sql FROM sqlite_master WHERE name = 'gleepglorp_proposals'"
         )
@@ -7370,7 +7378,7 @@ class TestSchemaV56:
         f_before = await self._all(conn, "SELECT * FROM gleepglorp_fills ORDER BY id")
         assert len(p_before) == 4 and len(f_before) == 5
         await ensure_schema(conn)
-        assert await self._one(conn, "SELECT MAX(version) FROM schema_version") == 56
+        assert await self._one(conn, "SELECT MAX(version) FROM schema_version") == 57
         assert await self._all(conn, "SELECT * FROM gleepglorp_proposals ORDER BY id") == p_before
         cols = (
             "id, session_id, tool_call_id, kind, action, agent_name, target_key, changes, base, "
@@ -7462,4 +7470,80 @@ class TestSchemaV56:
             conn, "SELECT sql FROM sqlite_master WHERE name = 'gleepglorp_proposals'"
         )
         assert "CHECK (kind IN" not in sql
+        await conn.close()
+
+
+class TestSchemaV57:
+    """Sortie 20 DD4: chats orphaned by earlier agent deletions are purged (data-only)."""
+
+    async def _rewind(self, conn) -> None:
+        await conn.execute("DELETE FROM schema_version WHERE version >= 57")
+        await conn.commit()
+
+    async def _ids(self, conn, table: str = "chat_sessions", col: str = "id") -> list[str]:
+        async with conn.execute(f"SELECT {col} FROM {table} ORDER BY {col}") as cur:
+            return [r[0] for r in await cur.fetchall()]
+
+    async def _seed(self, conn) -> None:
+        # A NULL-named agents row (the PK has no NOT NULL) must not make the purge a no-op:
+        # that is what ``NOT IN (SELECT name FROM agents)`` would do.
+        await conn.execute("INSERT INTO agents (name) VALUES (NULL)")
+        await conn.execute("INSERT INTO agents (name) VALUES ('alive')")
+        for sid, agent in (
+            ("s-orphan", "gone"),
+            ("s-null", None),
+            ("s-live", "alive"),
+            ("s-gleep", "GleepGlorp"),
+        ):
+            await conn.execute(
+                "INSERT INTO chat_sessions (id, agent_name) VALUES (?, ?)", (sid, agent)
+            )
+        for sid in ("s-orphan", "s-live"):
+            await conn.execute(
+                "INSERT INTO gleepglorp_proposals (session_id, kind, action, target_key, "
+                "changes, created_at) VALUES (?, 'rule', 'create', 'k', '{}', 't')",
+                (sid,),
+            )
+            await conn.execute(
+                "INSERT INTO gleepglorp_fills (session_id, kind, action, agent_name, "
+                "target_key, changes, status, created_at) "
+                "VALUES (?, 'agent', 'change', 'a', 'k', '{}', 'sent', 't')",
+                (sid,),
+            )
+        await conn.commit()
+
+    async def test_only_the_orphan_and_null_chats_and_their_rows_are_purged(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v57.db")
+        await ensure_schema(conn)
+        await self._rewind(conn)
+        await self._seed(conn)
+        await ensure_schema(conn)
+        assert await self._ids(conn) == ["s-gleep", "s-live"]
+        assert await self._ids(conn, "gleepglorp_proposals", "session_id") == ["s-live"]
+        assert await self._ids(conn, "gleepglorp_fills", "session_id") == ["s-live"]
+        assert await self._ids(conn, "agents", "COALESCE(name, '')") == ["", "alive"]
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            assert (await cur.fetchone())[0] == 57
+        await conn.close()
+
+    async def test_replay_is_a_no_op(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v57-replay.db")
+        await ensure_schema(conn)
+        await self._rewind(conn)
+        await self._seed(conn)
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+        assert await self._ids(conn) == ["s-gleep", "s-live"]
+        await conn.close()
+
+    async def test_a_database_without_the_gleepglorp_tables_migrates(self, tmp_path) -> None:
+        conn = await _open(tmp_path / "v57-bare.db")
+        await ensure_schema(conn)
+        await conn.execute("DROP TABLE gleepglorp_proposals")
+        await conn.execute("DROP TABLE gleepglorp_fills")
+        await self._rewind(conn)
+        await conn.execute("INSERT INTO chat_sessions (id, agent_name) VALUES ('s-o', 'gone')")
+        await conn.commit()
+        await ensure_schema(conn)
+        assert await self._ids(conn) == []
         await conn.close()
