@@ -10,10 +10,8 @@ from __future__ import annotations
 
 import base64
 
-import httpx
 import pytest
 from browser import _chats, _nav
-from browser._credential_registry import auth_headers_for
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider, seed_session
 from playwright.sync_api import Page, expect
 
@@ -37,10 +35,9 @@ def test_a_deleted_agents_chat_is_blocked_with_a_library_banner(
     app_with_provider: SeededApp, page: Page
 ) -> None:
     base = app_with_provider.base_url
-    agent = seed_mock_agent(base, app_with_provider.provider_id, name="soon-gone")
-    sid = seed_session(base, agent, "Old chat", "2026-01-01T10:00:00Z")
-    r = httpx.delete(f"{base}/api/agents/{agent}", headers=auth_headers_for(base), timeout=5)
-    assert r.status_code in (200, 204), r.text
+    # Sortie 20: deleting an agent deletes its chats, so the deleted-agent state is reached by a
+    # chat for a name that never existed (POST /api/chat/sessions does not validate the agent).
+    sid = seed_session(base, "soon-gone", "Old chat", "2026-01-01T10:00:00Z")
     _nav.goto(page, base, "chats")
     _chats.open_chat(page, sid)
     banner = page.locator(".area-chat .ui-banner")
@@ -63,10 +60,7 @@ def test_the_banner_clears_when_another_chat_opens_and_send_follows_busy(
         base, name="slow", config={"response": {"content": "ok"}, "delay_ms": 4000}
     )
     slow = seed_mock_agent(base, pid, name="slowpoke")
-    gone = seed_mock_agent(base, app_with_provider.provider_id, name="gone")
-    sid = seed_session(base, gone, "Old chat", "2026-01-01T10:00:00Z")
-    r = httpx.delete(f"{base}/api/agents/{gone}", headers=auth_headers_for(base), timeout=5)
-    assert r.status_code in (200, 204), r.text
+    sid = seed_session(base, "gone", "Old chat", "2026-01-01T10:00:00Z")  # never-existed agent
     _nav.goto(page, base, "chats")
     _chats.start_chat(page, slow)
     _chats.send_first(page, "go")

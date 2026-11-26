@@ -138,6 +138,10 @@ def test_danger_zone_is_two_stacked_rows_purge_first(app_with_agent: SeededApp, 
     expect(rows.nth(0).locator('[data-testid="purge-history-btn"]')).to_have_text("Purge now")
     expect(rows.nth(1).locator(".danger-zone-row-heading")).to_have_text("Permanently delete agent")
     expect(rows.nth(1).locator('[data-testid="delete-agent-btn"]')).to_have_text("Delete agent")
+    expect(rows.nth(1).locator(".danger-zone-row-desc")).to_have_text(
+        "Deletes the agent with all of its chats, routines, rules, notes and settings. "
+        "This can't be undone."
+    )
     tops = [r.bounding_box()["y"] for r in rows.all()]
     assert tops[0] < tops[1], tops  # stacked, Purge above Delete
 

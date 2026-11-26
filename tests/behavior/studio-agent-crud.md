@@ -11,11 +11,11 @@
 Verify the core Agents-destination CRUD flow end-to-end in the real re-skinned UI: an
 operator can create an agent from the Agents list's "New" (`#agents/~new`), land in the General tab, fill its
 name / description / provider / model, save it, see it appear in the list beside the editor, re-select it,
-edit a field and re-save, then delete it through the General-tab Danger zone's two-step
-armed-confirm (`App.ui.confirm`) arm-then-fire. This needs a **behavior test** rather than a unit test
+edit a field and re-save, then delete it through the General-tab Danger zone's Delete agent
+confirmation dialog (tick the acknowledgement, then Delete; sortie 20). This needs a **behavior test** rather than a unit test
 because the observable is the rendered Studio surface across a multi-step navigation flow
-(list → editor beside the list → list) plus a stateful two-click confirm affordance whose armed
-intermediate ("Confirm delete?") state is a rendered, user-perceivable checkpoint — not a
+(list → editor beside the list → list) plus a modal confirmation whose gated Delete is a rendered,
+user-perceivable checkpoint — not a
 DOM invariant a single-service test can assert. It is the SC7 (behavior-verified core
 flows) gate for Flight 05 (Studio Re-skin), and it exercises the re-skinned agent editor
 that Legs 1–5 rebuilt onto the v3 vocabulary. Runs in **both themes** (light + dark) so a
@@ -46,7 +46,7 @@ theme-coupled render regression in the editor surfaces.
 ## Observables Required
 
 - browser (rendered Agents UI: the list column and its rows, editor tab panels, field values, button label
-  text, the armed "Confirm delete?" state — measured via goldfinch MCP; a11y-tree +
+  text, the Delete agent confirmation dialog — measured via goldfinch MCP; a11y-tree +
   screenshot/printToPDF as primary rendered-state evidence, CDP `evaluate`/focus as
   supplementary). Per the frame discipline, verdicts rest on rendered state (what a user
   sees), not on queryable-but-invisible DOM.
@@ -64,8 +64,8 @@ theme-coupled render regression in the editor surfaces.
 | 5 | Click **Create/Save** (`save-agent-btn`). | The save succeeds (no error flash; a neutral "Agent saved" toast is expected and is not an error). The editor settles into edit mode for the new agent: the button reads "Save" and is disabled again, and there is no "Unsaved changes" text. The hash is `#agents/Behave%20CRUD%20Agent/general` (or the same name with the browser's own encoding of the space). |
 | 6 | Observe the **Agents list** (no reload needed). | A row for `Behave CRUD Agent` is present in the list, in A–Z position. It is the only row with `aria-current="page"`, and it is labelled with the agent's name and its model. |
 | 7 | Click the breadcrumb link **Agents** in the editor header to close the agent, then click the `Behave CRUD Agent` row to re-open it. On the **General** tab, change a field (for example, edit the Description text), then click **Save** (`save-agent-btn`). | **The breadcrumb** closes the agent to the empty state (hash `#agents`), and the row re-opens it. **While the field is dirty,** the Save button enables and the editor shows "Unsaved changes". **After save,** it disables again, the "Unsaved changes" text clears, no error flash appears (the neutral "Agent saved" toast does), and the edited value persists. The edited value persists in the field. |
-| 8 | Scroll to the General-tab **Danger zone**; click **Delete agent** (`delete-agent-btn`) **once** (arm). | [a11y] The Delete button enters its armed state: its visible label changes to **"Confirm delete?"** and it takes the armed destructive styling (let the look settle for about 400 ms before judging it). The agent is **not** yet deleted (this is the intermediate two-step checkpoint the Validator judges — a single click must NOT destroy the agent). |
-| 9 | Click the armed **Confirm delete?** button a second time (within the ~3s revert window) to fire the delete. | The DELETE succeeds. The editor leaves the deleted agent and returns to the Agents root (`#agents`), showing the detail pane's empty state, with no error flash. Focus is on a neighbouring agent row, or on the list's "New" button (`new-agent-btn`; not the start page's own "New agent" button) when no agents remain. Read focus from the DOM; a programmatic focus shows no ring. |
+| 8 | Scroll to the General-tab **Danger zone**; click **Delete agent** (`delete-agent-btn`) **once**. | [a11y] A modal dialog (`delete-agent-dialog`) titled **Delete "Behave CRUD Agent"?** opens; the button itself is not armed (its label stays "Delete agent"). The message says the agent has no chats ("This deletes the agent. It has no chats. This can't be undone."). The checkbox (`delete-agent-ack-checkbox`) reads "I understand this will delete all of this agent's chat history" and is unticked; **Delete** (`delete-agent-confirm-btn`) is disabled; **Cancel** (`delete-agent-cancel-btn`) has focus. The agent is **not** yet deleted (the dialog is the checkpoint the Validator judges: a single click must NOT destroy the agent). |
+| 9 | Tick the checkbox, then click **Delete** in the dialog. | Delete enables once the box is ticked. The DELETE succeeds and the dialog closes. A flash reads "Deleted Behave CRUD Agent." The editor leaves the deleted agent and returns to the Agents root (`#agents`), showing the detail pane's empty state, with no error flash. Focus is on a neighbouring agent row, or on the list's "New" button (`new-agent-btn`; not the start page's own "New agent" button) when no agents remain. Read focus from the DOM; a programmatic focus shows no ring. |
 | 10 | Observe the **Agents list** (no reload needed). | No row labelled `Behave CRUD Agent` remains in the list; the agent is gone. |
 | 11 | (Teardown, no judgment) `DELETE /api/providers/{id}` for the seeded mock provider; if any test agent remains (partial run), delete it. | (empty) |
 
@@ -76,7 +76,7 @@ assistive-tech / rendered-state surface for the optional Accessibility Validator
 `data-testid="editor-breadcrumb-link"`; General tab `data-testid="tab-general"`
 (agent-editor.js); Save/Create `data-testid="save-agent-btn"` (agent-editor.js); Delete
 `data-testid="delete-agent-btn"` in the General-tab Danger zone (general-tab.js); the
-two-step arm/fire is the library's armed-confirm control (`App.ui.confirm`) with the `Confirm delete?` label (the agent editor's General-tab Delete). **List freshness:** since Mission 25 Flight 3 the Agents list re-renders from
+click opens the confirmation dialog `delete-agent-dialog` (`agent-delete-dialog.js`) with `delete-agent-ack-checkbox`, `delete-agent-cancel-btn` and `delete-agent-confirm-btn`. **List freshness:** since Mission 25 Flight 3 the Agents list re-renders from
 `App.store` after each mutation, so steps 6 and 10 read it without a reload. If a row looks stale,
 the Executor reports it as observed (a stale list is a failure, not something to reload away).
 

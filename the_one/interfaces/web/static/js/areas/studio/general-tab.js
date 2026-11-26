@@ -245,13 +245,19 @@
           },
           {
             heading: 'Permanently delete agent',
-            description: 'Deletes the agent with its routines, rules, notes and settings. ' +
-              "This can't be undone.",
+            description: 'Deletes the agent with all of its chats, routines, rules, notes and ' +
+              "settings. This can't be undone.",
             label: 'Delete agent',
             testid: 'delete-agent-btn',
             confirmLabel: 'Confirm delete?',
             dataset: { name: cfg.name || '' },
-            onConfirm: function (revert) { if (callbacks.onDelete) callbacks.onDelete(revert); }
+            // Delete asks in a dialog (sortie 20): the first click opens it and never arms the
+            // button (proceed() is not called), so onConfirm is unreachable.
+            beforeArm: function () {
+              var btn = danger && danger.buttons ? danger.buttons[1] : null;
+              if (callbacks.onDelete) callbacks.onDelete(btn);
+            },
+            onConfirm: function () {}
           }
         ]
       });

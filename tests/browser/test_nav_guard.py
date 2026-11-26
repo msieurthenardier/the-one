@@ -15,7 +15,7 @@ import time
 
 import httpx
 import pytest
-from browser import _chats, _lists, _nav
+from browser import _agent_delete, _chats, _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.conftest import credentialed_context
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
@@ -650,8 +650,8 @@ def test_no_phantom_after_agent_save_and_delete(app_with_agent: SeededApp, page:
     # dirty baseline is re-taken when the model list arrives (M25 F3 L3); the
     # old baseline, taken before that list, read any later form as dirty.
     _dirty_agent(page, "dirty again")
-    delete_btn = page.locator('[data-testid="delete-agent-btn"]')
-    _confirm_delete(page, delete_btn, "/api/agents/")
+    resp = _agent_delete.confirm_delete(page)
+    assert resp.status in (200, 204)
     expect(page.locator('[data-testid="tab-general"]')).to_have_count(0, timeout=8000)
     _assert_leaves_silently(page)
 

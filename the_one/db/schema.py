@@ -15,7 +15,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 56
+CURRENT_VERSION = 57
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -3625,3 +3625,38 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (56,))
         await conn.commit()
         version = 56
+
+    if version < 57:
+        # Sortie 20 (DD4) — deleting an agent now deletes its chats, so purge the chats earlier
+        # deletions left behind (reverses v5's "chats survive agent deletion"). Data-only.
+        # An orphan has a NULL agent_name, or an agent_name that is not GleepGlorp (which has
+        # no ``agents`` row) and matches no ``agents`` row. ``NOT EXISTS``, never ``NOT IN``:
+        # ``agents.name`` has no NOT NULL, and one NULL would make ``NOT IN`` delete nothing.
+        # The orphans' GleepGlorp proposals and fills go first (no foreign key). A hand-built
+        # partial database (a migration test) may lack a table: guard each. The literal is
+        # hard-coded because a frozen migration imports nothing live.
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
+            tables_57 = {row[0] for row in await cursor.fetchall()}
+        if "chat_sessions" in tables_57 and "agents" in tables_57:
+            orphans_57 = (
+                "SELECT id FROM chat_sessions WHERE agent_name IS NULL OR "
+                "(agent_name <> 'GleepGlorp' AND NOT EXISTS "
+                "(SELECT 1 FROM agents WHERE agents.name = chat_sessions.agent_name))"
+            )
+            for table_57 in ("gleepglorp_proposals", "gleepglorp_fills"):
+                if table_57 in tables_57:
+                    await conn.execute(f"DELETE FROM {table_57} WHERE session_id IN ({orphans_57})")
+            await conn.execute(f"DELETE FROM chat_sessions WHERE id IN ({orphans_57})")
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (57,))
+        await conn.commit()
+        version = 57
+        # DD9: fold the WAL into the main file so pre-delete page images do not linger.
+        # After the commit (never inside an open transaction); a no-op on :memory: or a
+        # DELETE-mode connection. Busy or an error is tolerated: pages are already zeroed.
+        try:
+            async with conn.execute("PRAGMA wal_checkpoint(TRUNCATE)") as cursor:
+                checkpoint_57 = await cursor.fetchone()
+            if checkpoint_57 is not None and checkpoint_57[0]:
+                logger.warning("v57: wal_checkpoint(TRUNCATE) was busy; left for the next one")
+        except Exception:
+            logger.warning("v57: wal_checkpoint(TRUNCATE) failed; tolerated", exc_info=True)

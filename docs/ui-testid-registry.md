@@ -264,7 +264,11 @@ caught — but it cannot see where the attribute is emitted.
 | `connector-setup-steps-doc-ref` | studio | Connector-editor inline setup-steps plain-text reference naming `docs/connector-setup.md` — not a link; only `/static` is mounted, so an anchor would 404 (renamed from `connector-setup-steps-link` in the squawk 0046 review fix) (Squawk 0046) |
 | `connector-status-label` | studio | Connector-editor header connection-status line: the root `p.ui-status` of an `App.ui.status` (its `data-state` carries the outcome; "Connection check failed" when the automatic probe gets a non-OK response), edit mode only (Squawk 0045; M31 F3 L07a) |
 | `connector-status-led` | studio | The `status`-owned LED span inside the header status line (decorative, `aria-hidden`; its class carries the state), edit mode only (Squawk 0045; M31 F3 L07a) |
-| `delete-agent-btn` | studio | |
+| `delete-agent-ack-checkbox` | studio | Agent delete dialog acknowledgement checkbox ("I understand this will delete all of this agent's chat history"); Delete stays disabled until it is ticked (sortie 20) |
+| `delete-agent-btn` | studio | General-tab Danger-zone Delete agent button; one click opens `delete-agent-dialog` (it never arms) |
+| `delete-agent-cancel-btn` | studio | Agent delete dialog Cancel button (initial focus) |
+| `delete-agent-confirm-btn` | studio | Agent delete dialog Delete button (danger variant, disabled until the acknowledgement is ticked) |
+| `delete-agent-dialog` | studio | The agent delete confirmation modal: title `Delete "{name}"?`, the chat count message, the checkbox, Cancel and Delete (sortie 20) |
 | `delete-blocked-message` | studio | Provider-editor explanation in the neutral Danger-zone box shown on open whenever the provider is in use (no Delete click first): "This provider is used by ..." with each user a `delete-user-link` (agents to their page, GleepGlorp to its Settings page), then what deleting does (HAT, M36 F1) |
 | `delete-user-link` | studio | A link to a user (agent or GleepGlorp) inside `delete-blocked-message` |
 | `delete-force-checkbox` | studio | Provider-editor "Delete anyway and clear their model" checkbox; Delete stays disabled until it is ticked, and the commit sends `?force=true` |

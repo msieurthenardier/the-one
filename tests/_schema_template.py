@@ -43,6 +43,7 @@ async def _build(path: Path) -> None:
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA synchronous=OFF")
         await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.execute("PRAGMA secure_delete=ON")
         await ensure_schema(conn)
         await conn.execute("PRAGMA journal_mode=DELETE")
         await conn.commit()
@@ -93,6 +94,7 @@ async def connect_template_db(dest: str | os.PathLike[str]) -> aiosqlite.Connect
     conn = await aiosqlite.connect(str(dest))
     conn.row_factory = aiosqlite.Row
     await conn.execute("PRAGMA foreign_keys=ON")
+    await conn.execute("PRAGMA secure_delete=ON")
     return conn
 
 
@@ -109,4 +111,5 @@ async def connect_template_memory() -> aiosqlite.Connection:
         await src.close()
     mem.row_factory = aiosqlite.Row
     await mem.execute("PRAGMA foreign_keys=ON")
+    await mem.execute("PRAGMA secure_delete=ON")
     return mem

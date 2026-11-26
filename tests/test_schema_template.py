@@ -81,6 +81,8 @@ class TestTemplateShape:
             assert a.row_factory is aiosqlite.Row
             async with a.execute("PRAGMA foreign_keys") as cur:
                 assert (await cur.fetchone())[0] == 1
+            async with a.execute("PRAGMA secure_delete") as cur:
+                assert (await cur.fetchone())[0] == 1
             await a.execute("INSERT INTO knowledge_bases (id, name) VALUES ('k', 'K')")
             await a.commit()
             async with b.execute("SELECT COUNT(*) FROM knowledge_bases") as cur:

@@ -44,10 +44,11 @@ class InMemoryStore:
     async def save(self, config: AgentConfig) -> None:
         self._data[config.name] = config
 
-    async def delete(self, name: str) -> None:
+    async def delete(self, name: str) -> list[str]:
         if name not in self._data:
             raise KeyError(f"Agent config not found: {name}")
         del self._data[name]
+        return []
 
     async def exists(self, name: str) -> bool:
         return name in self._data

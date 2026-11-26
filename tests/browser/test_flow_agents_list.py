@@ -31,7 +31,7 @@ import re
 
 import httpx
 import pytest
-from browser import _lists, _nav
+from browser import _agent_delete, _lists, _nav
 from browser._credential_registry import auth_headers_for
 from browser.conftest import credentialed_context
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_agents
@@ -713,12 +713,7 @@ def test_unsaved_span_is_toggled_not_recreated(app_with_agent: SeededApp, page: 
 
 
 def _delete_open_agent(page: Page) -> None:
-    btn = page.locator('[data-testid="delete-agent-btn"]')
-    expect(btn).to_be_visible(timeout=8000)
-    btn.click()
-    expect(btn).to_have_text("Confirm delete?")
-    with page.expect_response(lambda r: "/api/agents/" in r.url and r.request.method == "DELETE"):
-        btn.click()
+    _agent_delete.confirm_delete(page)
 
 
 def test_delete_lands_on_the_root_and_focuses_the_nearest_row(
