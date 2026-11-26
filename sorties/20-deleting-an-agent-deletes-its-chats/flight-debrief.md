@@ -2,7 +2,7 @@
 
 **Date**: 2026-11-26
 **Flight**: [Deleting an agent deletes its chats](flight.md)
-**Status**: landed
+**Status**: landed (sortie marked `completed` on the operator's word, 2026-11-26)
 **Duration**: 2026-11-25 to 2026-11-26 (planned, built, reviewed and gated in one stretch; about a day of wall time, much of it spent waiting on a shared host)
 **Legs Completed**: 2 of 2 (no HAT, by the operator's choice)
 **Plugin version**: mission-control 1.2.4
@@ -135,7 +135,7 @@ All counts are from this flight's closing runs on a loaded host. None is a budge
 
   Pre-rebase `7c4ae1af`, `--parallel 3` at load 16 to 22: `agent-tabs` 1994 s, `library` 1217 s, `contracts-controls` 1180 s, `mcp` 1243 s, `knowledge` 905 s, all passed.
 - **Every failure was classified.**
-  - **22 pre-existing on a pristine `main` (`7518aefa`)**, each confirmed to fail identically there:
+  - **22 that also fail on a pristine `main` (`7518aefa`)**, each confirmed to fail identically there at the same high load. Most are squawk 0428's class (`_nav.goto` does not wait for boot, so an empty `<main>` on a first expectation), and so load-sensitive rather than plainly broken:
     - `test_flow_new_chat.py` (4: the welcome screen never appears);
     - `test_flow_admin_navigation.py` (3), `test_flow_settings_window_chrome_signal.py` (3), `test_flow_admin_tools_grid.py` (1), `test_flow_keyboard.py` (1) (Settings pages rendering an empty `<main>`);
     - `test_flow_chat_live_updates.py` (2: mid-turn join);
@@ -176,20 +176,22 @@ All on mission-control 1.2.4.
 7. **Sortie skill, Verb: Plan, step 5 (re-check the gate after design).** Both Architect cycles were asked directly and answered no second cluster. DD9 grew the sortie's scope through review without growing its legs. It worked as written.
 
 ## Recommendations
-1. **Log squawks for the 22 browser failures already on `main`** (`7518aefa`): Settings pages rendering an empty `<main>`, the welcome screen never appearing, mid-turn join, provider setup, and the rest. A red `main` makes every flight's gate "no new failures" instead of green. **Critical.**
-2. **Remove the legacy deleted-agent UI** (DD7) with the `removing-dead-code` method, and give the two remaining races (create-chat and routine-run during a delete) a cheap guard or a periodic sweep. **Important.**
-3. **Give the Purge route the same cancel, tell and evict** that agent delete now has. **Important.**
+1. **Complete squawk 0428** (`_nav.goto` does not wait for boot). The 22 browser failures shared with `main` all ran at load 16 to 23; most are its class: an empty `<main>` on a first expectation. They are load-sensitive tests, not proof that `main` is broken. Its report now carries this flight's list. Until it lands, every loaded gate reads "no new failures" instead of green. **Critical.**
+2. **Remove the legacy deleted-agent UI** (DD7) with the `removing-dead-code` method, and give the two remaining races (create-chat and routine-run during a delete) a cheap guard or a periodic sweep. It is **not a squawk**: removing the `agent_deleted` session state is a state-machine change, and the race guard needs a design call. Plan it as a sortie. **Important.**
+3. **Give the Purge route the same cancel, tell and evict** that agent delete now has. Squawk **0429**. **Important.**
 4. **Add a guard test** that no browser test sends `DELETE /api/agents/` outside `tests/browser/_agent_delete.py`. When a flight changes a shared behaviour, have its spec state the repository-wide invariant and a multiline grep recipe. **Important.**
 5. **Reserve a quiet window for a `--parallel 3` gate** before this PR merges, if budget readings are wanted. Pin the worktree recipe to Python 3.12 (`uv sync --all-extras --frozen --python 3.12`). **Minor.**
 
 ## Action Items
 - [ ] **Operator:** allow the force-push of the rebased branch to PR #392 (`--force-with-lease` against `7c4ae1af`), or choose another way to update it. Then mark the PR ready.
 - [ ] **Release notes for the version that ships this:** v57 irreversibly deletes chats whose agent no longer exists, on first start.
-- [ ] Squawk candidates, to log on the operator's word:
-  - remove the legacy deleted-agent UI (DD7);
-  - Purge route eviction;
-  - the pre-existing browser failures on `main`;
-  - the `aria-busy` screen-reader check;
-  - the `test_mcp_pool` xdist flake;
-  - the tiktoken cache skips in a fresh environment.
+- [x] Squawks logged on the operator's word (2026-11-26):
+  - **0429** Purge route eviction;
+  - **0430** the `aria-busy` screen-reader check;
+  - **0431** the `test_mcp_pool` xdist flake;
+  - **0432** the tiktoken cache skips in a fresh environment.
+
+  The browser failures shared with `main` were added as evidence to the existing **0428**, not logged twice.
+- [ ] Remove the legacy deleted-agent UI (DD7): failed the squawk gate (a state-machine change, and the race guard needs design). It is for a future sortie (Recommendation 2).
+- Squawk ids 0429 to 0432 were the next free ids on every remote branch at logging time. Mission 37 Flight 2's local branch may also log squawks; re-check for an id clash at merge.
 - [ ] Coordination: Mission 37 must not claim schema v57; this PR should merge before Flight 2's `api.py` router split; PR #393 overlaps `the_one/agents.md`, `index.html`, `css/studio.css` and `docs/ui-testid-registry.md`. Rebase if #393 merges first.

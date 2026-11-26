@@ -14,6 +14,16 @@ Seen at the 2026-11-25 squawk turnaround on `tests/browser/test_flow_chat_compos
 
 This is the same class as squawk 0424. That squawk's fix covers `open_destination` (rail clicks) and the predicates that call `_sessionState()`. It does not cover `goto`.
 
+**More evidence (sortie 20 closing gate, 2026-11-26).** Twenty-two browser tests failed both on sortie 20's tree and on a pristine `main` (`7518aefa`), all at load 16 to 23. Most of them show an empty `<main>` and "element(s) not found" on a first expectation, which is this squawk's class:
+- `test_flow_new_chat.py` (4, the welcome screen);
+- `test_flow_admin_navigation.py` (3), `test_flow_settings_window_chrome_signal.py` (3), `test_flow_admin_tools_grid.py::test_admin_tools_settings_nav_label_is_built_in_tools`, `test_flow_keyboard.py::test_settings_nav_links_are_in_tab_order`;
+- `test_flow_provider_setup.py::test_first_start_provider_setup_flow`, `test_flow_provider_library.py::test_bare_providers_section_is_an_alias_for_the_library_root`;
+- `test_theme_cross_tab_sync.py::test_theme_set_and_unset_propagate_across_tabs`, `test_flow_agent_routines_self_config.py::test_routines_tab_origin_flag_and_the_flag_clearing_edit`;
+- `test_flow_chat_composer_library.py::test_the_empty_states_text_column_is_centred`;
+- `test_flow_chat_live_updates.py` (2, mid-turn join) and `test_flow_context_overlay_thresholds.py` (1, an `httpx.ReadTimeout`) may be a different, load-only class.
+
+The full list is in `sorties/20-deleting-an-agent-deletes-its-chats/flight-log.md` ("Gate triage after rebase", "Closing gate and landing"). When this squawk is completed, re-run these on a loaded host as part of its verification.
+
 ## Evidence
 - `tests/browser/_nav.py::goto` only calls `page.goto`. Compare `open_destination`, which since 0424 calls `wait_router_started(page)` first.
 - `tests/browser/test_flow_chat_composer_library.py:134-136`: `_nav.goto(...)` then `expect(welcome).to_be_visible()`, with the default 5 s timeout.
