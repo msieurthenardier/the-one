@@ -39,7 +39,7 @@ A saved agent has a **Chat** button at the top of its settings. It starts a new 
 
 ## Purge and delete
 
-At the bottom of the General tab, **Purge now** deletes the agent's chats, its routines' run history and its finished approval history. The agent, its routines, rules and notes stay. **Delete agent** removes the agent with its routines, rules, notes and settings, and can't be undone. Both ask you to confirm.
+At the bottom of the General tab, **Purge now** deletes the agent's chats, its routines' run history and its finished approval history. The agent, its routines, rules and notes stay. **Delete agent** removes the agent with all of its chats, routines, rules, notes and settings, and can't be undone. It asks in a dialog that says how many chats it will delete; you tick "I understand this will delete all of this agent's chat history" before Delete turns on. Purge now asks in place, with a second click.
 
 ## Changes take effect
 

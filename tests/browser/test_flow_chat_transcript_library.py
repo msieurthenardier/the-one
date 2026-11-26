@@ -208,13 +208,9 @@ def test_a_late_context_window_response_for_another_session_is_dropped(
 
 def test_a_deleted_agents_chat_makes_no_context_window_request(app_clean: str, page: Page) -> None:
     """0.3: nothing to fetch for a deleted agent, so no request and no console error."""
-    pid = seed_mock_provider(app_clean, name="pd")
-    name = seed_mock_agent(app_clean, pid, name="doomed")
-    sid = seed_session(app_clean, name, "Doomed chat", "2026-01-02T00:00:00Z")
-    r = httpx.delete(
-        f"{app_clean}/api/agents/{name}", headers=auth_headers_for(app_clean), timeout=5
-    )
-    assert r.status_code in (200, 204), r.text
+    # Sortie 20: deleting an agent deletes its chats, so the deleted-agent state is a chat for a
+    # name that never existed.
+    sid = seed_session(app_clean, "doomed", "Doomed chat", "2026-01-02T00:00:00Z")
     requests: list[str] = []
     errors: list[str] = []
     page.on(
@@ -732,13 +728,19 @@ def test_the_step_limit_link_goes_to_the_agent_settings(app_clean: str, page: Pa
 def test_the_step_limit_notice_for_a_deleted_agent_is_plain_text(
     app_clean: str, page: Page
 ) -> None:
-    agent = _step_limit_agent(app_clean)
-    _joined(page, app_clean, agent)
-    expect(page.locator(STEP_LIMIT)).to_be_visible(timeout=15000)
-    r = httpx.delete(
-        f"{app_clean}/api/agents/{agent}", headers=auth_headers_for(app_clean), timeout=5
+    # Sortie 20: a deleted agent's chats are deleted with it, so the chat is for a name that never
+    # existed; the notice is driven by a frame, as the real agent is not needed.
+    sid = seed_session(
+        app_clean,
+        "gone-agent",
+        "Gone chat",
+        "2026-01-02T00:00:00Z",
+        messages=[{"role": "user", "content": "hello"}],
     )
-    assert r.status_code in (200, 204), r.text
+    page.goto(app_clean)
+    _chats.open_chat(page, sid)
+    expect(_chats.messages(page, "user").first).to_be_visible(timeout=10000)
+    expect(page.locator(INPUT)).to_be_disabled()
     page.evaluate(
         """async () => {
           App.store.invalidate('agents');
@@ -747,7 +749,8 @@ def test_the_step_limit_notice_for_a_deleted_agent_is_plain_text(
         }"""
     )
     last = page.locator(STEP_LIMIT).last
-    expect(last).to_contain_text(_STEP_TEXT)
+    # The chat is blocked (no Continue button), so the notice carries the no-button sentence.
+    expect(last).to_have_text(_STEP_TEXT_NO_BUTTON)
     expect(last.locator("a")).to_have_count(0)
 
 
@@ -822,14 +825,17 @@ def test_a_frame_from_elsewhere_or_a_typed_message_removes_the_button(
 
 
 def test_a_blocked_chat_renders_no_continue_button(app_clean: str, page: Page) -> None:
-    agent = _step_limit_agent(app_clean)
-    _joined(page, app_clean, agent)
-    expect(page.locator(STEP_LIMIT)).to_be_visible(timeout=15000)
-    r = httpx.delete(
-        f"{app_clean}/api/agents/{agent}", headers=auth_headers_for(app_clean), timeout=5
+    # Sortie 20: a deleted agent's chats are deleted with it, so the blocked chat is one for a
+    # name that never existed.
+    sid = seed_session(
+        app_clean,
+        "gone-agent",
+        "Gone chat",
+        "2026-01-02T00:00:00Z",
+        messages=[{"role": "user", "content": "hello"}],
     )
-    assert r.status_code in (200, 204), r.text
-    page.reload()
+    page.goto(app_clean)
+    _chats.open_chat(page, sid)
     expect(_chats.messages(page, "user").first).to_be_visible(timeout=10000)
     expect(page.locator(INPUT)).to_be_disabled()
     page.evaluate(

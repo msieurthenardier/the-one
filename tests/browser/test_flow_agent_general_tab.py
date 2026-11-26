@@ -150,8 +150,12 @@ def test_danger_zone_holds_two_actions_with_library_labels(
     purge = page.locator('[data-testid="purge-history-btn"]')
     expect(delete).to_have_text("Delete agent")
     expect(purge).to_have_text("Purge now")
+    # Delete asks in a dialog (sortie 20); Purge still arms in place.
     delete.click()
-    expect(delete).to_have_text("Confirm delete?")
+    expect(page.locator('[data-testid="delete-agent-dialog"]')).to_be_visible(timeout=8000)
+    page.locator('[data-testid="delete-agent-cancel-btn"]').click()
+    expect(page.locator('[data-testid="delete-agent-dialog"]')).to_have_count(0)
+    expect(delete).to_have_text("Delete agent")
     purge.click()
     expect(purge).to_have_text("Confirm purge?")
 

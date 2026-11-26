@@ -57,6 +57,7 @@ from the_one.db._rules import (
     RULES_TOTAL_MAX_CHARS,
     RuleOrderError,
 )
+from the_one.db._session_changes import notify_sessions_changed
 from the_one.db._write_lock import write_transaction
 from the_one.db.connection import get_connection
 from the_one.db.encryption_corpora import count_items_with_secrets, gather_corpora
@@ -1252,19 +1253,36 @@ async def _update_agent_mcp_credentials_locked(
 
 
 @router.delete("/agents/{name}")
-async def delete_agent(name: str) -> dict[str, str]:
+async def delete_agent(name: str) -> dict[str, Any]:
     store = await _agent_store()
     try:
-        await store.delete(name)
+        # Sortie 20: one transaction deletes the agent and everything keyed to it
+        # (its chats, their GleepGlorp rows, the connector bindings); returns the chat ids.
+        chat_ids = await store.delete(name)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    # DD9: fold the WAL so the deleted content does not linger in the -wal file.
+    # Never fails the delete (busy or an error is logged inside).
+    from the_one.db.connection import checkpoint_wal
+
+    await checkpoint_wal(await get_connection())
     # M21 F01 L02 (AC11): cascade — remove the agent's surface row (if any)
     # and unregister its credential. No-op if the agent never enabled the
     # surface.
     mcp_repo = await _mcp_repo()
     await self_configuration_manage.cascade_delete(name, mcp_repo=mcp_repo)
     await _evict_agent_connections(name)
-    return {"status": "ok"}
+    # Sortie 20 (DD2): stop, tell and evict each deleted chat, release the agent's PTY
+    # sessions (keyed by agent name, not chat id), and push sessions_changed once.
+    from the_one.interfaces.web.app import _evict_deleted_sessions
+    from the_one.tools import _session_registry
+
+    await _evict_deleted_sessions(chat_ids)
+    for pty_id in await _session_registry.list_for_agent(name):
+        await _session_registry.close(name, pty_id)
+    if chat_ids:
+        notify_sessions_changed()
+    return {"status": "ok", "chats_deleted": len(chat_ids)}
 
 
 @router.post("/agents/{name}/rename")

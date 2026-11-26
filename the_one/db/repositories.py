@@ -444,11 +444,60 @@ class SQLiteAgentStore:
                 rowcount = cur.rowcount
         return rowcount == 1
 
-    async def delete(self, name: str) -> None:
+    async def delete(self, name: str) -> list[str]:
+        """Delete an agent and everything keyed to it in one transaction.
+
+        Removes the agent's chat sessions (interactive and connector-keyed)
+        with their GleepGlorp proposals and fills, clears the connector
+        bindings that name it, then deletes the ``agents`` row (whose
+        ``ON DELETE CASCADE`` children go with it). Returns the deleted chat
+        ids so the route can stop and evict the live sessions. Raises
+        ``KeyError`` for a missing agent, before any write. Does not notify:
+        the caller pushes ``sessions_changed`` once after eviction.
+        """
         if not await self.exists(name):
             raise KeyError(f"Agent config not found: {name}")
         async with write_transaction(self.conn):
+            async with self.conn.execute(
+                "SELECT id FROM chat_sessions WHERE agent_name = ?", (name,)
+            ) as cur:
+                chat_ids = [row["id"] for row in await cur.fetchall()]
+            await self.conn.execute(
+                "DELETE FROM gleepglorp_proposals WHERE session_id IN "
+                "(SELECT id FROM chat_sessions WHERE agent_name = ?)",
+                (name,),
+            )
+            await self.conn.execute(
+                "DELETE FROM gleepglorp_fills WHERE session_id IN "
+                "(SELECT id FROM chat_sessions WHERE agent_name = ?)",
+                (name,),
+            )
+            await self.conn.execute("DELETE FROM chat_sessions WHERE agent_name = ?", (name,))
+            async with self.conn.execute("SELECT id, config FROM connectors") as cur:
+                connector_rows = await cur.fetchall()
+            for row in connector_rows:
+                try:
+                    config = _parse_connector_binding_config(row["config"])
+                except (ValueError, TypeError, AttributeError):
+                    _conn_logger.warning(
+                        "Skipping malformed connector row %r", row["id"], exc_info=True
+                    )
+                    continue
+                channel_map = config.get("channel_map") or {}
+                changed = config.get("default_agent") == name
+                if changed:
+                    # Remove the key; never set None (the model rejects a non-string).
+                    del config["default_agent"]
+                if name in channel_map.values():
+                    config["channel_map"] = {k: v for k, v in channel_map.items() if v != name}
+                    changed = True
+                if changed:
+                    await self.conn.execute(
+                        "UPDATE connectors SET config = ?, updated_at = ? WHERE id = ?",
+                        (json.dumps(config), now_iso(), row["id"]),
+                    )
             await self.conn.execute("DELETE FROM agents WHERE name = ?", (name,))
+        return chat_ids
 
     async def exists(self, name: str) -> bool:
         async with self.conn.execute("SELECT 1 FROM agents WHERE name = ?", (name,)) as cur:

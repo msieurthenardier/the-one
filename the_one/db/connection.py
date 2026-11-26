@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
 import aiosqlite
 
 from the_one.config import settings
+
+_logger = logging.getLogger(__name__)
 
 _connection: aiosqlite.Connection | None = None
 
@@ -53,8 +56,35 @@ async def get_connection() -> aiosqlite.Connection:
         _connection.row_factory = aiosqlite.Row
         await _connection.execute("PRAGMA journal_mode=WAL")
         await _connection.execute("PRAGMA foreign_keys=ON")
+        # Sortie 20 (DD9): zero freed pages so deleted chat content is not left readable.
+        await _connection.execute("PRAGMA secure_delete=ON")
         _tighten_wal_shm_modes(db_path)
     return _connection
+
+
+async def checkpoint_wal(conn: aiosqlite.Connection) -> int | None:
+    """Fold the WAL into the main file and truncate it (``wal_checkpoint(TRUNCATE)``).
+
+    Sortie 20 (DD9): run after an agent delete commits so pre-delete page images do not
+    linger in the ``-wal`` file. Runs in its own ``write_transaction`` block (the connection
+    is shared, so only the lock guarantees no other task holds an implicit transaction open),
+    and consumes its cursor (an unfinalized statement can pin the snapshot and report busy).
+    Returns the pragma's ``busy`` flag (``0`` = complete), or ``None`` if it raised. A busy
+    result or an error is logged and never raised: the pages are already zeroed.
+    """
+    from the_one.db._write_lock import write_transaction
+
+    try:
+        async with write_transaction(conn):
+            async with conn.execute("PRAGMA wal_checkpoint(TRUNCATE)") as cur:
+                row = await cur.fetchone()
+        busy = row[0] if row is not None else 0
+    except Exception:
+        _logger.warning("wal_checkpoint(TRUNCATE) failed; tolerated", exc_info=True)
+        return None
+    if busy:
+        _logger.warning("wal_checkpoint(TRUNCATE) was busy; the next checkpoint finishes it")
+    return busy
 
 
 async def close_connection() -> None:
