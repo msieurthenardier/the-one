@@ -377,7 +377,7 @@ async def test_stdio_helper_receives_record_era_gate(client_and_repo) -> None:
         seen.append(record_era)
         return {"status": "ok", "tools": [], "capabilities": {}}
 
-    with patch("the_one.interfaces.web.api._build_and_test_stdio_mcp", _fake):
+    with patch("the_one.interfaces.web.mcp_connection_api._build_and_test_stdio_mcp", _fake):
         await c.post(f"/api/mcp-sources/{SID}/test/connect", json={"config": dict(stdio_cfg)})
         await c.post(
             f"/api/mcp-sources/{SID}/test/connect",

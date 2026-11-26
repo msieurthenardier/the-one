@@ -28,6 +28,7 @@ Frames go out after the commit: ``proposal_changed`` to the chat, then, on an ap
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, cast
@@ -54,6 +55,8 @@ from the_one.gleepglorp.proposals.store import (
 Outcome = Literal[
     "applied", "already_applied", "failed", "stale", "gone", "busy", "closed", "dismissed"
 ]
+
+logger = logging.getLogger(__name__)
 
 CONFIG_CHANGED = "config_changed"
 # The proposal fields that are internal stored keys, not something the operator reads.
@@ -224,6 +227,7 @@ async def apply_proposal(
     # After the commit: the chat's card, then every window.
     view = await _frame(conn, repo, proposal_id)
     changed = [k for k in p.changes if k not in _HIDDEN_FIELDS]
+    logger.info("proposal %s: applied (kind %s, agent %s)", p.id, p.kind, p.agent_name)
     from the_one.sessions._broadcast import broadcast_to_all
 
     await broadcast_to_all(
@@ -277,6 +281,7 @@ async def dismiss_proposal(
         row = await repo.get(proposal_id)
         return ProposalApplyResult("closed", status=row.status if row else None)
     view = await _frame(conn, repo, proposal_id)
+    logger.info("proposal %s: dismissed", proposal_id)
     if continue_chat:
         await continuation.on_dismissed(p)
     return ProposalApplyResult("dismissed", view)

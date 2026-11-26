@@ -292,3 +292,38 @@ def test_the_change_path_and_the_kind_never_call_a_value_reader() -> None:
     assert not re.search(r"get_values|all_values", service)
     change = service[service.index("async def change_secret_metadata") :]
     assert "values=" not in change.replace("values=...", "")
+
+
+# --- P5: one info line per successful write, never a value ------------------------------------
+
+
+async def test_each_write_logs_one_info_line_and_no_value(world, caplog) -> None:
+    caplog.set_level("INFO", logger="the_one.secret_store.service")
+    secret_value = "caplog-secret-value-QQ77-do-not-log"
+    created = await svc.create_secret(
+        world.deps,
+        {
+            "name": "Logged",
+            "allowed_tools": ["shell"],
+            "values": [{"key": "api_key", "value": secret_value}],
+        },
+    )
+    await svc.replace_secret(
+        world.deps, created.id, {"values": [{"key": "api_key", "value": secret_value + "2"}]}
+    )
+    await svc.change_secret_metadata(world.deps, created.id, {"description": "new text"})
+    lines = [r for r in caplog.records if r.name == "the_one.secret_store.service"]
+    assert [r.getMessage() for r in lines] == [
+        f"secret {created.id}: created",
+        f"secret {created.id}: replaced",
+        f"secret {created.id}: metadata changed",
+    ]
+    assert all(r.levelname == "INFO" for r in lines)
+    assert secret_value not in caplog.text and "new text" not in caplog.text
+
+
+async def test_a_refused_write_logs_nothing(world, caplog) -> None:
+    caplog.set_level("INFO", logger="the_one.secret_store.service")
+    with pytest.raises(svc.SecretWriteError):
+        await svc.create_secret(world.deps, {"name": "Github", "allowed_tools": ["shell"]})
+    assert [r for r in caplog.records if r.name == "the_one.secret_store.service"] == []

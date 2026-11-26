@@ -12,7 +12,8 @@ from tests._api_app import shared_app
 from tests._credential_helpers import auth_headers
 from the_one.config import settings
 from the_one.connectors.inbound import _pair_peer
-from the_one.interfaces.web.api import _connector_repo, _merge_paired_peers
+from the_one.interfaces.web.api import _connector_repo
+from the_one.interfaces.web.connectors_api import _merge_paired_peers
 
 pytestmark = pytest.mark.usefixtures("isolated_db")
 

@@ -17,6 +17,7 @@ the repository is injected through :class:`SecretWriteDeps`.
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from the_one.db.repositories import SecretRepository
 
 OnCommit = Callable[[aiosqlite.Connection], Awaitable[None]]
+
+logger = logging.getLogger(__name__)
 
 KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 TOOL_NAME_MAX = 128
@@ -246,13 +249,15 @@ async def create_secret(deps: SecretWriteDeps, data: dict[str, Any]) -> Secret:
     """Create a secret from a request body (the route's POST)."""
     fields = parse_secret(data, creating=True)
     try:
-        return await deps.repo.create(
+        secret = await deps.repo.create(
             fields["name"], fields["description"], fields["allowed_tools"], fields["values"]
         )
     except SecretNameConflict:
         raise name_conflict() from None
     except SecretInvalid as e:
         raise SecretWriteError(422, e.details) from None
+    logger.info("secret %s: created", secret.id)
+    return secret
 
 
 async def replace_secret(deps: SecretWriteDeps, secret_id: str, data: dict[str, Any]) -> Secret:
@@ -262,13 +267,15 @@ async def replace_secret(deps: SecretWriteDeps, secret_id: str, data: dict[str, 
         raise SecretNotFound(secret_id)
     fields = parse_secret(data, creating=False)
     try:
-        return await deps.repo.update(secret_id, **fields)
+        secret = await deps.repo.update(secret_id, **fields)
     except KeyError:
         raise SecretNotFound(secret_id) from None
     except SecretNameConflict:
         raise name_conflict() from None
     except SecretInvalid as e:
         raise SecretWriteError(422, e.details) from None
+    logger.info("secret %s: replaced", secret_id)
+    return secret
 
 
 async def change_secret_metadata(
@@ -296,10 +303,12 @@ async def change_secret_metadata(
             raise SecretStaleError(stale)
 
     try:
-        return await deps.repo.update(secret_id, **fields, precheck=precheck, on_commit=on_commit)
+        secret = await deps.repo.update(secret_id, **fields, precheck=precheck, on_commit=on_commit)
     except KeyError:
         raise SecretNotFound(secret_id) from None
     except SecretNameConflict:
         raise name_conflict() from None
     except SecretInvalid as e:
         raise SecretWriteError(422, e.details) from None
+    logger.info("secret %s: metadata changed", secret_id)
+    return secret

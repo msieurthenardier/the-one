@@ -1,6 +1,6 @@
 # Squawk 0327: The targeted credentials save and a whole-agent PUT can overwrite each other
 
-**Status**: deferred
+**Status**: in-progress
 **Type**: defect
 **Severity**: routine
 **Reported**: 2026-11-04
@@ -15,10 +15,10 @@ The agent tile's credentials Save (`PUT /api/agents/{name}/mcp-overrides/{source
 - All coroutines share one aiosqlite connection (`the_one/db/connection.py`), so an in-process `asyncio.Lock` is sufficient.
 
 ## Corrective Action
-*(written at completion)* Planned approach: a per-agent `asyncio.Lock` (keyed by agent name, e.g. a small lock registry) held around load-merge-save in both write paths. Ordering only: no change to what is merged, validated or masked. **Scope gate:** if the fix needs semantic changes (an `updated_at` precondition, 409s, a repository API change), stop and escalate to a sortie.
+Mission 37 Flight 2 Leg 2. `the_one/agent/service.py::agent_write_lock(name)`: a per-agent in-process `asyncio.Lock` in a refcounted registry (entry popped at zero, so it stays bounded). Held from load through save by five writers: `replace_agent`, `change_agent` (whole body, retry loop included), the targeted credentials route and the revision approve and restore routes. Ordering only: nothing merged, validated or masked changed, and no `updated_at` precondition, 409 or repository change was needed, so the scope gate did not trip. Lock order is agent lock then store write lock. The background cascades (self-configuration `manage.py`, MCP and KB rename references, override cleanup, migration) and Sortie 20's agent delete are not locked; recorded as follow-ups in the Flight 2 log. The rule is in `the_one/agents.md` (service section, "Agent write lock").
 
 ## Verification
-An interleaving unit test: start a credentials save and a whole-agent PUT concurrently (patch an await point to yield), then assert both changes survive. Falsify it by removing the lock.
+`tests/test_agent_write_lock.py`: interleaving tests gated on `asyncio.Event` (no sleeps) for credentials save + whole-agent PUT in both orders, revision approve + PUT in both orders, and `change_agent` + PUT in both orders (regression guard), plus registry tests (bounded, released on error and cancellation). Falsified: with the lock removed from the credentials route, the credentials/PUT pair fails (the PUT's `system_prompt` change is lost); restored, it passes.
 
 ## Sign-Off
 *(written at completion)*
