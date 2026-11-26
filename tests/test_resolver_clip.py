@@ -720,6 +720,23 @@ def _assert_not_wider(
                 assert all(_inside(v, good) for v in val), (name, val, agent)
 
 
+@pytest.fixture(autouse=True)
+def _no_nss_user_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Answer every ``~user`` lookup as "no such user" without asking NSS.
+
+    ``Path.expanduser`` on ``~name`` calls ``pwd.getpwnam``, which goes through
+    NSS (``systemd`` on this host) and can block for minutes under load (squawk
+    0434). Every ``~name`` this file uses is deliberately unknown, so the
+    deterministic answer is the same ``KeyError`` the real lookup raises.
+    """
+    import pwd
+
+    def _unknown(name: str) -> None:
+        raise KeyError(f"getpwnam(): name not found: {name!r}")
+
+    monkeypatch.setattr(pwd, "getpwnam", _unknown)
+
+
 @pytest.mark.parametrize("schema", [FilesystemConfig, ExecutionConfig, PythonExecConfig, WebConfig])
 class TestProperties:
     def test_clip_is_total_and_resolve_of_the_clip_never_raises(

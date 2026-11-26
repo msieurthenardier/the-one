@@ -45,6 +45,8 @@ from the_one.db.repositories import (
 from the_one.self_configuration import manage as self_configuration_manage
 from the_one.self_configuration.constants import is_surface_row
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "AgentStaleError",
     "AgentWriteDeps",
@@ -91,8 +93,6 @@ _COMPARE_FIELDS = (
 )
 
 # One load-merge-validate-save attempt, plus at most two retries.
-logger = logging.getLogger(__name__)
-
 _MAX_ATTEMPTS = 3
 
 MSG_CHANGED_WHILE_APPLYING = "This agent changed while the change was being applied. Try again."
