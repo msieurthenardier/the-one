@@ -38,7 +38,7 @@ Add a model provider in the Library first, because every agent needs one. Then c
 
 ## Jumping around
 
-Press **Ctrl K** (**Cmd K** on a Mac), or use the **Jump to** button at the bottom of the left edge, to search for an agent, chat, Library item or Settings page and go straight to it.
+Press **Ctrl K** (**Cmd K** on a Mac), or use the **Jump to** button at the bottom of the left edge, to search for an agent, chat, Library item or Settings page and go straight to it. On narrower windows, the list column tucks away by default so the main area has room; use the list button near the bottom of the left edge to slide it out, and **Close** or **Escape** to tuck it back away.
 
 ## Where to read more
 

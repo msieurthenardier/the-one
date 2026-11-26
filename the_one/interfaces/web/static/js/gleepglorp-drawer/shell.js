@@ -196,6 +196,9 @@
       var show = canShow();
       var drawerShown = show && userOpen;
       var buttonShown = show && !userOpen;
+      if (drawerShown && mq && !mq.matches && App.narrowShell && typeof App.narrowShell.willOpen === 'function') {
+        App.narrowShell.willOpen('gleepglorp-drawer');
+      }
       if (!drawerShown && !slot.hidden) rescueFocus();
       slot.hidden = !drawerShown;
       button.setHidden(!buttonShown);
@@ -226,6 +229,9 @@
     var api = {
       open: function (opener) {
         if (!canShow()) return;
+        if (mq && !mq.matches && App.narrowShell && typeof App.narrowShell.willOpen === 'function') {
+          App.narrowShell.willOpen('gleepglorp-drawer');
+        }
         if (drawer.isOpen()) { focusInitial(); return; }
         drawer.open(opener && opener.nodeType ? opener : button.el);
         // Already shown (restored after Chats): the drawer reports no change.
@@ -257,6 +263,11 @@
     function applyMode() { drawer.setMode(mq && !mq.matches ? 'overlay' : 'push'); }
     applyMode();
     if (mq) mq.addEventListener('change', applyMode);
+    if (App.narrowShell && typeof App.narrowShell.register === 'function') {
+      App.narrowShell.register('gleepglorp-drawer', function () {
+        if (mq && !mq.matches && (drawer.isOpen() || api.isOpen())) api.close();
+      });
+    }
 
     row.appendChild(button.el);
 

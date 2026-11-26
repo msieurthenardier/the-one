@@ -37,6 +37,16 @@
       });
     }
     var keys = jumpToKeys(isMacPlatform());
+    var sidebarToggle = App.ui.button({
+      variant: 'ghost',
+      icon: 'panel-left',
+      iconOnly: true,
+      ariaLabel: 'Show list',
+      testid: 'rail-sidebar-toggle'
+    });
+    sidebarToggle.setAttribute('aria-controls', 'app-sidebar');
+    sidebarToggle.setAttribute('aria-expanded', 'false');
+    sidebarToggle.hidden = true;
     var jumpTo = App.ui.button({
       variant: 'ghost',
       icon: 'search',
@@ -51,7 +61,7 @@
     var rail = App.ui.rail({
       items: items,
       brand: { src: '/static/brand/topbar-icon-24.png', alt: 'GleepGlorp AI' },
-      footer: [jumpTo]
+      footer: [sidebarToggle, jumpTo]
     });
     host.textContent = '';
     host.appendChild(rail.el);
@@ -62,6 +72,7 @@
         rail.setHref(dests[k].id, '#' + route);
       }
     });
+    return sidebarToggle;
   }
 
   // ── Ctrl K: the jump-to shortcut (M25 F4 L7, flight DD9) ────────────────
@@ -193,8 +204,11 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
-    mountRail();
+    var sidebarToggle = mountRail();
     installJumpToKey();
+    if (App.narrowShell && typeof App.narrowShell.mount === 'function') {
+      App.narrowShell.mount({ toggle: sidebarToggle });
+    }
     // M36 F3 L2: the GleepGlorp corner button and drawer shell, subscribed before the router's
     // first commit so it sees it.
     if (App.gleepglorpDrawer) App.gleepglorpDrawer.mount();

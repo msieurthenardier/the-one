@@ -1753,7 +1753,7 @@
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-modal);
     padding: 24px;
-    min-width: 320px;
+    min-width: min(320px, calc(100vw - 24px));
     max-width: 480px;
     width: 100%;
     color: var(--fg);
@@ -2416,7 +2416,7 @@
   /* The 16px above the first row is the gap between the tab strip (or heading) and the cards. */
   .ui-tool-tile-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr));
     gap: 16px;
     align-content: start;
     padding: 16px 0 0;
@@ -3182,7 +3182,7 @@
   }
 
   /* --- Telemetry (resting opacity 0.7 is pinned by the contrast audit) --- */
-  .ui-telemetry { display: flex; align-items: center; gap: 10px; font-size: var(--font-size-caption); color: var(--fg-muted); opacity: 0.7; transition: opacity 0.25s ease; }
+  .ui-telemetry { display: flex; align-items: center; gap: 10px; max-width: 100%; overflow: hidden; font-size: var(--font-size-caption); color: var(--fg-muted); opacity: 0.7; transition: opacity 0.25s ease; }
   .ui-telemetry:hover,
   .ui-telemetry:focus-within { opacity: 1; }
   .ui-telemetry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
@@ -3323,6 +3323,75 @@
       white-space: nowrap;
       border: 0;
     }
+  }
+
+  /* Bottom clearance for floating corner button inside tab panels (M38 F1). */
+  .app-shell-row.gg-corner-on .tabpanel:not([hidden]) { scroll-padding-bottom: 88px; }
+  .app-shell-row.gg-corner-on .tabpanel:not([hidden]):not(.ui-tabs--flush) { padding-bottom: 88px; }
+
+  @media (max-width: 899px) {
+    .page-header { padding: 12px 16px 10px; }
+    .editor-header { padding: 12px 16px; gap: 8px 12px; }
+    .editor-header--flush:is(.editor-header, .page-header) { padding-left: 0; padding-right: 0; }
+    .tablist { padding: 0 16px; overflow-x: auto; scrollbar-width: thin; }
+    .tabpanel:not(.ui-tabs--flush) { padding: 16px 16px 80px; }
+    .form-actions { flex-wrap: wrap; justify-content: flex-end; }
+    .ui-composer { padding: 8px 16px 12px; }
+    .ui-composer-toolbar { flex-wrap: wrap; gap: 6px; }
+    .ui-composer-model { min-width: 0; max-width: 100%; }
+    .ui-drawer--overlay { max-width: min(var(--drawer-w, 320px), calc(100vw - var(--rail-w, 72px))); }
+    .ui-drawer--overlay.ui-drawer--reserve-end .ui-drawer-header { padding-right: 52px; }
+    .ui-corner-button { width: 40px; height: 40px; bottom: 12px; right: 12px; }
+    .ui-checkbox-group--days .ui-checkbox-group-options { flex-wrap: wrap; }
+    .modal-overlay { padding: 12px; }
+    .modal-dialog {
+      max-width: calc(100vw - 24px);
+      max-height: calc(100vh - 24px);
+      overflow-y: auto;
+      padding: 16px;
+    }
+    .modal-dialog-chooser {
+      width: min(600px, calc(100vw - 24px));
+      max-width: calc(100vw - 24px);
+      max-height: calc(100vh - 24px);
+    }
+  }
+
+  @media (max-width: 520px) {
+    .ui-rail { width: 56px; min-width: 56px; }
+    .ui-rail-item { width: 44px; min-height: 44px; padding: 4px 2px; font-size: 10px; }
+    .ui-rail-footer .btn-icon { width: 38px; height: 38px; }
+    .ui-drawer-header, .ui-drawer-body, .ui-drawer-footer { padding-left: 12px; padding-right: 12px; }
+    .ui-drawer--overlay.ui-drawer--reserve-end .ui-drawer-header { padding-right: 48px; }
+  }
+
+  @media (max-height: 440px) {
+    .ui-rail { padding: 8px 0; gap: 2px; overflow-y: auto; }
+    .ui-rail-brand { height: 32px; margin-bottom: 4px; }
+    .ui-rail-item { min-height: 38px; padding: 3px 2px; gap: 2px; font-size: 10px; }
+    .ui-rail-icon svg { width: 16px; height: 16px; }
+    .ui-rail-footer { gap: 4px; }
+    .ui-rail-footer .btn-icon { width: 34px; height: 34px; }
+    .page-header { padding: 8px 16px; }
+    .editor-header { padding: 8px 16px; gap: 6px 10px; }
+    .editor-header--flush:is(.editor-header, .page-header) { padding-left: 0; padding-right: 0; }
+    .tab { padding: 6px 10px; }
+    .ui-composer { padding: 4px 12px 6px; }
+    .ui-composer-telemetry { margin-bottom: 2px; }
+    .ui-composer-queued { margin: 0 0 4px; }
+    .ui-composer-input { min-height: 22px; padding: 6px 10px 2px; }
+    .ui-composer-toolbar { padding: 2px 6px; gap: 4px 6px; }
+    .ui-message { padding: 6px 10px; line-height: 1.35; }
+    .modal-overlay { align-items: flex-start; padding: 12px; }
+    .modal-dialog { max-height: calc(100vh - 24px); overflow-y: auto; padding: 14px 16px; }
+    .modal-dialog-chooser { margin-top: 0; max-height: calc(100vh - 24px); }
+    .modal-dialog-chooser .modal-dialog-header { padding: 10px 14px 8px; }
+    .jump-to-body .ui-search-list-listbox { max-height: calc(100vh - 110px); }
+    .ui-drawer-header { padding: 8px 12px; min-height: 36px; }
+    .ui-drawer--overlay.ui-drawer--reserve-end .ui-drawer-header { padding-right: 52px; }
+    .ui-drawer-body { padding: 10px 12px; }
+    .ui-drawer-footer { padding: 8px 12px; }
+    .ui-corner-button { width: 40px; height: 40px; bottom: 12px; right: 12px; }
   }
 }
 

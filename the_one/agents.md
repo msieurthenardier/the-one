@@ -2939,6 +2939,12 @@ URLs are exempt); call `invalidate` after any new mutation of those resources. T
 
 **`:focus-within` reveal**: hover-only delete affordances (hidden by `display: none`) reveal via the parent's `:focus-within` selector when the user Tabs into the child button.
 
+### Narrow-window shell and overlay coordination (M38 F1)
+
+- **Breakpoint & sidebar overlay (`narrow-shell.js`, `base.css`).** Below `900px` (`(max-width: 899px)`), `.app-shell-row` carries `data-narrow="true"` and `#app-sidebar` closes by default instead of taking column width (`#main-content` keeps full remaining width: `552px` at `624×321`). `app.js` places a rail footer toggle (`rail-sidebar-toggle`, `panel-left`, `hidden` at `900px+`) managed by `App.narrowShell`. Opening it sets `data-narrow-open="true"` (`position: fixed` beside `#app-rail`), displays `.narrow-sidebar-bar` with Close (`narrow-sidebar-close`), moves focus into the sidebar's active panel, and dismisses on Close, `Escape`, clicking `#main-content`, clicking an active-page link, or route commit (returning focus to `rail-sidebar-toggle`).
+- **Single-overlay coordinator (`App.narrowShell`).** `agent-drawer.js` (`#chat-drawer`, `< 1280px`) and `gleepglorp-drawer/shell.js` (`#gleepglorp-drawer`, `< 1280px`) register with `App.narrowShell.register(id, closeFn)` and call `App.narrowShell.willOpen(id)` before opening in overlay mode so `#app-sidebar`, `#chat-drawer`, and `#gleepglorp-drawer` never stack above one another below their overlay breakpoints.
+- **Short height & corner clearance (`components.css`, `chat.css`, `gleepglorp-drawer.css`).** `@media (max-height: 440px)` compacts the rail, headers, messages, composer, drawers, and modals so `624×321` keeps 3+ visible transcript lines above `.ui-composer`; `@media (max-width: 520px)` narrows `--rail-w` from `72px` to `56px`. `.app-shell-row.gg-corner-on` adds an `88px` flex `::after` clearance spacer plus `scroll-padding-bottom` on `.studio-editor`, `.studio-section-content`, and `.admin-content` (and `padding-bottom: 88px` on non-flush `.tabpanel`) so scrolled controls never rest under `#gleepglorp-corner-button`.
+
 ---
 
 ## Testing patterns

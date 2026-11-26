@@ -170,6 +170,7 @@
 
     // ── Header, body, footer (built once; render patches or refills) ───
     var nameEl = el('h2', { className: 'chat-drawer-name' });
+    nameEl.setAttribute('tabindex', '-1');
     var badge = App.ui.badge.live({ kind: 'unknown' });
     var head = el('div', { className: 'chat-drawer-head' }, [nameEl, badge.el]);
     var content = el('div', { className: 'chat-drawer-content' });
@@ -212,6 +213,10 @@
         state.open[state.mode] = !state.open[state.mode];
         writeOpen(state.open);
         apply();
+        if (state.open[state.mode] && state.mode === 'overlay') {
+          var target = !nameEl.hidden ? nameEl : drawer.el.querySelector('button:not([hidden]), [tabindex]');
+          if (target && typeof target.focus === 'function') target.focus();
+        }
       }
     });
     toggle.setAttribute('aria-controls', drawer.el.id || 'chat-drawer');
@@ -601,6 +606,9 @@
       drawer.setMode(state.mode);
       var want = active && !!view && !!state.open[state.mode];
       var was = drawer.isOpen();
+      if (want && state.mode === 'overlay' && App.narrowShell && typeof App.narrowShell.willOpen === 'function') {
+        App.narrowShell.willOpen('chat-drawer');
+      }
       applying = true;
       if (want) drawer.open(toggle);
       else drawer.close();
@@ -632,7 +640,17 @@
     // GleepGlorp's settings are a module of their own, not an App.store collection (M36 L04).
     unsubs.push(App.gleepglorp.subscribe(function () { if (renderKey() !== lastKey) render(); }));
 
+    var unregisterOverlay = App.narrowShell && typeof App.narrowShell.register === 'function'
+      ? App.narrowShell.register('chat-drawer', function () {
+          if (applying || !drawer.isOpen() || state.mode !== 'overlay') return;
+          state.open.overlay = false;
+          writeOpen(state.open);
+          apply();
+        })
+      : null;
+
     function destroy() {
+      if (unregisterOverlay) unregisterOverlay();
       document.removeEventListener(App.approvals.CONFIG_CHANGED, onConfigChanged);
       for (var i = 0; i < unsubs.length; i++) unsubs[i]();
       unsubs = [];

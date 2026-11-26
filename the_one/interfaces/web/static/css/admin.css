@@ -144,5 +144,15 @@
     color: var(--fg-secondary);
   }
   .area-admin .date-time-page .date-time-note { margin: 0; }
+
+  @media (max-width: 899px) {
+    .area-admin .admin-form { padding: 0 16px 24px; }
+    .area-admin .settings-list { padding: 0 16px; }
+    .area-admin .settings-list:has(+ .settings-item:empty) { padding-bottom: 24px; }
+    .area-admin .settings-item:not(:empty) { margin: 16px 16px 0; padding-bottom: 24px; }
+    .area-admin .tools-test-row { flex-wrap: wrap; }
+    .area-admin .tools-test-field { max-width: 100%; }
+    .area-admin .date-time-page .date-time-mismatch { flex-wrap: wrap; }
+  }
   /* Last, so no display rule above can show a hidden node. */
 }

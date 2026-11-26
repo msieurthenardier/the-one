@@ -221,3 +221,13 @@ def test_mcp_surfaces_are_described_and_the_refs_need_no_fixtures() -> None:
     assert all(s.description for s in cap.SURFACES)
     refs = [s for s in cap.SURFACES if s.name.startswith("ref-")]
     assert refs and not any(s.needs_mcp for s in refs)
+
+
+def test_narrow_sizes_registered_and_default_widths_preserved() -> None:
+    """Flight 1 adds 640 and 624 viewport presets while keeping default --widths at 1280,1024."""
+    assert cap.SIZES[640] == {"width": 640, "height": 360}
+    assert cap.SIZES[624] == {"width": 624, "height": 321}
+    args = cap.parse_args(["--out", "/tmp/out"])
+    assert args.widths == "1280,1024"
+    both = cap.Surface("a", "#a", "x", "d")
+    assert cap.widths_for(both, [624, 640]) == [624, 640]

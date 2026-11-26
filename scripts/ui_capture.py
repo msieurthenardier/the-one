@@ -72,10 +72,14 @@ FORBIDDEN_PORTS = {
 FIXTURE_FORBIDDEN_PORTS = {**FORBIDDEN_PORTS, 8491: "another session's long-lived scratch instance"}
 NETNS_SENTINEL = "THE_ONE_UI_CAPTURE_IN_NETNS"
 VIEWPORT = {"width": 1280, "height": 900}  # the first of SIZES (kept for the manifest)
-# Every surface is captured at both widths (M31 F4): file names end --<theme>--<width>.
+# Supported capture widths: desktop baselines (M31 F4) plus narrow desktop shell sizes (M38 F1);
+# file names end --<theme>--<width>. Default --widths keeps only the desktop baselines.
+DEFAULT_WIDTHS = (1280, 1024)
 SIZES: dict[int, dict[str, int]] = {
     1280: {"width": 1280, "height": 900},
     1024: {"width": 1024, "height": 768},
+    640: {"width": 640, "height": 360},
+    624: {"width": 624, "height": 321},
 }
 # The scratch server's own system zone (tzlocal reads TZ), pinned so system mode is
 # the same on every host. The browser zone is pinned per surface (Surface.tz).
@@ -3370,7 +3374,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--force", action="store_true", help="allow a non-empty --out")
     p.add_argument(
         "--widths",
-        default=",".join(str(w) for w in SIZES),
+        default=",".join(str(w) for w in DEFAULT_WIDTHS),
         help="comma-separated viewport widths to capture (default: %(default)s)",
     )
     p.add_argument(

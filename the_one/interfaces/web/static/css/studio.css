@@ -1312,3 +1312,15 @@
   color: var(--fg-tertiary);
   font-size: var(--font-size-caption);
 }
+
+@media (max-width: 899px) {
+  .area-studio .studio-section-content > .start-page-title { padding: 16px 16px 0; }
+  .area-studio .studio-section-content > .start-page { padding: 16px; }
+  .area-studio .self-config-routine-history-row,
+  .area-studio .routine-recent-run { grid-template-columns: minmax(0, 1fr) auto; }
+  .area-studio .history-entry-change pre,
+  .area-studio .self-configuration-restore-node .restore-node-value { min-width: min(160px, 100%); }
+  .area-studio .self-configuration-external-grant,
+  .area-studio .self-configuration-external-credential-row,
+  .area-studio .admin-pf-pull-input { flex-wrap: wrap; }
+}
