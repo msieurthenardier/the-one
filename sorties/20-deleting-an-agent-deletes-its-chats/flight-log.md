@@ -268,3 +268,36 @@ Developer design review (Sonnet). Folded in:
 - routing: 193 passed, 1830 s.
 - `make test-unit`: 12346 passed, 40 skipped, 1 failed (mcp_pool flake, passes alone), 159 s, load about 5.
 - `ruff check` and `ruff format --check` on `the_one/ tests/ scripts/ evals/`: clean.
+
+### Closing gate and landing (Flight Director)
+- **The remaining 11 lanes on the final tree** (`f7a86df1`; these had never run in either gate). Two at a time, `TEST_TIMEOUT=3600`, load 3 to 18:
+
+  | Lane | Result | Wall time |
+  |---|---|---|
+  | `mcp-connection` | 102 passed | 1088 s |
+  | `gleepglorp-chat` | 84 passed | 1008 s |
+  | `gleepglorp-fill` | 45 passed | 573 s |
+  | `chats-widgets` | 32 passed | 370 s |
+  | `contracts-chat` | 358 passed | 274 s |
+  | `contracts-overlay` | 558 passed, 1 skipped | 413 s |
+  | `contracts-widget-lifecycle` | 113 passed | 169 s |
+  | `shared` | 363 passed, 2 failed | 1389 s |
+  | `agent-routines` | 83 passed, 1 failed | 1061 s |
+  | `settings-tools` | 173 passed, 1 failed | 1058 s |
+  | `contracts-widget` | 155 passed, 2 skipped, 1 failed | 309 s |
+
+- **Triage:**
+  - `test_ui_widget_card_contract.py::test_escape_stops_the_card_and_keeps_the_marking[webkit]` passes in isolation. It is the load flake sortie 18's debrief recorded.
+  - These four fail in isolation on this tree **and identically on a pristine `origin/main` worktree at `7518aefa`** (created under the scratchpad, since removed), so they are pre-existing and not this sortie's:
+    - `test_flow_keyboard.py::test_settings_nav_links_are_in_tab_order`
+    - `test_theme_cross_tab_sync.py::test_theme_set_and_unset_propagate_across_tabs`
+    - `test_flow_agent_routines_self_config.py::test_routines_tab_origin_flag_and_the_flag_clearing_edit`
+    - `test_flow_admin_tools_grid.py::test_admin_tools_settings_nav_label_is_built_in_tools`
+
+    With the 18 classified above, `main` at `7518aefa` carries **22 pre-existing browser failures**. Most are Settings pages rendering an empty `<main>`, and the welcome screen never appearing. That is a squawk for `main`, not this flight.
+- **Coverage of the gate on the final tree:**
+  - every lane ran on the rebased tree, except `agent-tabs`, `library`, `contracts-controls`, `mcp` and `knowledge`, which passed on the pre-rebase tree. The rebase brought in only #391's test-helper and documentation changes, so they are not re-run;
+  - the unit tier is green apart from one xdist flake that passes alone.
+- **No regression attributable to this sortie remains.** No lane timing is a budget reading: the host was never quiet.
+- Flight status went from `in-flight` to `landed`.
+- **Pending the operator:** the force-push of the rebased branch to PR #392 (`--force-with-lease` against `7c4ae1af`) was denied by the permission classifier. Neither the debrief commit nor the rebase is pushed.
