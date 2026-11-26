@@ -1,6 +1,6 @@
 # Mission: Post-Mission-36 Maintenance
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -55,6 +55,14 @@ cuts.
 
 ## Success Criteria
 
+*Results (mission debrief, 2026-11-26):*
+- T1 is partly met: it is under 400 s on clean-host spot readings, but was never confirmed on a quiet host.
+- T2 is not met.
+- P1 is partly met: the MCP and connector routes moved; the agent routes are deferred to the connectors mission's leg 0.
+- 0327 and T3 are met.
+
+See [mission-debrief.md](mission-debrief.md).
+
 - [ ] **The unit tier is under 400 s** (T1).
   - Measured on a quiet host with the same command as the 2026-11-24 profile.
   - No test deleted, skipped or xfailed to get there.
@@ -66,10 +74,10 @@ cuts.
   - At least the MCP and connector routes and the agent routes leave `api.py` for their own router modules.
   - Behaviour is unchanged.
   - The route-classification and credential-gate tests still pass.
-- [ ] **Concurrent agent writes cannot drop credentials** (squawk 0327).
+- [x] **Concurrent agent writes cannot drop credentials** (squawk 0327).
   - The agent PUT, the agent-credentials route and GleepGlorp's agent `change` apply serialize per agent.
   - A test races two writers.
-- [ ] **Python modules have a size ratchet** (T3).
+- [x] **Python modules have a size ratchet** (T3).
   - A test fails when a Python module under `the_one/` grows past 800 lines, or past its recorded size if it is already over.
   - This matches the `js/areas/` guard.
 
