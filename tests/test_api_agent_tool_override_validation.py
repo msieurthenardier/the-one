@@ -19,6 +19,22 @@ from tests._schema_template import connect_template_db
 from the_one.interfaces.web import api as api_module
 
 
+@pytest.fixture(autouse=True)
+def _no_nss_user_lookup(monkeypatch):
+    """Answer every ``~user`` lookup as "no such user" without asking NSS.
+
+    ``Path.expanduser`` on ``~name`` calls ``pwd.getpwnam``, which goes through
+    NSS (``systemd`` on this host) and can block for minutes under load (squawk
+    0434). Every ``~name`` this file uses is deliberately unknown.
+    """
+    import pwd
+
+    def _unknown(name):
+        raise KeyError(f"getpwnam(): name not found: {name!r}")
+
+    monkeypatch.setattr(pwd, "getpwnam", _unknown)
+
+
 @pytest.fixture
 async def client(tmp_path):
     conn = await connect_template_db(tmp_path / "test.db")
