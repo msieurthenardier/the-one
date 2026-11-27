@@ -9,6 +9,7 @@ the app fixtures (not ``engine_page``): it spawns one app.
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from playwright.sync_api import Page
 
 pytestmark = pytest.mark.browser
@@ -21,7 +22,7 @@ def test_shell_does_not_scroll_body(
     page: Page, app_clean: str, record_property, width: int, height: int
 ) -> None:
     page.set_viewport_size({"width": width, "height": height})
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     page.wait_for_function(
         "() => { const m = document.getElementById('main-content');"
         " return !!m && m.children.length > 0; }"

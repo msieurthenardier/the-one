@@ -11,7 +11,7 @@ Covers flow items 6, 7, 9, 14, 15, 17, 18, 19 (the chart half; the widget half i
 from __future__ import annotations
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import SeededApp, seed_session
 from browser.test_flow_chat_turn_work import (
     DONE,
@@ -62,7 +62,7 @@ def _open_chat(
     )
     if script is not None:
         script.install(page)
-    page.goto(app.base_url)
+    _nav.goto_root(page, app.base_url)
     _chats.open_chat(page, sid)
     return sid
 
@@ -461,7 +461,7 @@ _PREVIEW_FN = (
 def test_the_preview_never_shows_source_the_renderer_would_draw_at_any_prefix(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     page.wait_for_function("() => window.App && App.chat && App.chat.turnWork")
     result = page.evaluate(_PREVIEW_JS, _PREVIEW_CORPUS)
     leaks = {k: v["bad"] for k, v in result.items() if v["bad"]}
@@ -480,7 +480,7 @@ def test_the_preview_never_shows_source_the_renderer_would_draw_at_any_prefix(
 
 
 def test_the_preview_does_not_throw_on_odd_input(app_with_agent: SeededApp, page: Page) -> None:
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     page.wait_for_function("() => window.App && App.chat && App.chat.turnWork")
     out = page.evaluate(
         "() => { const pf = " + _PREVIEW_FN + ";"
@@ -493,7 +493,7 @@ def test_the_preview_does_not_throw_on_odd_input(app_with_agent: SeededApp, page
 def test_the_preview_keeps_ordinary_text_visible_and_holds_back_an_unfinished_opener(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     page.wait_for_function("() => window.App && App.chat && App.chat.turnWork")
     out = page.evaluate(
         "() => { const pf = " + _PREVIEW_FN + "; return {"

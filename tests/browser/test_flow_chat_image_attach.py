@@ -38,7 +38,7 @@ from __future__ import annotations
 import base64
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -77,7 +77,7 @@ def test_chat_image_attach_with_text_renders_indicator(
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page)
@@ -120,7 +120,7 @@ def test_chat_second_attach_appends_chicklet(app_with_agent: SeededApp, page: Pa
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page, name="first.png")
@@ -148,7 +148,7 @@ def test_chat_attachment_remove_clears_only_that_chicklet(
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page, name="first.png")
@@ -188,7 +188,7 @@ def test_chat_attachment_live_region_announces_stage_and_remove(
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     status_el = page.locator('[data-testid="chat-attachments-status"]')
@@ -223,7 +223,7 @@ def test_chat_staged_images_have_distinct_accessible_names(
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page, name="first.png")
@@ -265,7 +265,7 @@ def test_chat_two_images_send_includes_both_and_omits_empty_text(
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _attach_and_wait_staged(page, name="first.png")
@@ -300,7 +300,7 @@ def test_chat_attach_over_count_caps_at_max_and_notices(
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     files = [_png_file(name=f"img{i}.png") for i in range(11)]
@@ -325,7 +325,7 @@ def test_chat_attach_oversized_file_rejected_with_notice(
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     oversized = {
@@ -355,7 +355,7 @@ def test_chat_text_only_send_unaffected(app_with_agent: SeededApp, page: Page) -
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _chats.send_first(page, "hello")
@@ -374,7 +374,7 @@ def test_removing_a_chip_with_the_keyboard_hands_focus_on(
     """WCAG 2.4.3: a removed chip's remove button held focus, so focus goes to the next
     chip's remove button, else the previous one, else the composer input; a pointer user
     who has clicked elsewhere is not moved."""
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
     for name in ("a.png", "b.png", "c.png"):
         _attach_and_wait_staged(page, name=name)
@@ -400,7 +400,7 @@ def test_removing_a_chip_with_the_keyboard_hands_focus_on(
 def test_removing_a_chip_does_not_steal_focus_from_elsewhere(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
     _attach_and_wait_staged(page, name="a.png")
     _attach_and_wait_staged(page, name="b.png")

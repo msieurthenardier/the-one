@@ -24,7 +24,7 @@ from Leg 05 criterion #1 (a thinking event with NO preceding assistant bubble).
 from __future__ import annotations
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -63,7 +63,7 @@ def test_thinking_item_in_collapsed_work_group_expands_and_survives_reopen(
     )
 
     # ── Bootstrap into chrome ─────────────────────────────────────────────────
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     expect(_chats.welcome(page)).to_be_visible(timeout=8000)
     _chats.start_chat(page, agent_name)
 

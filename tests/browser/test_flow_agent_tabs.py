@@ -229,6 +229,7 @@ def test_refresh_on_knowledge_tab_persists(app_with_agent: SeededApp, page: Page
     # legacy URL on purpose (AC6)
     target = f"{base_url}#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
     page.goto(target)
+    _nav.wait_router_started(page)
     _wait_editor_ready(page, expected_tab="knowledge")
     _nav.expect_route(page, f"agents/{_nav.seg(agent_name)}/knowledge")
 

@@ -452,7 +452,7 @@ def test_auth_required_inline_notice_no_popup(app_clean: str, page: Page) -> Non
 
 @pytest.mark.browser
 def test_app_areas_array_shape_lock(app_clean: str, page: Page) -> None:
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     page.wait_for_load_state("domcontentloaded")
 
     result = page.evaluate("""
@@ -1191,7 +1191,7 @@ def test_set_sources_alone_keeps_expanded_unsaved_tile_and_swaps_empty_state(
     """setSources reconciles by id on its own: the same node, expanded state and unsaved
     row choice survive; no surface is ever shown, the agent's own included (sortie 08); an
     emptied list shows the empty state and a new source brings the list back."""
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     page.wait_for_function("!!(window.App && window.App.studio && window.App.studio.renderMcpsTab)")
     out = page.evaluate(
         """async () => {

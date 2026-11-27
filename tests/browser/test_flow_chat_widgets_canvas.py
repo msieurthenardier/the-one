@@ -87,7 +87,7 @@ def test_a_canvas_widget_in_a_streamed_reply_paints_when_it_lands_and_does_not_s
 ) -> None:
     chunks = [REPLY[i : i + 40] for i in range(0, len(REPLY), 40)]
     agent = _agent(app_clean, {"stream_chunks": chunks, "delay_ms": 10})
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "go")
     _check(page)

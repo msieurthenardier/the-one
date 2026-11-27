@@ -23,8 +23,7 @@ pytestmark = pytest.mark.browser
 
 def _boot(page: Page, base: str, hash_: str = "", *, settled: bool = True) -> None:
     """Load the app at a RAW hash and wait for the router to commit a route."""
-    page.goto(base + "/" + hash_)
-    page.wait_for_function("() => !!(window.App && App.router && App.router.current())")
+    _nav.goto_url(page, base + "/" + hash_, boot_timeout=30000)
     if settled:
         page.wait_for_function(
             "() => !!document.querySelector('.content-panel.active[data-destination]')"

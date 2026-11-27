@@ -376,7 +376,7 @@ def test_a_note_saved_through_the_real_chain_appears_with_its_origin_link(
     agent = seed_mock_agent(base, provider_id, name="notes-chain-agent", max_iterations=1)
     enable_notes(base, agent)
 
-    page.goto(base)
+    _nav.goto_root(page, base)
     expect(_chats.welcome(page)).to_be_visible(timeout=8000)
     _chats.start_chat(page, agent)
     sid = _chats.send_first(page, "remember my units")

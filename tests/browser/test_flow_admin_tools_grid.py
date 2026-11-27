@@ -287,6 +287,7 @@ def test_admin_tools_deep_link_to_tool_loads_editor(app_clean: str, page: Page) 
     tool name and consumes via _tryConsumePendingTool — the editor mounts
     below the list, whose Web tab is active with the tool selected."""
     page.goto(f"{app_clean}#admin/tools/web_search")  # legacy URL on purpose (AC6)
+    _nav.wait_router_started(page)
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     _nav.expect_route(page, "settings/tools/web_search")
     expect(page.locator('[data-testid="tab-web"]')).to_have_attribute("aria-selected", "true")

@@ -4,12 +4,13 @@ top bar in M25 F2 leg 6)."""
 from __future__ import annotations
 
 import pytest
+from browser import _nav
 from playwright.sync_api import Page
 
 
 @pytest.mark.browser
 def test_skip_link_first_tab(app_clean: str, page: Page) -> None:
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     page.keyboard.press("Tab")
     active = page.evaluate("document.activeElement.className")
     assert "skip-link" in active, f"First Tab should land skip-link; got: {active!r}"

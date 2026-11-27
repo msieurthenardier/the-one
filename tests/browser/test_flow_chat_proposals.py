@@ -121,7 +121,7 @@ def _world(
 
 
 def _open(page: Page, w: SimpleNamespace) -> None:
-    page.goto(w.base)
+    _nav.goto_root(page, w.base)
     _chats.open_chat(page, w.sid)
 
 

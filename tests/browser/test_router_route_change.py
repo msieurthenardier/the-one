@@ -11,7 +11,7 @@ afterwards (``describeCurrent`` then names the item).
 from __future__ import annotations
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import SeededApp, seed_mcp_source
 from playwright.sync_api import Page
 
@@ -32,8 +32,7 @@ _RECORD_JS = """() => {
 
 def _boot(page: Page, base: str, hash_: str = "") -> None:
     _chats.gleepglorp_off(base)
-    page.goto(base + "/" + hash_)
-    page.wait_for_function("() => !!(window.App && App.router && App.router.current())")
+    _nav.goto_url(page, base + "/" + hash_, boot_timeout=30000)
     page.wait_for_function(
         "() => !!document.querySelector('.content-panel.active[data-destination]')"
     )
@@ -161,8 +160,7 @@ def test_a_cold_item_route_is_named_once_its_store_loads(
     mcp_id = seed_mcp_source(base, "Cold server")
     held: list = []
     page.route("**/api/mcp-sources", lambda route: held.append(route))
-    page.goto(base + f"/#library/mcp/{mcp_id}")
-    page.wait_for_function("() => !!(window.App && App.router && App.router.current())")
+    _nav.goto_url(page, base + f"/#library/mcp/{mcp_id}", boot_timeout=30000)
     # The list request is held, so the store is cold: the type noun stands in for the name.
     page.wait_for_function("() => App.router.describeCurrent().parts.length === 3")
     assert page.evaluate("() => App.router.describeCurrent().parts") == [

@@ -27,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+from browser import _nav
 from browser._credential_registry import unregister as _unregister_credential
 from browser.conftest import _spawn_app, _teardown_proc, credentialed_context
 from playwright.sync_api import Browser, Page
@@ -95,7 +96,7 @@ def page_with_app(app_clean_module: str, browser: Browser) -> Iterator[Page]:
         permissions=["clipboard-read", "clipboard-write"],
     )
     page = context.new_page()
-    page.goto(app_clean_module)
+    _nav.goto_root(page, app_clean_module)
     page.wait_for_function(
         "typeof App !== 'undefined' "
         "&& typeof App.markdown !== 'undefined' "

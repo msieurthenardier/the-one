@@ -689,7 +689,7 @@ def test_two_first_sends_make_two_rows_and_a_row_pushes_and_joins_once(
     def frames() -> list[tuple[str, str | None]]:
         return [(f["action"], f.get("session_id")) for f in sent]
 
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
     s1 = _chats.send_first(page, "first chat")
     first_route = _nav.current_route(page)
@@ -732,7 +732,7 @@ def test_two_first_sends_make_two_rows_and_a_row_pushes_and_joins_once(
 
 def test_in_app_links_use_new_scheme_hrefs(app_clean: str, page: Page) -> None:
     # Welcome link (no providers, no agents).
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     link = page.locator(".chat-welcome-link").first
     expect(link).to_be_visible(timeout=8000)
     hrefs = page.locator(".chat-welcome-link").evaluate_all(
@@ -825,7 +825,7 @@ def test_a_first_send_before_a_pending_session_list_creates_exactly_one_session(
     """
     creates = _chats.chat_frames(page, actions=("start_session", "new_session"))
     page.add_init_script(_DELAY_SESSION_JOINED_JS)
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
     _chats.send_first(page, "first chat")
     first_route = _nav.current_route(page)

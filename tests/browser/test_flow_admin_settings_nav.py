@@ -417,7 +417,7 @@ def _assert_never_general(page: Page) -> None:
 def test_settings_general_redirects_on_a_cold_load(app_clean: str, page: Page) -> None:
     """A cold load of the alias (any suffix dropped) boots on Appearance with one
     replaceState and no pushed entry. One server; a fresh page per route."""
-    page.goto(app_clean)  # the fixture page's first goto lands the session cookie
+    _nav.goto_root(page, app_clean)  # the fixture page's first goto lands the session cookie
     for route in ["settings/general", "settings/general/x", "settings/general/x/y"]:
         fresh = page.context.new_page()
         try:
@@ -472,12 +472,13 @@ def test_legacy_general_hashes_redirect_directly(app_clean: str, page: Page) -> 
     """The legacy forms go straight to Appearance: their one history write is the
     target, never ``settings/general`` (no chained redirect). One server; a fresh
     page per legacy form."""
-    page.goto(app_clean)  # the fixture page's first goto lands the session cookie
+    _nav.goto_root(page, app_clean)  # the fixture page's first goto lands the session cookie
     for legacy in ["admin", "admin/system", "admin/general"]:
         fresh = page.context.new_page()
         try:
             fresh.add_init_script(_RECORD_WRITES_JS)
             fresh.goto(f"{app_clean}/#" + legacy)  # legacy URL on purpose: proves the redirect
+            _nav.wait_router_started(fresh)
             expect(_lists.settings_page_title(fresh)).to_have_text("Appearance", timeout=8000)
             _nav.expect_route(fresh, "settings/appearance")
             writes = _writes(fresh)

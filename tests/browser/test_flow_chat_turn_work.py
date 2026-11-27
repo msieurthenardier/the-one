@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import SeededApp, seed_session
 from playwright.sync_api import Page, expect
 
@@ -113,7 +113,7 @@ def _open(
     )
     if script is not None:
         script.install(page)
-    page.goto(app.base_url)
+    _nav.goto_root(page, app.base_url)
     _chats.open_chat(page, sid)
     return sid
 

@@ -727,7 +727,7 @@ def test_a_proposal_made_by_the_real_chain_lands_in_the_queue(
     )
     assert r.status_code == 200, r.text
 
-    page.goto(base)
+    _nav.goto_root(page, base)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "schedule a check")
     page.wait_for_function(
@@ -749,7 +749,7 @@ def test_a_proposal_made_by_the_real_chain_lands_in_the_queue(
 
 def test_form_body_always_carries_the_prompt_for_a_flagged_routine(env, page: Page) -> None:
     base, _ = env
-    page.goto(base)
+    _nav.goto_root(page, base)
     out = page.evaluate(
         """() => {
           const m = App.studio.routinesFormModel;

@@ -23,7 +23,7 @@ no committed visual snapshots (snapshot baselines are gitignored / local-only).
 from __future__ import annotations
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -64,7 +64,7 @@ def _start_slow_turn(page: Page, base_url: str, chunks: list[str], delay_ms: int
         base_url, config={"stream_chunks": chunks, "delay_ms": delay_ms}
     )
     agent_name = seed_mock_agent(base_url, provider_id)
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
     return agent_name
 

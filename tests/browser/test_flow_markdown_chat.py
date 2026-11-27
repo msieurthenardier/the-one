@@ -24,7 +24,7 @@ D. Session-rejoin renders historical assistant markdown — confirms the
 from __future__ import annotations
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -48,7 +48,7 @@ def test_a_streamed_reply_renders_markdown_when_it_lands(app_clean: str, page: P
     )
     agent_name = seed_mock_agent(base_url, provider_id)
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _chats.send_first(page, "hi")
@@ -78,7 +78,7 @@ def test_user_message_renders_textcontent_not_markdown(app_with_agent, page: Pag
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _chats.send_first(page, "**bold**")
@@ -114,7 +114,7 @@ def test_a_streamed_code_block_renders_with_copy_button_when_the_reply_lands(
     )
     agent_name = seed_mock_agent(base_url, provider_id)
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _chats.send_first(page, "show me code")
@@ -148,7 +148,7 @@ def test_session_rejoin_renders_assistant_markdown(app_clean: str, page: Page) -
     )
     agent_name = seed_mock_agent(base_url, provider_id)
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _chats.send_first(page, "ping")
@@ -188,7 +188,7 @@ def test_a_streamed_markdown_table_renders_when_the_reply_lands(app_clean: str, 
     )
     agent_name = seed_mock_agent(base_url, provider_id)
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _chats.send_first(page, "show me a table")
@@ -216,7 +216,7 @@ def test_code_copy_confirms_in_place_with_no_toast(app_clean: str, page: Page) -
         config={"stream_chunks": ["```js\n", "console.log(1);\n", "```"], "delay_ms": 0},
     )
     agent_name = seed_mock_agent(base_url, provider_id)
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
     _chats.send_first(page, "show me code")
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)

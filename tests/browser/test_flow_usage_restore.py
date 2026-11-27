@@ -26,7 +26,7 @@ Reopen caveat (documented here to explain the test's coverage):
 from __future__ import annotations
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -65,7 +65,7 @@ def test_overlay_restores_after_session_reopen(app_clean: str, page: Page) -> No
     )
 
     # ── Bootstrap into chrome ─────────────────────────────────────────────────
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     expect(_chats.welcome(page)).to_be_visible(timeout=8000)
 
     # Pick the agent from the welcome listbox to start a session.

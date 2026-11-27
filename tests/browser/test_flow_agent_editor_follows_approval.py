@@ -304,7 +304,7 @@ def test_approving_in_chats_then_opening_agents_notes_the_changed_tiles(
         changes={"disabled_tools": ["grep"], "kb_ids": [kb]},
         base={"disabled_tools": [], "kb_ids": []},
     )
-    page.goto(base)
+    _nav.goto_root(page, base)
     _chats.open_chat(page, w.sid)
     card = page.locator(f'[data-testid="proposal-card"][data-proposal-id="{pid}"]')
     card.locator('[data-testid="proposal-approve"]').click()

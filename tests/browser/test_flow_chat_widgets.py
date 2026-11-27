@@ -58,7 +58,7 @@ def _provider_agent(base: str, config: dict, name: str = "test-agent") -> str:
 def _reply(page: Page, base: str, text: str) -> str:
     """A non-streamed reply: the mock answers with *text*. Returns the agent name."""
     agent = _provider_agent(base, {"response": {"content": text}})
-    page.goto(base)
+    _nav.goto_root(page, base)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "go")
     expect(page.locator(SEND)).to_be_enabled(timeout=15000)
@@ -67,7 +67,7 @@ def _reply(page: Page, base: str, text: str) -> str:
 
 def _stream(page: Page, base: str, chunks: list[str], delay_ms: int) -> str:
     agent = _provider_agent(base, {"stream_chunks": chunks, "delay_ms": delay_ms})
-    page.goto(base)
+    _nav.goto_root(page, base)
     _chats.start_chat(page, agent)
     return agent
 
@@ -474,7 +474,7 @@ def test_a_reopened_chat_runs_only_the_widgets_in_view_and_scrolling_swaps_them(
 
 
 def test_the_page_carries_the_frame_policy_header(app_clean: str, page: Page) -> None:
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     csp = page.evaluate(
         "() => fetch('/', {cache: 'no-store'}).then((r) => r.headers.get('content-security-policy'))"
     )
@@ -500,7 +500,7 @@ def test_a_widgets_forged_oauth_message_arrives_with_origin_null(
           });
         })();"""
     )
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _open_seeded(page, app_clean, sid)
     page.wait_for_function("() => window.__oauth.length >= 1", timeout=15000)
     ev = page.evaluate("() => window.__oauth[0]")
@@ -554,7 +554,7 @@ def _joined_chat(page: Page, base: str, script: _Script | None = None) -> str:
     if script is not None:
         script.install(page)
     page.set_viewport_size({"width": 1440, "height": 900})
-    page.goto(base)
+    _nav.goto_root(page, base)
     _chats.open_chat(page, sid)
     return sid
 
