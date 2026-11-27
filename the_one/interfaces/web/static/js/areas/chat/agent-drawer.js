@@ -220,12 +220,16 @@
       testid: 'chat-drawer-close',
       onClick: function () { drawer.close(); }
     });
-    drawer.el.firstChild.appendChild(closeBtn);
+    closeBtn.setAttribute('aria-keyshortcuts', 'Escape');
+    // The factory's header wrapper, reached through the heading node it placed there (never by
+    // position in the <aside>).
+    var headerEl = head.parentNode;
+    if (headerEl) headerEl.appendChild(closeBtn);
 
     // One sync point for the shell cover (inert), the toggle's visibility and aria-pressed.
     function syncCover(shown) {
       var cover = !!shown && state.mode === 'fill';
-      App.shellPane.setCovered('chat-drawer', cover, { el: drawer.el, close: closeFromShell });
+      if (App.shellPane) App.shellPane.setCovered('chat-drawer', cover, { el: drawer.el, close: closeFromShell });
       toggle.hidden = !view || cover;
       toggle.setAttribute('aria-pressed', shown ? 'true' : 'false');
     }

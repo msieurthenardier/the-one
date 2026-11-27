@@ -31,11 +31,13 @@ An agent has six tabs in all:
 - **Routines**: prompts it runs on a schedule.
 - **Self-configuration**: whether it may edit its own prompt and routines.
 
+In a small window the tabs become one button that names the current tab. Choose it, then pick a tab.
+
 Rules, notes and routines need a saved agent, so on a new agent they ask you to save first.
 
 ## Chatting with an agent
 
-A saved agent has a **Chat** button at the top of its settings. It starts a new chat with that agent. You can also start one from Chats.
+A saved agent has a **Chat** button at the top of its settings. It starts a new chat with that agent. In a small window it is under **More actions** (the three dots). You can also start one from Chats.
 
 ## Purge and delete
 

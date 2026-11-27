@@ -78,6 +78,7 @@
       var initial = CATEGORY_ORDER.indexOf(activeCategory) === -1 ? 'filesystem' : activeCategory;
       var tabs = App.ui.tabs({
         label: 'Tool categories',
+        popupLabel: 'Tool categories',
         idPrefix: 'tools',
         items: items,
         initial: initial,
@@ -285,8 +286,7 @@
             if (heir) {
               tiles[heir].tile.toggle.control.focus({ preventScroll: true });
             } else if (lostCategory) {
-              var tab = tabs.tablist.querySelector('[data-tab-id="' + lostCategory + '"]');
-              if (tab) tab.focus({ preventScroll: true });
+              tabs.focusTab(lostCategory, { preventScroll: true });
             }
           }
         },
@@ -314,6 +314,11 @@
           return true;
         },
 
+        // The visible control for a category's tab (the tab at 768px and wider, the
+        // narrow menu button below), for a leave-guard opener and for returning focus.
+        categoryOpener: function (cid) {
+          return tabs.opener(cid);
+        },
         destroy: function () {
           tabs.destroy();
         }

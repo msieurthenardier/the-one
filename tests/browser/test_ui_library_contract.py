@@ -68,6 +68,7 @@ def test_core_namespace_and_helpers(engine_page: Page) -> None:
     )
     assert shape["ui"] == "object"
     assert shape["util"] == [
+        "FOCUSABLE",
         "addDescribedBy",
         "applyDataset",
         "chartParts",
@@ -76,6 +77,7 @@ def test_core_namespace_and_helpers(engine_page: Page) -> None:
         "latest",
         "middleEllipsis",
         "mountSlot",
+        "narrow",
         "removeDescribedBy",
         "rovingFocus",
         "syncChildren",

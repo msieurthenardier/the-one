@@ -4,9 +4,13 @@
 // handle:
 //
 //   <div class="editor-header">            App.ui.editorShell (breadcrumb, title,
-//                                          subtitle, Chat as `extra`, Cancel, Save)
+//                                          subtitle, Chat as a `secondary` action, which
+//                                          moves into the "More actions" menu below 768px,
+//                                          Cancel, Save)
 //   <div role="tablist" class="tablist">   App.ui.tabs (split: true, so the tablist
-//   <div class="tabpanels">                and the panels are direct children, as before)
+//   <div class="tabpanels">                and the panels are direct children, as before;
+//                                          below 768px the tabs become a menu, and
+//                                          place() runs after the split tablist is appended)
 //
 // A failed load of the agent's current configuration (squawk 0090) is a line in the
 // header's error slot (setLoadError) carrying the testid agent-load-error, present
@@ -205,19 +209,21 @@
     // `#chats/~new/{name}`, so a dirty editor asks once). The click reads the
     // CURRENT name from h.agentName, which patch updates.
     h.agentName = chatTarget(agent);
-    var extra = [];
+    // Sortie 21 HAT feature: it is a `secondary` header action, a button at 768px and
+    // wider and an item of the "More actions" menu below; onClick gets the visible
+    // control as `opener` so a guarded leave returns focus there. h.chatBtn is the wide
+    // button (the shell's secondaryButtons[0]); its hidden state drives the narrow item.
+    var secondary = [];
     if (!isCreate) {
-      h.chatBtn = ui.button({
-        variant: 'secondary',
+      secondary.push({
         icon: 'chat',
         label: 'Chat',
         className: 'agent-chat-btn',
         testid: 'agent-chat-btn',
-        onClick: function () {
-          window.App.chat.chatWith(h.agentName, { opener: h.chatBtn });
+        onClick: function (ctx) {
+          window.App.chat.chatWith(h.agentName, { opener: ctx.opener });
         }
       });
-      extra.push(h.chatBtn);
     }
 
     // Cancel follows `dirty` on an open agent only (it reverts; nothing to revert
@@ -234,7 +240,7 @@
       title: isCreate ? 'New Agent' : (agent.name || ''),
       subtitle: isCreate ? null : (agent.description || ''),
       actions: {
-        extra: extra,
+        secondary: secondary,
         cancel: {
           testid: 'cancel-agent-btn',
           enabledWhenClean: isCreate,
@@ -248,11 +254,14 @@
       }
     });
 
+    if (!isCreate) h.chatBtn = h.shell.secondaryButtons[0];
+
     var items = TAB_ITEMS.map(function (item) {
       return { id: item.id, label: item.label, testid: 'tab-' + item.id };
     });
     h.tabs = ui.tabs({
       label: 'Agent settings',
+      popupLabel: 'Agent settings',
       items: items,
       idPrefix: 'agent',
       panelIdPrefix: 'agent-tab-panel',
@@ -264,6 +273,7 @@
     clearNode(container);
     container.appendChild(h.shell.el);
     container.appendChild(h.tabs.tablist);
+    h.tabs.place(); // the narrow tabs menu sits before the tablist (a no-op at 768px and wider)
     container.appendChild(h.tabs.panels);
 
     // The load-failure line lives in the header's error slot. It acts only on a
@@ -385,6 +395,7 @@
       if (h.routines) h.routines.destroy();
       if (h.toolsTab) h.toolsTab.destroy();
       h.tabs.destroy();
+      h.shell.destroy();
       clearNode(container);
     };
     return h;

@@ -93,8 +93,7 @@ App.admin.toolsPage = {
         commit();
         return;
       }
-      var opener = scaffold && scaffold.listEl
-        ? scaffold.listEl.querySelector('[data-tab-id="' + id + '"][role="tab"]') : null;
+      var opener = grid ? grid.categoryOpener(id) : null;
       var root = App.router.href({ destination: 'settings', section: 'tools' });
       App.router.go(root, { opener: opener }).then(function (navigated) {
         if (!navigated) return;
@@ -110,8 +109,7 @@ App.admin.toolsPage = {
     function returnFocusToTab(id) {
       setTimeout(function () {
         setTimeout(function () {
-          var tab = scaffold && scaffold.listEl
-            ? scaffold.listEl.querySelector('[data-tab-id="' + id + '"][role="tab"]') : null;
+          var tab = grid ? grid.categoryOpener(id) : null;
           if (!tab || !tab.isConnected) return;
           var active = document.activeElement;
           var main = document.getElementById('main-content');

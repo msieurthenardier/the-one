@@ -990,3 +990,155 @@ def test_a_default_section_has_20px_sides_and_inset_none_has_none(engine_page: P
     css = (STATIC_DIR / "css" / "components.css").read_text()
     flush_rule = css[css.index(".editor-section--flush {") :].split("}")[0]
     assert "!important" not in flush_rule, flush_rule
+
+
+# ── secondary actions (sortie 21 HAT feature): buttons wide, a "More actions" menu narrow ──
+
+SECONDARY = """{actions: {
+  cancel: {testid: 'c-btn'}, save: {testid: 's-btn'}, test: {testid: 't-btn'},
+  secondary: [
+    {label: 'Chat', icon: 'chat', testid: 'x-chat', className: 'x-chat-cls',
+     onClick: (c) => window.__calls.push('chat:' + (c.opener.dataset.testid || c.opener.className))},
+    {label: 'Export', testid: 'x-export', onClick: (c) => window.__calls.push('export:' + c.opener.dataset.testid)},
+  ]}}"""
+
+
+def _mount_secondary(page: Page, width: int) -> None:
+    page.set_viewport_size({"width": width, "height": 700})
+    _mount(page, SECONDARY)
+
+
+def _cluster(page: Page) -> list[str]:
+    return page.evaluate(
+        "() => Array.from(document.querySelector('.form-actions').children).map((k) => k.dataset.testid || k.className.split(' ')[0])"
+    )
+
+
+def test_secondary_wide_renders_buttons_before_cancel_like_extra(engine_page: Page) -> None:
+    p = engine_page
+    _mount_secondary(p, 1000)
+    assert _cluster(p) == ["editor-unsaved", "x-chat", "x-export", "c-btn", "s-btn", "t-btn"]
+    out = p.evaluate(
+        """() => [window.__shell.secondaryButtons.map((b) => b.dataset.testid),
+                  document.querySelectorAll('[data-testid=editor-more-btn]').length,
+                  window.__shell.secondaryButtons[0].className, window.__shell.secondaryButtons[0].textContent,
+                  window.__shell.secondaryButtons[0].querySelectorAll('svg').length]"""
+    )
+    assert out[0] == ["x-chat", "x-export"] and out[1] == 0
+    assert "btn-outlined-primary" in out[2] and "x-chat-cls" in out[2] and out[3] == "Chat" and out[4] == 1
+    p.get_by_test_id("x-chat").click()
+    p.get_by_test_id("x-export").click()
+    assert p.evaluate("() => window.__calls") == ["chat:x-chat", "export:x-export"]
+
+
+def test_secondary_narrow_is_one_more_actions_menu_before_cancel_and_save(engine_page: Page) -> None:
+    p = engine_page
+    _mount_secondary(p, 600)
+    assert _cluster(p) == ["editor-unsaved", "ui-menu-wrap", "c-btn", "s-btn", "t-btn"]  # Test stays a button
+    trigger = p.get_by_test_id("editor-more-btn")
+    expect(trigger).to_have_accessible_name("More actions")
+    expect(trigger).to_have_attribute("aria-haspopup", "menu")
+    expect(p.get_by_test_id("x-chat")).to_have_count(0)
+    trigger.click()
+    menu = p.get_by_role("menu", name="More actions")
+    expect(menu).to_be_visible()
+    items = p.get_by_role("menuitem")
+    assert [i.strip() for i in items.all_inner_texts()] == ["Chat", "Export"]
+    # The popup is right-aligned to the trigger (align end) and inside the viewport.
+    box = p.evaluate(
+        "() => { const r = document.querySelector('.ui-menu').getBoundingClientRect(); "
+        "const t = document.querySelector('[data-testid=editor-more-btn]').getBoundingClientRect(); "
+        "return [Math.round(r.right - t.right), r.left >= 0, r.right <= innerWidth]; }"
+    )
+    assert box[0] == 0 and box[1] and box[2], box
+    # Choosing an item closes the menu, returns focus to the trigger, then runs onClick with the trigger as opener.
+    p.get_by_test_id("x-chat-menu-item").click()
+    assert p.evaluate("() => window.__calls") == ["chat:editor-more-btn"]
+    expect(menu).to_be_hidden()
+    expect(trigger).to_be_focused()
+    trigger.focus()
+    p.keyboard.press("ArrowDown")
+    p.keyboard.press("ArrowDown")
+    p.keyboard.press("Enter")
+    assert p.evaluate("() => window.__calls") == ["chat:editor-more-btn", "export:editor-more-btn"]
+    expect(trigger).to_be_focused()
+
+
+def test_secondary_narrow_item_follows_the_wide_buttons_hidden_and_disabled(engine_page: Page) -> None:
+    p = engine_page
+    _mount_secondary(p, 600)
+    p.evaluate("() => { window.__shell.secondaryButtons[1].disabled = true; }")
+    p.get_by_test_id("editor-more-btn").click()
+    expect(p.get_by_test_id("x-export-menu-item")).to_have_attribute("aria-disabled", "true")
+    p.keyboard.press("Escape")
+    p.evaluate("() => { window.__shell.secondaryButtons[0].hidden = true; }")
+    p.get_by_test_id("editor-more-btn").click()
+    assert [i.strip() for i in p.get_by_role("menuitem").all_inner_texts()] == ["Export"]
+    p.keyboard.press("Escape")
+    # Every button hidden: no trigger at all.
+    p.evaluate("() => { window.__shell.secondaryButtons[1].hidden = true; }")
+    expect(p.get_by_test_id("editor-more-btn")).to_have_count(0)
+    p.evaluate("() => window.__shell.secondaryButtons.forEach((b) => { b.hidden = false; b.disabled = false; })")
+    expect(p.get_by_test_id("editor-more-btn")).to_have_count(1)
+
+
+def test_secondary_resize_switches_modes_and_keeps_focus(engine_page: Page) -> None:
+    p = engine_page
+    _mount_secondary(p, 1000)
+    p.get_by_test_id("x-export").focus()
+    p.set_viewport_size({"width": 600, "height": 700})  # the focused button goes: focus to the trigger
+    expect(p.get_by_test_id("editor-more-btn")).to_be_focused()
+    assert _cluster(p) == ["editor-unsaved", "ui-menu-wrap", "c-btn", "s-btn", "t-btn"]
+    p.get_by_test_id("editor-more-btn").click()
+    p.keyboard.press("ArrowDown")  # focus the Export item, then widen
+    p.set_viewport_size({"width": 1000, "height": 700})  # the item goes: focus to its counterpart button
+    expect(p.get_by_test_id("x-export")).to_be_focused()
+    assert _cluster(p) == ["editor-unsaved", "x-chat", "x-export", "c-btn", "s-btn", "t-btn"]
+    # Focus elsewhere is untouched by a mode switch.
+    p.get_by_test_id("t-btn").focus()
+    p.set_viewport_size({"width": 600, "height": 700})
+    expect(p.get_by_test_id("editor-more-btn")).to_have_count(1)
+    expect(p.get_by_test_id("t-btn")).to_be_focused()
+
+
+def test_secondary_destroy_releases_the_media_subscription(engine_page: Page) -> None:
+    p = engine_page
+    _mount_secondary(p, 600)
+    p.evaluate("() => window.__shell.destroy()")
+    p.set_viewport_size({"width": 1000, "height": 700})
+    # No switch after destroy: the menu is still the narrow control.
+    assert _cluster(p) == ["editor-unsaved", "ui-menu-wrap", "c-btn", "s-btn", "t-btn"]
+
+
+def test_secondary_unsubscribes_when_the_header_leaves_the_document(engine_page: Page) -> None:
+    p = engine_page
+    _mount_secondary(p, 1000)
+    p.set_viewport_size({"width": 600, "height": 700})  # a change while attached: the shell is seen in the document
+    expect(p.get_by_test_id("editor-more-btn")).to_have_count(1)
+    p.evaluate("() => { window.__host = window.__shell.el.parentNode; window.__shell.el.remove(); }")
+    # WebKit updates .matches before it dispatches the media `change` event, so wait on the event
+    # itself: this listener registers after the shell's, so it fires after the shell's handler ran
+    # (while the header is still detached).
+    p.evaluate(
+        "() => { window.__wideSeen = false; const mq = window.matchMedia('(max-width: 767.98px)');"
+        " mq.addEventListener('change', () => { if (!mq.matches) window.__wideSeen = true; }); }"
+    )
+    p.set_viewport_size({"width": 1000, "height": 700})  # the change after the wipe lets go
+    p.wait_for_function("() => window.__wideSeen === true")
+    p.evaluate("() => window.__host.appendChild(window.__shell.el)")
+    p.set_viewport_size({"width": 600, "height": 700})
+    p.wait_for_function("() => window.matchMedia('(max-width: 767.98px)').matches")
+    p.evaluate("() => { window.__wideSeen = false; }")
+    p.set_viewport_size({"width": 1000, "height": 700})
+    p.wait_for_function("() => window.__wideSeen === true")  # the change event, after the shell's handler
+    # Still the narrow DOM: it no longer follows (the wipe-time change dropped it).
+    assert _cluster(p)[1] == "ui-menu-wrap"
+
+
+def test_a_shell_without_secondary_has_no_menu_and_ignores_resize(engine_page: Page) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 600, "height": 700})
+    _mount(p, "{actions: {save: {}, extra: [Object.assign(document.createElement('button'), {id: 'chat-x', textContent: 'Chat'})]}}")
+    assert p.evaluate("() => Array.from(document.querySelector('.form-actions').children).map((k) => k.id || k.className.split(' ')[0])")[:2] == ["editor-unsaved", "chat-x"]
+    expect(p.get_by_test_id("editor-more-btn")).to_have_count(0)
+    assert p.evaluate("() => window.__shell.secondaryButtons.length") == 0

@@ -256,7 +256,16 @@ def _open(context: BrowserContext, r: Rich, route: str) -> Page:
     _nav.goto_settled(page, r.base, route)
     ready = _READY_ANY
     if route.startswith("agents/"):
-        ready = f'[data-testid="tab-{route.rsplit("/", 1)[1]}"][aria-selected="true"]'
+        # Below 768px the tablist is hidden behind the tabs menu button, so the selected tab
+        # is read from the menu's checked item (its popup is closed, so not "visible").
+        tab = route.rsplit("/", 1)[1]
+        page.wait_for_function(
+            """(t) => !!document.querySelector(
+              `[data-testid="tab-${t}"][aria-selected="true"], [data-testid="tab-${t}-menu-item"][aria-checked="true"]`)""",
+            arg=tab,
+            timeout=15000,
+        )
+        ready = '[data-testid="agent-tabs-menu-btn"], [role="tab"][aria-selected="true"]'
     # Some matches are visually hidden inputs (a radio), so wait for ANY visible match.
     page.wait_for_function(
         """(s) => [...document.querySelectorAll(s)].some(
@@ -343,6 +352,37 @@ def test_open_chat_keeps_three_lines_with_toolbar_telemetry_and_an_attachment(
         assert (
             m["composer"]["bottom"] <= m["vh"] and m["transcript"]["bottom"] <= m["composer"]["top"]
         ), m
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("width", [624, 880])
+@pytest.mark.parametrize("with_attachment", [False, True])
+def test_short_window_composer_is_one_centred_row(
+    engine_browser: Browser, rich: Rich, width: int, with_attachment: bool
+) -> None:
+    """HAT batch 2: in a short window the attach button, the input and Send share one
+    vertically centred row inside the box, and the input is the widest of them."""
+    context = credentialed_context(engine_browser, rich.base, viewport={"width": width, "height": 321})
+    try:
+        page = _open_chat(context, rich)
+        if with_attachment:
+            _stage_image(page)
+        m = page.evaluate(
+            """() => {
+              const r = (s) => { const b = document.querySelector(s).getBoundingClientRect();
+                return { top: b.top, bottom: b.bottom, w: b.width, cy: (b.top + b.bottom) / 2 }; };
+              return { box: r('.ui-composer-box'), attach: r('.ui-composer-attach'),
+                       input: r('.ui-composer-input'), send: r('.ui-composer-send'),
+                       tele: r('[data-testid="chat-telemetry"]') };
+            }"""
+        )
+        row = [m["attach"], m["input"], m["send"]]
+        cys = [b["cy"] for b in row]
+        assert max(cys) - min(cys) <= 3, m
+        assert all(b["top"] > m["box"]["top"] for b in row), m
+        assert m["input"]["w"] > max(m["attach"]["w"], m["send"]["w"]), m
+        assert m["tele"]["bottom"] <= m["box"]["top"], m
     finally:
         context.close()
 
@@ -448,6 +488,57 @@ def test_chat_page_at_624x321(engine_browser: Browser, rich: Rich) -> None:
 
 def test_agent_tabs_at_624x321(engine_browser: Browser, rich: Rich) -> None:
     found = _visit_all(engine_browser, rich, _agent_routes(rich), SMALL, floor=360, corner=True)
+    assert not found, "\n".join(found)
+
+
+# The editor header's controls (sortie 21 HAT feature F3): every visible button in the header
+# and the tabs menu area ends inside the window, with no sideways scroll.
+_HEADER_JS = """() => {
+  const vw = innerWidth, out = {over: [], names: [], docOverflow:
+    document.scrollingElement.scrollWidth - document.scrollingElement.clientWidth};
+  const hdr = document.querySelector('.ui-editor-shell-header');
+  const regions = [hdr, document.querySelector('.ui-tabs-menu')].filter(Boolean);
+  out.hasHeader = !!hdr;
+  regions.forEach((root) => {
+    const rr = root.getBoundingClientRect();
+    if (rr.right > vw + 1) out.over.push(root.className.split(' ')[0] + ':' + Math.round(rr.right));
+    root.querySelectorAll('button, a').forEach((e) => {
+      if (!e.getClientRects().length) return;
+      out.names.push(e.getAttribute('data-testid') || e.className.split(' ')[0]);
+      const r = e.getBoundingClientRect();
+      if (r.right > vw + 1 || r.left < -1) out.over.push((e.getAttribute('data-testid') || e.tagName) + ':' + Math.round(r.right));
+    });
+  });
+  return out;
+}"""
+
+
+def test_editor_headers_and_tabs_menu_fit_at_624x321(engine_browser: Browser, rich: Rich) -> None:
+    routes = {
+        f"agents/{_nav.seg(rich.agent)}/general": ["editor-more-btn", "save-agent-btn", "agent-tabs-menu-btn"],
+        f"library/providers/{_nav.seg(rich.provider)}": ["test-connection-btn"],
+        f"library/mcp/{_nav.seg(rich.mcp)}": [],
+    }
+    context = credentialed_context(engine_browser, rich.base, viewport=SMALL)
+    found: list[str] = []
+    try:
+        for route, need in routes.items():
+            page = _open(context, rich, route)
+            try:
+                res = page.evaluate(_HEADER_JS)
+                if not res["hasHeader"]:
+                    found.append(f"{route}: no editor header")
+                if res["over"]:
+                    found.append(f"{route}: past the right edge: {res['over']}")
+                if res["docOverflow"] > 0:
+                    found.append(f"{route}: page scrolls sideways by {res['docOverflow']}px")
+                for tid in need:
+                    if tid not in res["names"]:
+                        found.append(f"{route}: {tid} is not visible ({res['names']})")
+            finally:
+                page.close()
+    finally:
+        context.close()
     assert not found, "\n".join(found)
 
 
@@ -673,6 +764,16 @@ def test_criterion_1_checks_hold_at_wide_widths(
     where the button is shown; nothing past the edge)."""
     routes = _agent_routes(rich) + _library_routes(rich) + _settings_routes(rich)
     found = _visit_all(engine_browser, rich, routes, size, floor=360, corner=True)
+    # Chats hides the corner button (corner=False), so the check is that nothing overflows and
+    # the last control is reachable; the open chat's transcript and composer are on screen.
+    context = credentialed_context(engine_browser, rich.base, viewport=size)
+    try:
+        page = _open_chat(context, rich)
+        found += _problems(page, "chats/{id}", floor=360, corner=False)
+        if not page.locator(".ui-composer-send").is_visible():
+            found.append("chats/{id}: the Send button is not reachable")
+    finally:
+        context.close()
     assert not found, "\n".join(found)
 
 

@@ -182,8 +182,13 @@
     function rescueFocus() {
       var active = document.activeElement;
       if (active && slot.contains(active)) {
-        // Below 768px the visible pane (the list or the detail); else <main> as always.
-        if (App.shellPane && App.shellPane.visiblePane() && App.shellPane.focusVisible()) return;
+        // Below 768px the visible pane (the list or the detail) owns the fallback: <main> may be
+        // the hidden pane there, so never fall through to it; shellPane's own focus check
+        // (checkFocus on the next commit) handles a pane that could not take focus now.
+        if (App.shellPane && App.shellPane.visiblePane()) {
+          App.shellPane.focusVisible();
+          return;
+        }
         var main = document.getElementById('main-content');
         if (main) main.focus();
       }

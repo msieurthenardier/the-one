@@ -176,6 +176,7 @@ def test_agent_panel_fills_the_pane_and_closes_with_focus_back(
         assert _cover(page) == {"sidebar": True, "main": True, "rail": False, "count": 2}
         expect(toggle).to_be_hidden()  # the chat-header toggle is hidden while the panel fills
         expect(page.locator(PANEL_CLOSE)).to_be_visible()
+        expect(page.locator(PANEL_CLOSE)).to_have_attribute("aria-keyshortcuts", "Escape")
         f = _focus(page)
         assert f["inDrawer"] and f["id"] == "chat-drawer-close", f  # focus moved in
         _tab_never_enters_the_panes(page, PANEL)

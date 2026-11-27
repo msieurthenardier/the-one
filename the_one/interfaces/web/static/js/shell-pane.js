@@ -18,9 +18,9 @@
   window.App = window.App || {};
 
   var NARROW_QUERY = '(max-width: 767.98px)';
-  var FOCUSABLE =
-    'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), ' +
-    'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  // The shared selector lives in App.ui.util.FOCUSABLE (ui/core.js loads after this file, so it
+  // is read at use time, never at load).
+  function focusableSelector() { return window.App.ui.util.FOCUSABLE; }
   var mql = typeof window.matchMedia === 'function' ? window.matchMedia(NARROW_QUERY) : null;
 
   function row() { return document.querySelector('.app-shell-row'); }
@@ -64,7 +64,7 @@
     if (vis === sidebar()) {
       var cur = vis.querySelector('[aria-current]');
       if (cur && focusIn(cur)) return true;
-      var items = vis.querySelectorAll(FOCUSABLE);
+      var items = vis.querySelectorAll(focusableSelector());
       for (var i = 0; i < items.length; i++) {
         if (items[i].getClientRects().length && focusIn(items[i])) return true;
       }
@@ -93,11 +93,13 @@
   // after every commit subscriber has run. The retry is safe because checkFocus acts only when
   // focus is on <body> or inside the hidden pane; it never moves focus from a visible element
   // (a rail link keeps it; tests: a rail click while each drawer covers).
+  // The run starts at RETRY_TICKS: that first tick fires at 0ms, every later one 50ms apart.
+  var RETRY_TICKS = 20;
   function scheduleCheckRetry(left) {
     setTimeout(function () {
       checkFocus();
       if (left > 0) scheduleCheckRetry(left - 1);
-    }, left === 20 ? 0 : 50);
+    }, left === RETRY_TICKS ? 0 : 50);
   }
 
   // Stamp the row from the router's intent. 'list' needs a shown aside (a
@@ -154,7 +156,7 @@
     } else if (covering[owner]) {
       delete covering[owner];
       // Whatever closed it (a navigation may have unmounted the opener), keep focus off <body>.
-      scheduleCheckRetry(20);
+      scheduleCheckRetry(RETRY_TICKS);
     }
     var cover = !!anyCover();
     var active = document.activeElement;
@@ -173,7 +175,8 @@
   if (window.App.router && typeof window.App.router.onCommit === 'function') {
     window.App.router.onCommit(function () {
       var d = typeof window.App.router.lastDecision === 'function' ? window.App.router.lastDecision() : null;
-      if (d && d.keepCovered) return;      var owners = Object.keys(covering);
+      if (d && d.keepCovered) return;
+      var owners = Object.keys(covering);
       if (!owners.length) return;
       owners.forEach(function (o) {
         var c = covering[o];
@@ -182,7 +185,7 @@
         }
       });
       // The drawer's opener may be unmounted by this very navigation: keep focus off <body>.
-      scheduleCheckRetry(20);
+      scheduleCheckRetry(RETRY_TICKS);
     });
   }
 

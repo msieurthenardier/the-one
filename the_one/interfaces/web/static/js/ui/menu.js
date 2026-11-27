@@ -6,15 +6,28 @@
   // The one menu that is open right now (module scope), so opening a second
   // closes the first. Cleared by close() and by a detached-host cleanup.
   var openMenu = null;
-  var ITEM_SELECTOR = '[role="menuitem"]:not([aria-disabled="true"])';
+  var ITEM_SELECTOR =
+    '[role="menuitem"]:not([aria-disabled="true"]), [role="menuitemradio"]:not([aria-disabled="true"])';
+  var ALL_ITEMS_SELECTOR = '[role="menuitem"], [role="menuitemradio"]';
 
   // App.ui.menu(opts) -> controller {el, trigger, popup, open(focus),
-  //   close(restoreFocus), isOpen(), setItemDisabled(index, bool), destroy()}.
+  //   close(restoreFocus), isOpen(), setItemDisabled(index, bool),
+  //   setItemChecked(index, bool), setTriggerLabel(text), destroy()}.
   //   WAI-ARIA menu button.
   //   trigger: options for App.ui.button (iconOnly + ariaLabel allowed); its
   //     test id option lands on the trigger button.
-  //   items: [{label, onSelect, icon, danger, disabled, ...}] (required, not
-  //     empty); an item's test id option lands on its menuitem.
+  //   popupLabel: a stable accessible name for the popup (aria-label) used
+  //     instead of aria-labelledby=trigger, for a trigger whose own label
+  //     changes (the narrow tabs menu: its trigger names the current tab).
+  //   items: [{label, onSelect, icon, danger, disabled, checked, ...}] (required, not
+  //     empty); an item's test id option lands on its menuitem. A boolean `checked`
+  //     makes the item a role="menuitemradio" with aria-checked (a visible check mark
+  //     too, so colour is never the only cue); without it the item is a plain menuitem.
+  //     setItemChecked(index, bool) moves the mark (no rebuild; throws for a plain item);
+  //     setTriggerLabel(text) rewrites the trigger's label text in place (the
+  //     .ui-menu-trigger-label span when the trigger has one, else its text node).
+  //   Opening focuses the checked item when there is one (else the first item; ArrowUp
+  //   opens on the last).
   //   align: 'start' (default) | 'end'. The popup root takes the test id option.
   //   The popup is a DOM descendant of el (no portal), opens downward, and
   //   does no edge flipping. Document listeners exist only while it is open.
@@ -50,7 +63,9 @@
       tabindex: '-1',
       hidden: true
     });
-    if (triggerOpts.iconOnly) {
+    if (opts.popupLabel) {
+      popup.setAttribute('aria-label', String(opts.popupLabel));
+    } else if (triggerOpts.iconOnly) {
       popup.setAttribute('aria-label', triggerOpts.ariaLabel);
     } else {
       popup.setAttribute('aria-labelledby', trigger.id);
@@ -99,7 +114,11 @@
       if (!enabled.length) {
         popup.focus();
       } else {
-        enabled[focus === 'last' ? enabled.length - 1 : 0].focus();
+        // A menu with a checked item opens on it (the narrow tabs menu opens on the
+        // current tab); a plain menu opens on its first item.
+        var checked = popup.querySelector(
+          '[role="menuitemradio"][aria-checked="true"]:not([aria-disabled="true"])');
+        (focus === 'last' ? enabled[enabled.length - 1] : (checked || enabled[0])).focus();
       }
     }
 
@@ -112,16 +131,19 @@
     var itemNodes = [];
     items.forEach(function (item) {
       var children = [];
+      var radio = typeof item.checked === 'boolean';
+      if (radio) children.push(util.el('span', { className: 'ui-menu-item-check' }, [util.icon('check')]));
       if (item.icon) children.push(util.el('span', { className: 'ui-menu-item-icon' }, [util.icon(item.icon)]));
       children.push(util.el('span', { className: 'ui-menu-item-label', text: String(item.label) }));
       var node = util.el(
         'button',
         {
           type: 'button',
-          role: 'menuitem',
+          role: radio ? 'menuitemradio' : 'menuitem',
           tabindex: '-1',
           className: item.danger ? 'ui-menu-item ui-menu-item-danger' : 'ui-menu-item',
-          'aria-disabled': item.disabled ? 'true' : null
+          'aria-disabled': item.disabled ? 'true' : null,
+          'aria-checked': radio ? (item.checked ? 'true' : 'false') : null
         },
         children
       );
@@ -152,7 +174,7 @@
     // order without depending on keydown listener registration order.
     var unbindRoving = util.rovingFocus(popup, ITEM_SELECTOR, { wrap: true });
     function resetTabindex() {
-      var all = popup.querySelectorAll('[role="menuitem"]');
+      var all = popup.querySelectorAll(ALL_ITEMS_SELECTOR);
       for (var k = 0; k < all.length; k++) all[k].setAttribute('tabindex', '-1');
     }
     popup.addEventListener('focusin', resetTabindex);
@@ -207,6 +229,30 @@
           var enabled = enabledItems();
           (enabled[0] || popup).focus();
         }
+      },
+      setItemChecked: function (index, checked) {
+        var node = itemNodes[index];
+        if (!node) throw new Error('App.ui.menu: no item at index ' + index);
+        if (node.getAttribute('role') !== 'menuitemradio') {
+          throw new Error('App.ui.menu: item ' + index + ' is not a checkable item');
+        }
+        node.setAttribute('aria-checked', checked ? 'true' : 'false');
+      },
+      setTriggerLabel: function (text) {
+        var value = String(text === undefined || text === null ? '' : text);
+        var span = trigger.querySelector('.ui-menu-trigger-label');
+        if (span) {
+          span.textContent = value;
+          return;
+        }
+        var k;
+        for (k = 0; k < trigger.childNodes.length; k++) {
+          if (trigger.childNodes[k].nodeType === 3) {
+            trigger.childNodes[k].nodeValue = value;
+            return;
+          }
+        }
+        trigger.appendChild(document.createTextNode(value));
       },
       destroy: function () {
         close(false);

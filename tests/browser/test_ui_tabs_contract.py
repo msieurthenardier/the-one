@@ -84,13 +84,21 @@ def test_dom_shape_roles_and_ids(engine_page: Page) -> None:
     assert out["api"] == [
         "destroy",
         "el",
+        "focusTab",
+        "opener",
         "panel",
         "panels",
+        "place",
         "select",
         "selected",
         "setIndicator",
         "tablist",
     ]
+    # At 768px and wider the DOM is the plain tablist: no narrow wrapper, tablist not hidden.
+    assert out["kids"] == ["tablist", "tabpanels"]
+    assert engine_page.evaluate(
+        "() => [window.__tabs.tablist.hasAttribute('hidden'), document.querySelectorAll('.ui-tabs-menu, .ui-menu-wrap').length]"
+    ) == [False, 0]
     assert out["sel"] == "a" and out["panelA"] is True and out["panelX"] is None
     assert out["wrapper"] == ["flex", "column", "0px"]
     assert out["padding"] == "0px"
@@ -401,3 +409,248 @@ def test_a_tab_panel_has_the_agent_editors_padding_and_flush_has_none(engine_pag
         """() => getComputedStyle(document.querySelector('[role=tabpanel]:not([hidden])')).padding"""
     )
     assert out == "0px"
+
+
+# ── narrow mode: one menu button in place of the tablist (sortie 21 HAT feature) ────
+
+
+def _narrow_mount(page: Page, extra: str = "null", width: int = 600) -> None:
+    page.set_viewport_size({"width": width, "height": 800})
+    _mount(page, extra)
+
+
+TRIGGER = "tt-tabs-menu-btn"
+
+
+def _menu_state(page: Page) -> dict:
+    return page.evaluate(
+        """() => {
+          const trig = document.querySelector('[data-testid=tt-tabs-menu-btn]');
+          const items = Array.from(document.querySelectorAll('[role=menuitemradio]'));
+          return {
+            label: trig ? trig.querySelector('.ui-menu-trigger-label').textContent : null,
+            checked: items.map((i) => i.getAttribute('aria-checked')),
+            tid: items.map((i) => i.dataset.testid),
+            sel: window.__tabs.selected(),
+          };
+        }"""
+    )
+
+
+def test_narrow_menu_replaces_the_tablist(engine_page: Page) -> None:
+    p = engine_page
+    _narrow_mount(p)
+    out = p.evaluate(
+        """() => {
+          const t = window.__tabs, trig = document.querySelector('[data-testid=tt-tabs-menu-btn]');
+          const wrap = t.el.firstElementChild;
+          const pop = trig.parentElement.querySelector('[role=menu]');
+          return {
+            kids: Array.from(t.el.children).map((k) => k.className),
+            hidden: t.tablist.hidden, tlDisplay: getComputedStyle(t.tablist).display,
+            haspopup: trig.getAttribute('aria-haspopup'), expanded: trig.getAttribute('aria-expanded'),
+            popLabel: pop.getAttribute('aria-label'), popLb: pop.hasAttribute('aria-labelledby'),
+            chevron: !!trig.querySelector('.ui-tabs-menu-chevron svg'),
+            full: Math.round(trig.getBoundingClientRect().width) >= Math.round(wrap.getBoundingClientRect().width) - 40,
+            opener: [t.opener('b') === trig, t.opener('zz')],
+            panelLabelledby: t.panel('a').getAttribute('aria-labelledby'),
+          };
+        }"""
+    )
+    assert out["kids"] == ["ui-tabs-menu", "tablist", "tabpanels"]
+    assert out["hidden"] is True and out["tlDisplay"] == "none"
+    assert out["haspopup"] == "menu" and out["expanded"] == "false"
+    assert out["popLabel"] == "Settings" and out["popLb"] is False  # the group name, by default `label`
+    assert out["chevron"] and out["full"]
+    assert out["opener"] == [True, None]
+    assert out["panelLabelledby"] == "tt-tab-a"
+    assert _menu_state(p) == {
+        "label": "General",
+        "checked": ["true", "false", "false"],
+        "tid": ["t-a-menu-item", "t-b-menu-item", "t-c-menu-item"],
+        "sel": "a",
+    }
+    expect(p.get_by_role("tab")).to_have_count(0)  # the hidden tablist is out of the tree
+    expect(p.get_by_role("button", name="General")).to_have_count(1)
+    # The tabpanel keeps its accessible name through its hidden tab.
+    expect(p.get_by_role("tabpanel", name="General")).to_have_count(1)
+    p.get_by_test_id(TRIGGER).click()
+    expect(p.get_by_role("menuitemradio")).to_have_count(3)
+    expect(p.get_by_role("menu", name="Settings")).to_be_visible()
+
+
+def test_narrow_menu_choose_by_keyboard_and_mouse_commits(engine_page: Page) -> None:
+    p = engine_page
+    _narrow_mount(p)
+    p.get_by_test_id(TRIGGER).focus()
+    p.keyboard.press("Enter")  # opens
+    p.keyboard.press("ArrowDown")
+    p.keyboard.press("ArrowDown")
+    p.keyboard.press("Enter")  # chooses Tools
+    assert _menu_state(p) == {
+        "label": "Tools",
+        "checked": ["false", "false", "true"],
+        "tid": ["t-a-menu-item", "t-b-menu-item", "t-c-menu-item"],
+        "sel": "c",
+    }
+    assert p.evaluate("() => window.__ch") == ["a", "c"]
+    assert p.evaluate("() => document.activeElement.dataset.testid") == TRIGGER
+    assert p.evaluate("() => window.__tabs.panel('c').hidden") is False
+    p.get_by_test_id(TRIGGER).click()
+    p.get_by_test_id("t-b-menu-item").click()
+    assert _menu_state(p)["label"] == "Rules and notes" and p.evaluate("() => window.__ch") == [
+        "a",
+        "c",
+        "b",
+    ]
+    expect(p.get_by_role("tabpanel", name="Rules and notes")).to_have_count(1)
+    # Escape closes the menu and returns focus to the button.
+    p.keyboard.press("Enter")
+    p.keyboard.press("Escape")
+    assert p.evaluate("() => document.activeElement.dataset.testid") == TRIGGER
+    expect(p.get_by_test_id(TRIGGER)).to_have_attribute("aria-expanded", "false")
+
+
+def test_narrow_menu_item_goes_through_the_veto(engine_page: Page) -> None:
+    p = engine_page
+    _narrow_mount(p, "{onBeforeChange: (id, commit) => { window.__asked = id; window.__pending = commit; }}")
+    p.get_by_test_id(TRIGGER).click()
+    p.get_by_test_id("t-c-menu-item").click()
+    # Vetoed: asked once, nothing changed (label, check, selection, onChange).
+    assert p.evaluate("() => window.__asked") == "c"
+    assert _menu_state(p) == {
+        "label": "General",
+        "checked": ["true", "false", "false"],
+        "tid": ["t-a-menu-item", "t-b-menu-item", "t-c-menu-item"],
+        "sel": "a",
+    }
+    assert p.evaluate("() => window.__ch") == ["a"]
+    p.evaluate("window.__pending()")  # a later commit (the leave guard's Continue) proceeds
+    assert _menu_state(p)["label"] == "Tools"
+
+
+def test_narrow_menu_follows_programmatic_select(engine_page: Page) -> None:
+    p = engine_page
+    _narrow_mount(p)
+    p.evaluate("window.__tabs.select('b')")
+    assert _menu_state(p) == {
+        "label": "Rules and notes",
+        "checked": ["false", "true", "false"],
+        "tid": ["t-a-menu-item", "t-b-menu-item", "t-c-menu-item"],
+        "sel": "b",
+    }
+    # Mounted with a later initial tab, the first paint is already right.
+    load_harness(p)
+    p.evaluate(f"({MOUNT})({{initial: 'c'}})")
+    assert _menu_state(p)["label"] == "Tools"
+
+
+def test_narrow_menu_indicator_on_trigger_and_item(engine_page: Page) -> None:
+    p = engine_page
+    _narrow_mount(
+        p,
+        "{items: [{id: 'a', label: 'General', testid: 't-a'}, {id: 'b', label: 'Rules and notes', testid: 't-b'},"
+        " {id: 'c', label: 'Tools', testid: 't-c', indicator: '2 notices'}]}",
+    )
+    # The item carries it from construction; the trigger shows the current tab's only.
+    expect(p.get_by_role("menuitemradio", name="Tools, 2 notices", include_hidden=True)).to_have_count(1)
+    assert p.evaluate("() => document.querySelector('[data-testid=tt-tabs-menu-btn]').hasAttribute('aria-label')") is False
+    p.evaluate("window.__tabs.select('c')")
+    expect(p.get_by_role("button", name="Tools, 2 notices", exact=True)).to_have_count(1)
+    assert (
+        p.evaluate(
+            "() => document.querySelectorAll('[data-testid=tt-tabs-menu-btn] [data-tab-indicator]').length"
+        )
+        == 2
+    )
+    p.evaluate("window.__tabs.setIndicator('c', '1 notice')")
+    expect(p.get_by_role("button", name="Tools, 1 notice", exact=True)).to_have_count(1)
+    expect(p.get_by_role("menuitemradio", name="Tools, 1 notice", include_hidden=True)).to_have_count(1)
+    # An indicator on a tab that is not current shows on its item only; the dot stays aria-hidden.
+    p.evaluate("window.__tabs.setIndicator('a', '3 notices')")
+    expect(p.get_by_role("button", name="Tools, 1 notice", exact=True)).to_have_count(1)
+    expect(p.get_by_role("menuitemradio", name="General, 3 notices", include_hidden=True)).to_have_count(1)
+    p.evaluate("window.__tabs.setIndicator('c', null)")
+    expect(p.get_by_role("button", name="Tools", exact=True)).to_have_count(1)
+    assert (
+        p.evaluate(
+            "() => document.querySelectorAll('[data-testid=tt-tabs-menu-btn] [data-tab-indicator]').length"
+        )
+        == 0
+    )
+
+
+def test_narrow_to_wide_to_narrow_keeps_selection_and_focus(engine_page: Page) -> None:
+    p = engine_page
+    _narrow_mount(p)
+    p.get_by_test_id(TRIGGER).click()
+    p.get_by_test_id("t-b-menu-item").click()  # select Rules and notes, focus on the trigger
+    # Wide: the plain tablist is back, selection kept, focus moved to the selected tab.
+    p.set_viewport_size({"width": 1000, "height": 800})
+    expect(p.get_by_role("tab", name="Rules and notes")).to_have_attribute("aria-selected", "true")
+    assert p.evaluate(
+        "() => [document.querySelectorAll('.ui-tabs-menu').length, window.__tabs.tablist.hasAttribute('hidden'),"
+        " document.activeElement.dataset.testid, Array.from(window.__tabs.el.children).map((k) => k.className)]"
+    ) == [0, False, "t-b", ["tablist", "tabpanels"]]
+    assert p.evaluate("() => window.__tabs.opener('a').dataset.testid") == "t-a"
+    # Choose another tab while wide, then go narrow again: the label follows, focus goes to the button.
+    p.get_by_test_id("t-c").click()
+    p.get_by_test_id("t-c").focus()
+    p.set_viewport_size({"width": 500, "height": 800})
+    expect(p.get_by_test_id(TRIGGER)).to_be_visible()
+    assert _menu_state(p)["label"] == "Tools" and _menu_state(p)["sel"] == "c"
+    assert p.evaluate("() => document.activeElement.dataset.testid") == TRIGGER
+    assert p.evaluate("() => window.__ch") == ["a", "b", "c"]  # a mode switch never commits
+
+
+def test_mode_switch_with_the_menu_open_closes_it_without_taking_focus(engine_page: Page) -> None:
+    p = engine_page
+    _narrow_mount(p)
+    p.get_by_test_id(TRIGGER).click()
+    assert p.evaluate("() => document.querySelectorAll('[role=menu]:not([hidden])').length") == 1
+    p.set_viewport_size({"width": 1000, "height": 800})
+    expect(p.get_by_role("tab", name="General")).to_be_visible()
+    assert p.evaluate("() => document.querySelectorAll('[role=menu]').length") == 0
+    # Focus was inside the hidden part, so it lands on the selected tab (never lost to <body>).
+    assert p.evaluate("() => document.activeElement.dataset.testid") == "t-a"
+    # With focus elsewhere, a mode change leaves it alone.
+    p.evaluate("() => document.activeElement.blur()")
+    p.set_viewport_size({"width": 500, "height": 800})
+    expect(p.get_by_test_id(TRIGGER)).to_be_visible()
+    assert p.evaluate("() => document.activeElement === document.body") is True
+
+
+def test_narrow_focus_tab_and_opener_address_the_visible_control(engine_page: Page) -> None:
+    p = engine_page
+    _narrow_mount(p)
+    assert p.evaluate("() => window.__tabs.focusTab('c')") is True
+    assert p.evaluate("() => document.activeElement.dataset.testid") == TRIGGER
+    assert p.evaluate("() => window.__tabs.focusTab('zz')") is False
+    p.set_viewport_size({"width": 1000, "height": 800})
+    expect(p.get_by_role("tab", name="General")).to_be_visible()  # the media change has landed
+    p.evaluate("() => window.__tabs.focusTab('c')")
+    assert p.evaluate("() => document.activeElement.dataset.testid") == "t-c"
+
+
+def test_narrow_split_host_places_the_menu_before_the_tablist(engine_page: Page) -> None:
+    p = engine_page
+    p.set_viewport_size({"width": 600, "height": 800})
+    _mount(p, "{split: true}")
+    # Not yet placed next to the tablist before place(); the host then calls it.
+    p.evaluate("() => window.__tabs.place()")
+    assert p.evaluate(
+        "() => Array.from(document.getElementById('harness-root').children).map((k) => k.className.split(' ')[0])"
+    ) == ["ui-tabs-menu", "tablist", "tabpanels"]
+    p.evaluate("window.__tabs.select('b')")
+    assert _menu_state(p)["label"] == "Rules and notes"
+
+
+def test_destroy_unsubscribes_the_narrow_listener_and_closes_the_menu(engine_page: Page) -> None:
+    p = engine_page
+    _narrow_mount(p)
+    p.get_by_test_id(TRIGGER).click()
+    p.evaluate("window.__tabs.destroy()")
+    expect(p.get_by_test_id(TRIGGER)).to_have_attribute("aria-expanded", "false")
+    # A width change after destroy does not rebuild or switch anything.
+    p.set_viewport_size({"width": 1000, "height": 800})
+    assert p.evaluate("() => [window.__tabs.tablist.hasAttribute('hidden'), document.querySelectorAll('.ui-tabs-menu').length]") == [True, 1]

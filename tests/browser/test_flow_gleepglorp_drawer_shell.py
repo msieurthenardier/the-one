@@ -345,7 +345,8 @@ def test_push_at_1280_overlay_below_and_a_live_switch(
 def test_at_1024_the_editors_save_button_is_in_main_and_clear_of_the_button(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """At the 1024px minimum the drawer is an overlay, which by definition covers the right of
+    """At 1024px (768px to 1279px; below 768px one pane shows and the drawer fills it, from 1280px
+    it pushes) the drawer is an overlay, which by definition covers the right of
     <main> while it is open (the Save button sits at the editor header's right end, so the open
     overlay covers it: the operator closes the drawer, with Close or Esc, to reach it). So the
     leg's AC6 "does not intersect the drawer" cannot hold for an overlay; what is pinned here is

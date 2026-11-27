@@ -118,6 +118,28 @@
     };
   };
 
+  // FOCUSABLE: the one selector for "a control that can take focus" (shared by the drawer
+  //   factory and js/shell-pane.js, which reads it at use time; this file loads after it).
+  App.ui.util.FOCUSABLE =
+    'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), ' +
+    'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  // narrow: the shared "below 768px" signal for factories that switch layout in JS (the tabs
+  //   menu). matches() is true at a viewport narrower than 768px; subscribe(fn) calls
+  //   fn(matches) on each change and returns an unsubscribe function (factories call it in
+  //   destroy()). Without matchMedia, matches() is false and subscribe is a no-op.
+  var NARROW_QUERY = '(max-width: 767.98px)';
+  var narrowMql = typeof window.matchMedia === 'function' ? window.matchMedia(NARROW_QUERY) : null;
+  App.ui.util.narrow = {
+    matches: function () { return !!(narrowMql && narrowMql.matches); },
+    subscribe: function (fn) {
+      if (!narrowMql || typeof fn !== 'function') return function () {};
+      var handler = function (e) { fn(!!e.matches); };
+      narrowMql.addEventListener('change', handler);
+      return function () { narrowMql.removeEventListener('change', handler); };
+    }
+  };
+
   // middleEllipsis(value, budget) -> string (M31 F4 L04e). A value of at most `budget`
   //   characters comes back unchanged; a longer one keeps its first
   //   round((budget - 1) * 0.6) and last (budget - 1 - head) characters around one

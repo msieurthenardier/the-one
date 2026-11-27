@@ -383,7 +383,10 @@ def test_destinations_show_exactly_one_pane_at_624x321(
         _rail(page, "agents").click()  # the agent list
         _expect_one_pane(_wait_pane(page, "list"), "list")
         _lists.open_item(page, "agents", app.agent_name)  # an agent's tab
-        expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
+        # Below 768px the tabs are one menu button naming the current tab (the tablist is hidden).
+        expect(page.locator('[data-testid="agent-tabs-menu-btn"]')).to_have_text(
+            "General", timeout=8000
+        )
         _expect_one_pane(_wait_pane(page, "detail"), "detail")
 
         _rail(page, "library").click()  # the Library grouped list (start page hidden)

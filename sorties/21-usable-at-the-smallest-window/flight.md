@@ -1,6 +1,6 @@
 # Sortie: Usable at the smallest window
 
-**Status**: in-flight
+**Status**: landed
 
 ## Charter
 
@@ -166,17 +166,17 @@ Verified against the working tree at `e3140b24` (rows marked A re-checked by the
 - [x] `narrow-shell` - Pane by intent below 768px (DD1, DD2), the Settings rail href (DD3), the shell invariants, guide and shell tests (DD8), the `layout` lane and the first narrow tests (DD10)
 - [x] `narrow-panels` - The drawer `fill` mode and focus option, the agent panel's narrow state and Close button, GleepGlorp in `fill`, `inert` behind (DD4), with tests
 - [x] `height-clamps-and-proof` - Short-height rules and rail scroll (DD5), corner-button clearance (DD6), width clamps (DD7), capture sizes, the probe option and run (DD9), the remaining criterion tests, the closing gate
-- [ ] `uat-and-alignment` - Guided HAT at 640×360, a snapped third and a half-screen, both themes, with fixes
+- [x] `uat-and-alignment` - Guided HAT at 640×360, a snapped third and a half-screen, both themes, with fixes (two look-and-feel fix batches and one promoted feature, `legs/04a-hat-feature-narrow-tabs-and-actions.md`: a tabs menu and a ⋯ More actions menu below 768px)
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 - [ ] Issue #225 closed with a link to the PR
 - [ ] Follow-up comment on PR #393 (see the flight log's post-landing actions)
 

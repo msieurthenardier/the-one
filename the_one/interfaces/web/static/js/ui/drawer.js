@@ -106,9 +106,7 @@
       return !root.hidden;
     }
 
-    var FOCUSABLE =
-      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), ' +
-      'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    var FOCUSABLE = util.FOCUSABLE;
 
     // The first focusable control that is shown (not [hidden], has a layout box), else the <aside>.
     function focusIn() {

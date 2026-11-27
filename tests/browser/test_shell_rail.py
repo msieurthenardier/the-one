@@ -507,8 +507,11 @@ def test_rail_links_are_real_fragment_links_that_pass_modifier_clicks_through(
     # fragment hrefs a middle-click can open (the interceptor ignores modifiers).
     assert _rail(page, "library").get_attribute("href") == _nav.href("library")
     for dest in DESTS:
-        expected = _nav.bare_href(dest) if dest == "settings" else _nav.href(dest)
-        assert (_rail(page, dest).get_attribute("href") or "").startswith(expected)
+        href = _rail(page, dest).get_attribute("href") or ""
+        if dest == "settings":
+            assert href == _nav.bare_href(dest), href
+        else:
+            assert href.startswith(_nav.href(dest)), href
     info = page.evaluate(
         """() => {
           const out = [];
