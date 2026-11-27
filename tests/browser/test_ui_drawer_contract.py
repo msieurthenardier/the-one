@@ -468,3 +468,100 @@ def test_a_throwing_before_close_never_keeps_the_drawer_open(engine_page: Page) 
     p.evaluate("() => { window.__d.open(); window.__d.close(); }")
     expect(p.get_by_test_id("d-root")).to_be_hidden()
     assert p.evaluate("() => window.__changes") == [True, False]
+
+
+# ── fill mode and open(opener, {focus}) (sortie 21 L2) ──────────────────────
+
+
+def test_fill_mode_spans_from_the_rail_edge_to_the_frames_right_full_height(
+    engine_page: Page,
+) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate("() => { window.__d.setMode('fill'); window.__d.open(); }")
+    out = p.evaluate(
+        """() => {
+          const a = window.__d.el, f = document.getElementById('frame');
+          const r = a.getBoundingClientRect(), fr = f.getBoundingClientRect();
+          const cs = getComputedStyle(a);
+          return {
+            cls: a.className, mode: a.getAttribute('data-mode'), left: r.left - fr.left,
+            right: fr.right - r.right, top: r.top - fr.top, bottom: fr.bottom - r.bottom,
+            pos: cs.position, z: cs.zIndex,
+            rail: getComputedStyle(document.documentElement).getPropertyValue('--rail-w').trim(),
+          };
+        }"""
+    )
+    assert out["cls"] == "ui-drawer ui-drawer--fill" and out["mode"] == "fill", out
+    assert out["rail"] == "72px", out
+    assert out["left"] == 72 and out["right"] == 0 and out["top"] == 0 and out["bottom"] == 0, out
+    assert out["pos"] == "absolute" and out["z"] == "10", out
+    p.evaluate("() => window.__d.setMode('push')")  # the class and the box go with the mode
+    assert p.evaluate("() => window.__d.el.className") == "ui-drawer ui-drawer--push"
+    assert p.evaluate("() => getComputedStyle(window.__d.el).width") == "320px"
+
+
+def test_fill_mode_is_hidden_by_the_hidden_attribute(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate("() => window.__d.setMode('fill')")
+    assert p.evaluate("() => getComputedStyle(window.__d.el).display") == "none"
+    p.evaluate("() => window.__d.open()")
+    assert p.evaluate("() => getComputedStyle(window.__d.el).display") == "flex"
+
+
+def test_fill_escape_and_close_return_focus_to_the_opener(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate("() => window.__d.setMode('fill')")
+    for how in ("escape", "close"):
+        p.get_by_test_id("d-opener").focus()
+        p.evaluate("() => window.__d.open(window.__opener, {focus: true})")
+        assert _active(p) == "d-footer-btn", how
+        if how == "escape":
+            p.keyboard.press("Escape")
+        else:
+            p.evaluate("() => window.__d.close()")
+        expect(p.get_by_test_id("d-root")).to_be_hidden()
+        assert _active(p) == "d-opener", how
+
+
+def test_open_with_focus_moves_in_only_on_a_closed_to_open_transition(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.get_by_test_id("d-outside").focus()
+    p.evaluate("() => window.__d.open(window.__opener)")  # no options: focus stays
+    assert _active(p) == "d-outside"
+    p.evaluate("() => window.__d.close()")
+    p.get_by_test_id("d-outside").focus()
+    p.evaluate("() => window.__d.open(window.__opener, {focus: true})")
+    assert _active(p) == "d-footer-btn"
+    p.get_by_test_id("d-outside").focus()
+    p.evaluate("() => window.__d.open(window.__opener, {focus: true})")  # already open: nothing
+    assert _active(p) == "d-outside"
+
+
+def test_open_with_focus_skips_hidden_controls_and_falls_back_to_the_aside(
+    engine_page: Page,
+) -> None:
+    p = engine_page
+    _mount(p)
+    # The footer hidden: no focusable control is left, so the <aside> takes focus.
+    p.evaluate("() => { window.__d.el.querySelector('.ui-drawer-footer').hidden = true; }")
+    p.get_by_test_id("d-outside").focus()
+    p.evaluate("() => window.__d.open(window.__opener, {focus: true})")
+    assert _active(p) == "d-root"
+    p.evaluate("() => window.__d.close()")
+    # A [hidden] first control is skipped for the next shown one.
+    p.evaluate(
+        """() => {
+          const h = window.__d.el.querySelector('.ui-drawer-header');
+          const b = document.createElement('button');
+          b.hidden = true; b.setAttribute('data-testid', 'd-hidden-first');
+          h.appendChild(b);
+          window.__d.el.querySelector('.ui-drawer-footer').hidden = false;
+        }"""
+    )
+    p.get_by_test_id("d-outside").focus()
+    p.evaluate("() => window.__d.open(window.__opener, {focus: true})")
+    assert _active(p) == "d-footer-btn"

@@ -498,12 +498,12 @@ def test_legacy_general_hashes_redirect_directly(app_clean: str, page: Page) -> 
 
 
 def test_rail_first_use_and_last_route_are_appearance(app_clean: str, page: Page) -> None:
-    """Before any Settings visit the rail's Settings href is the root,
-    ``#settings/appearance``; after a visit to the alias the remembered route is
-    Appearance, never ``settings/general``."""
+    """Before any Settings visit the rail's Settings href is the bare ``#settings``
+    (sortie 21 L1; the click still lands on ``settings/appearance``); after a visit
+    to the alias the remembered route is Appearance, never ``settings/general``."""
     _nav.goto_settled(page, app_clean, "chats")
     rail = page.locator('[data-testid="rail-settings"]')
-    expect(rail).to_have_attribute("href", _nav.href("settings/appearance"))
+    expect(rail).to_have_attribute("href", _nav.bare_href("settings"))
     assert page.evaluate("App.router.root('settings')") == "settings/appearance"
     assert page.evaluate("App.router.lastRoute('settings')") == "settings/appearance"
     rail.click()
@@ -515,7 +515,7 @@ def test_rail_first_use_and_last_route_are_appearance(app_clean: str, page: Page
     assert page.evaluate("App.router.go('settings/general')") is True
     assert page.evaluate("App.router.go('chats')") is True
     assert page.evaluate("App.router.lastRoute('settings')") == "settings/appearance"
-    expect(rail).to_have_attribute("href", _nav.href("settings/appearance"))
+    expect(rail).to_have_attribute("href", _nav.bare_href("settings"))
     # A real page is remembered as itself.
     assert page.evaluate("App.router.go('settings/encryption')") is True
     assert page.evaluate("App.router.go('chats')") is True

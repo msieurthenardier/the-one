@@ -20,7 +20,7 @@ set -euo pipefail
 
 # --- Per-area browser test lanes (F5; re-mapped to destinations in M25 F2) ---
 # `--lane <lane>` runs just one slice of the browser suite. The canonical lanes
-# are chats, chats-transcript, chats-widgets, gleepglorp-chat, gleepglorp-fill, gleepglorp-kinds, agents, agent-tabs, agent-routines, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-chat, contracts-widget, contracts-widget-lifecycle, contracts-controls and shared.
+# are chats, chats-transcript, chats-widgets, gleepglorp-chat, gleepglorp-fill, gleepglorp-kinds, agents, agent-tabs, agent-routines, library, knowledge, mcp, mcp-connection, routing, settings, settings-tools, providers, contracts-overlay, contracts-chat, contracts-widget, contracts-widget-lifecycle, contracts-controls, layout and shared.
 # Aliases (kept for muscle memory and older docs):
 #   chat = chats + chats-transcript + chats-widgets, studio = agents + agent-tabs + agent-routines + library + knowledge + mcp + mcp-connection,
 #   system = settings + settings-tools + providers, gleepglorp = gleepglorp-chat + gleepglorp-fill + gleepglorp-kinds,
@@ -56,8 +56,8 @@ set -euo pipefail
 # parent SIGKILLed before its first child has started its watchdog (well under a
 # second) can leak that one child's pytest group.
 
-LANE_LIST="chats|chats-transcript|chats-widgets|gleepglorp-chat|gleepglorp-fill|gleepglorp-kinds|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|shared"
-CANON_LANES=(chats chats-transcript chats-widgets gleepglorp-chat gleepglorp-fill gleepglorp-kinds agents agent-tabs agent-routines library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-widget contracts-widget-lifecycle contracts-controls shared)
+LANE_LIST="chats|chats-transcript|chats-widgets|gleepglorp-chat|gleepglorp-fill|gleepglorp-kinds|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|layout|shared"
+CANON_LANES=(chats chats-transcript chats-widgets gleepglorp-chat gleepglorp-fill gleepglorp-kinds agents agent-tabs agent-routines library knowledge mcp mcp-connection routing settings settings-tools providers contracts-overlay contracts-chat contracts-widget contracts-widget-lifecycle contracts-controls layout shared)
 
 # Per-lane wall-clock budgets in seconds (M35 F1 L1: contracts-chat re-budgeted 90 to 120 s when the two chart contract files joined it, measured 83 s solo on a host at load 1.2-2.4, not a quiet --parallel 3 reading, so M35's closing gate re-measures it; earlier: M33 F3 leg 8 --parallel 3 run, start load 1.11, total 1885 s, 17 lanes: routing 720 and agents 630 re-budgeted for headroom; others within 15%; earlier: re-measured in the M31 F6 L09b --parallel 3 run (start load 0.94, total 1763 s, 16 lanes): chats 329 s, chats-transcript 191 s, contracts-controls 463 s, contracts-overlay 241 s, contracts-chat 71 s (budgeted purely from this run); every other lane moved under 15% and kept its budget; earlier rows from the M31 F6 L01 run 2 after the chats and mcp splits;  earlier rows from the M31 F5 L12 --parallel 3 run after moving the library-list file from mcp to library, and from the M31 F4 L11 run; earlier rows from the M31 F3 L09 and M31 F2 L11 --parallel 3
 # gate run, plus about 25% headroom, rounded up to 30 s). Over budget is a warning, not a failure.
@@ -87,6 +87,7 @@ declare -A BUDGET=(
   [contracts-widget]=300   # M35 F2 L3 provisional (widget frame and card contract files); re-measured at the closing gate
   [contracts-widget-lifecycle]=150   # M36 F4 L8, 2026-11-23, wall 105 s, quiet --parallel 3 (was 300 provisional)
   [contracts-controls]=540   # M35 F1 closing gate quiet-host: measured 425 s
+  [layout]=240   # sortie 21 L1 provisional (narrow-window layout tests, two engines); re-measured at the sortie's closing gate
   [shared]=420
 )
 
@@ -281,6 +282,10 @@ contracts_chat_pat=('test_ui_composer*' 'test_ui_message*' 'test_ui_thinking*' \
 contracts_widget_pat=('test_ui_widget_frame*' 'test_ui_widget_card*')
 contracts_widget_lifecycle_pat=('test_ui_widget_lifecycle*' 'test_ui_widget_hang*')
 contracts_all_pat=('test_ui_*')
+# Layout (sortie 21 L1): the narrow-window layout tests, a glob so each later leg's file joins
+# without an edit here. Core assertions run in Chromium and WebKit: run it with
+# THE_ONE_REQUIRE_WEBKIT=1 (the caller sets it, as for the contracts lanes).
+layout_pat=('test_flow_narrow_*')
 
 # Files matching the studio globs minus the library, knowledge, mcp, mcp-connection,
 # agent-tabs and agent-routines lists, sorted.
@@ -337,6 +342,7 @@ resolve_lane() {
     contracts-widget) mapfile -t lane_files < <(expand_lane "${contracts_widget_pat[@]}" | sort -u) ;;
     contracts-widget-lifecycle) mapfile -t lane_files < <(expand_lane "${contracts_widget_lifecycle_pat[@]}" | sort -u) ;;
     contracts-controls) mapfile -t lane_files < <(contracts_controls_files) ;;
+    layout)        mapfile -t lane_files < <(expand_lane "${layout_pat[@]}" | sort -u) ;;
     contracts)     mapfile -t lane_files < <(expand_lane "${contracts_all_pat[@]}" | sort -u) ;;
     shared)
       # Complement: all browser test files, minus the named lanes (agents +
@@ -346,7 +352,7 @@ resolve_lane() {
       mapfile -t _assigned < <(
         expand_lane "${chats_pat[@]}" "${gleepglorp_pat[@]}" "${studio_pat[@]}" "${routing_pat[@]}" \
                     "${settings_all_pat[@]}" "${providers_pat[@]}" "${contracts_all_pat[@]}" \
-                    'test_visual_snapshots.py' | sort -u)
+                    "${layout_pat[@]}" 'test_visual_snapshots.py' | sort -u)
       mapfile -t _all < <(for f in "$browser_dir/"test_*.py; do printf '%s\n' "$f"; done | sort -u)
       mapfile -t lane_files < <(comm -23 \
         <(printf '%s\n' "${_all[@]}") <(printf '%s\n' "${_assigned[@]}"))

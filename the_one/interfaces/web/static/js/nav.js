@@ -55,6 +55,11 @@
 
   function focusMain() {
     var main = document.getElementById('main-content');
+    // <main> hidden (a narrow window showing the list pane): focus the visible pane.
+    if (main && !main.getClientRects().length && window.App.shellPane) {
+      window.App.shellPane.focusVisible();
+      return;
+    }
     if (main && typeof main.focus === 'function') {
       try { main.focus(); } catch (e) { /* ignore */ }
     }

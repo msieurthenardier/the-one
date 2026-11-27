@@ -3,10 +3,10 @@
   window.App = window.App || {};
   App.ui = App.ui || {};
 
-  var MODES = ['push', 'overlay'];
+  var MODES = ['push', 'overlay', 'fill'];
 
-  // App.ui.drawer(opts) -> {el, open(opener), close(), toggle(opener),
-  // isOpen(), setMode('push'|'overlay'), destroy()}  (M25 F4 L6, DD7, DD14)
+  // App.ui.drawer(opts) -> {el, open(opener, {focus}), close(), toggle(opener),
+  // isOpen(), setMode('push'|'overlay'|'fill'), destroy()}  (M25 F4 L6, DD7, DD14)
   //
   // A NON-modal side panel: an <aside> holding a header (.ui-drawer-header,
   // the heading), a scrolling body (.ui-drawer-body) and an optional footer
@@ -37,6 +37,10 @@
   // Behaviour:
   //   - Built closed (`hidden`) in push mode. open() never moves focus (a
   //     non-modal panel: the opener keeps it).
+  //   - open(opener, {focus: true}) (sortie 21 L2) moves focus in on a closed-to-open
+  //     transition only: the first shown focusable control, else the <aside>.
+  //   - setMode('fill') spans from var(--rail-w) to the right edge of the positioned container,
+  //     full height, at the overlay's stacking level (.ui-drawer--fill).
   //   - open(opener) records the opener; with no argument the last recorded
   //     one stays. close() returns focus to that opener ONLY when focus is
   //     inside the drawer at that moment (so hiding it never drops focus to
@@ -102,11 +106,28 @@
       return !root.hidden;
     }
 
-    function open(by) {
+    var FOCUSABLE =
+      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), ' +
+      'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    // The first focusable control that is shown (not [hidden], has a layout box), else the <aside>.
+    function focusIn() {
+      var items = root.querySelectorAll(FOCUSABLE);
+      for (var i = 0; i < items.length; i++) {
+        if (!items[i].hidden && items[i].getClientRects().length) {
+          try { items[i].focus(); } catch (e) { /* ignore */ }
+          if (document.activeElement === items[i]) return;
+        }
+      }
+      try { root.focus(); } catch (e) { /* ignore */ }
+    }
+
+    function open(by, o) {
       if (by && by.nodeType) opener = by;
       if (!root.hidden) return;
       root.hidden = false;
       notify();
+      if (o && o.focus) focusIn();
     }
 
     function close() {
@@ -146,6 +167,7 @@
       mode = next;
       root.classList.toggle('ui-drawer--push', next === 'push');
       root.classList.toggle('ui-drawer--overlay', next === 'overlay');
+      root.classList.toggle('ui-drawer--fill', next === 'fill');
       root.setAttribute('data-mode', next);
     }
 

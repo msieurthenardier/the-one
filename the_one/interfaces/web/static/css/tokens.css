@@ -39,6 +39,9 @@
     --space-7: 48px;
     --space-8: 64px;
 
+    /* the workbench rail's width: the rail and the drawers' fill mode (sortie 21 L2) */
+    --rail-w: 72px;
+
     /* radius scale */
     --radius-sm: 6px;
     --radius-md: 8px;
