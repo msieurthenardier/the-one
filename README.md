@@ -213,6 +213,10 @@ The flight record so far:
 
 Flights include the standalone ones, called sorties. Every mission, with its flights, legs, flight logs and debriefs, is in [missions/](missions/), every sortie is in [sorties/](sorties/), and every squawk is in [squawks/](squawks/).
 
+## Contributing
+
+Every contribution must be planned and built through the Mission Control plugin for Claude Code, with its artifacts and an independent review. A pull request that was not is closed without merge. [CONTRIBUTING.md](CONTRIBUTING.md) explains the routes, how to install the plugin and the required test gate.
+
 ## Developing
 
 ```bash
