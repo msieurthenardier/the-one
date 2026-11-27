@@ -61,6 +61,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import pytest
+from browser._app_ready import app_ready_timeout
 from browser._credential_registry import (
     auth_headers_for,
 )
@@ -136,7 +137,7 @@ def _free_port() -> int:
 def _wait_for_ready(
     base_url: str,
     proc: subprocess.Popen | None = None,
-    timeout: float = 15.0,
+    timeout: float | None = None,
 ) -> None:
     """Poll ``/api/live`` until 200, or raise TimeoutError.
 
@@ -149,8 +150,13 @@ def _wait_for_ready(
 
     If ``proc`` is given and the subprocess dies during startup, raises
     RuntimeError immediately rather than waiting for the full timeout —
-    saves 15s per port-collision/import-error scenario.
+    saves the whole timeout per port-collision/import-error scenario.
+
+    ``timeout`` defaults to ``app_ready_timeout()`` (45 s, overridable by
+    ``THE_ONE_TEST_APP_READY_TIMEOUT``; squawk 0438).
     """
+    if timeout is None:
+        timeout = app_ready_timeout()
     deadline = time.monotonic() + timeout
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
@@ -257,6 +263,10 @@ def _spawn_app(
     if extra_env:
         env.update(extra_env)
 
+    # Resolve the ready timeout before spawning: a bad THE_ONE_TEST_APP_READY_TIMEOUT
+    # raises here, not after a child is already running (squawk 0438).
+    ready_timeout = app_ready_timeout()
+
     # Use python -m uvicorn so the app is importable via the editable install
     # without depending on the `the-one` console script.
     proc = subprocess.Popen(
@@ -280,7 +290,7 @@ def _spawn_app(
     base_url = f"http://127.0.0.1:{port}"
 
     try:
-        _wait_for_ready(base_url, proc=proc, timeout=15.0)
+        _wait_for_ready(base_url, proc=proc, timeout=ready_timeout)
     except (TimeoutError, RuntimeError):
         # Capture subprocess output to help diagnose startup failures.
         proc.terminate()
