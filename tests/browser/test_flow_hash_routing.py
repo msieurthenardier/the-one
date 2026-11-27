@@ -26,7 +26,7 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
     base_url = app_clean
 
     # 1. Open app (lands on #chat by default).
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     # Rail readiness probe: wait for the Chats rail link specifically.
     expect(_nav.destination_locator(page, "chats")).to_be_visible(timeout=5000)
 
@@ -63,7 +63,7 @@ def test_hash_routing_chat_session_persists_on_refresh(
     base_url = app_with_agent.base_url
 
     # 1. Open #chat. Welcome canvas shows; bootstrap a session.
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
 
     # 2. A start is a pending chat (M25 F4 L3b); its first send creates the
     #    session, whose session_joined updates the badge and the URL.
@@ -144,6 +144,7 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
     base_url = app_clean
 
     page.goto(f"{base_url}#studio/knowledge")  # legacy URL on purpose (AC6)
+    _nav.wait_router_started(page)
     expect(_nav.destination_panel(page, "library")).to_be_visible(timeout=8000)
 
     # M25 F3 L4a: the section root is the Knowledge empty state beside the list.
@@ -194,7 +195,7 @@ def test_hash_routing_settings_nav_pushes_history(app_clean: str, page: Page) ->
     """
     base_url = app_clean
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     expect(_nav.destination_locator(page, "chats")).to_be_visible(timeout=5000)
     baseline = page.evaluate("history.length")
 

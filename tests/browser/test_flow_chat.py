@@ -12,7 +12,7 @@ Drives a real Chromium session through the chat flow:
 from __future__ import annotations
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -23,7 +23,7 @@ def test_chat_send_receives_mock_response(app_with_agent: SeededApp, page: Page)
     agent_name = app_with_agent.agent_name  # "test-agent"
 
     # 1. Open #chat. Default area is chat, so this is the home page.
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
 
     # 2. Welcome canvas shows because no sessions exist yet (leg-05 removed
     #    auto-create-on-load). Pick the seeded agent to bootstrap a session.
@@ -59,7 +59,7 @@ def test_chat_message_log_has_live_region(app_with_agent: SeededApp, page: Page)
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     # M25 F4 L4b: a pending chat shows the new-chat state; its log is in the

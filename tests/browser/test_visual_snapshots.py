@@ -175,7 +175,7 @@ def _assert_screenshot(page: Page, name: str) -> None:
 def test_snapshot_chat_empty(app_clean: str, page: Page, theme: str) -> None:
     """Empty chat — no provider seeded, getting-started banner shows."""
     page.set_viewport_size(VIEWPORT)
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _set_theme(page, theme)
     # Wait for the chat content panel to be visible — getting-started
     # banner is the empty state.  ``.content-panel.area-chat`` is unique
@@ -191,7 +191,7 @@ def test_snapshot_chat_empty(app_clean: str, page: Page, theme: str) -> None:
 def test_snapshot_chat_with_messages(app_with_agent: SeededApp, page: Page, theme: str) -> None:
     """Chat with one user + one assistant message via mock provider."""
     page.set_viewport_size(VIEWPORT)
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _set_theme(page, theme)
     # F5 L04: the `app_with_agent` fixture seeds an agent but does NOT
     # pre-create a chat session; the welcome canvas shows on page load.

@@ -19,7 +19,7 @@ Validates two contracts:
 from __future__ import annotations
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -44,7 +44,7 @@ def test_streamed_chunks_land_as_one_reply_bubble_at_done(app_clean: str, page: 
     agent_name = seed_mock_agent(base_url, provider_id)
     _ = SeededApp(base_url=base_url, provider_id=provider_id, agent_name=agent_name)
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _chats.send_first(page, "hi")
@@ -83,7 +83,7 @@ def test_streaming_message_persists_to_history(app_clean: str, page: Page) -> No
     )
     agent_name = seed_mock_agent(base_url, provider_id)
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
 
     _chats.send_first(page, "ping")

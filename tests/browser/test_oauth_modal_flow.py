@@ -32,7 +32,7 @@ event with the real ``consent_url`` arrives.
 from __future__ import annotations
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
@@ -41,7 +41,7 @@ def _open_chat(page: Page, base_url: str, agent_name: str) -> None:
     """Open a JOINED chat: since M25 F4 L3b a start is a pending chat whose
     session-scoped frames (``auth_*`` included) are gated until its first send
     joins it; the first turn is let finish before a test injects frames."""
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent_name)
     _chats.send_first(page, "hello")
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)

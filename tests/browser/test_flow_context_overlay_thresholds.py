@@ -24,7 +24,7 @@ import re
 from pathlib import Path
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser._credential_registry import auth_headers_for
 from browser._credential_registry import unregister as _unregister_credential
 from browser.conftest import _spawn_app, _teardown_proc
@@ -47,7 +47,7 @@ def _enter_session(page: Page, base_url: str) -> str:
     provider_id = seed_mock_provider(base_url, name="ctx-overlay-provider")
     agent_name = seed_mock_agent(base_url, provider_id, name="ctx-overlay-agent")
 
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     expect(_chats.welcome(page)).to_be_visible(timeout=8000)
     # Capture the join-time context-window fetch so we know when the async
     # setTelemetryMax callback has run before we drive the overlay.

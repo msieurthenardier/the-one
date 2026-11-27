@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -40,7 +40,7 @@ def _open(page: Page, base_url: str, chunks: list[str], delay_ms: int = 0):
         base_url, config={"stream_chunks": chunks, "delay_ms": delay_ms}
     )
     agent = seed_mock_agent(base_url, provider_id)
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
     _chats.start_chat(page, agent)
     return agent
 

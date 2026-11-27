@@ -219,6 +219,32 @@ def test_goto_waits_for_the_router_unless_boot_is_false():
     assert len(waits) == 1
 
 
+def test_goto_url_and_goto_root_load_the_url_as_written_and_wait():
+    calls, waits, timeouts = [], [], []
+
+    class FakePage:
+        def goto(self, url, **kw):
+            calls.append((url, kw))
+            return "resp"
+
+        def wait_for_function(self, expr, timeout=None):
+            waits.append(expr)
+            timeouts.append(timeout)
+
+    base = "http://127.0.0.1:9"
+    assert _nav.goto_root(FakePage(), base) == "resp"
+    assert _nav.goto_url(FakePage(), base + "/#library/mcp/x", wait_until="commit") == "resp"
+    assert calls == [(base, {}), (base + "/#library/mcp/x", {"wait_until": "commit"})]
+    assert len(waits) == 2
+    _nav.goto_root(FakePage(), base, boot=False)
+    assert len(waits) == 2
+    # boot_timeout bounds the boot wait only and never reaches page.goto.
+    _nav.goto_url(FakePage(), base, boot_timeout=30000)
+    _nav.goto_root(FakePage(), base, boot_timeout=30000)
+    assert calls[-2:] == [(base, {}), (base, {})]
+    assert timeouts == [15000, 15000, 30000, 30000]
+
+
 def test_legacy_url_tests_are_well_formed():
     assert len(_nav.LEGACY_URL_TESTS) >= 6
     for ident in _nav.LEGACY_URL_TESTS:
@@ -393,6 +419,93 @@ def test_settings_providers_guard_self_test():
     assert len(find_settings_providers_literals(bad, "test_routerish.py")) == 1
     ok = 'def test_a(page):\n    _nav.goto(page, base, "library/providers/~new")\n'
     assert find_settings_providers_literals(ok, "test_x.py") == []
+
+
+# ── No raw `.goto(` in browser tests (squawk 0428) ──
+
+# `_nav.goto` / `_nav.goto_root` / `_nav.goto_url` wait for the router to start; a raw
+# ``page.goto(app)`` races the boot on a loaded host.  Every raw ``.goto(`` call outside
+# ``_nav.py`` must be listed here with its per-file count and a reason.  The counts only
+# shrink: a new raw goto fails the guard, and a converted one must lower its count.
+RAW_GOTO_ALLOWANCE: dict[str, tuple[int, str]] = {
+    "_ui_engines.py": (2, "engine smoke page (about:blank) and a url-or-blank styling harness"),
+    "test_smoke.py": (1, "data: URL, no app"),
+    "test_router_popstate_engines.py": (2, "static PAGE_URL fixture served by page.route, no app"),
+    "test_flow_oauth_callback_cross_site.py": (
+        3,
+        "raw contexts without the app: /api/info and /api/live",
+    ),
+    "test_app_fixture.py": (1, "asserts only the served index title; no app UI is used"),
+    "test_app_spawn_credential_wiring.py": (
+        2,
+        "asserts the document request's Authorization header; no app UI is used",
+    ),
+    "test_flow_admin_tools_grid.py": (1, "legacy URL on purpose (AC6), then wait_router_started"),
+    "test_flow_chat_peer_attribution.py": (
+        1,
+        "legacy URL on purpose (AC6), then wait_router_started",
+    ),
+    "test_flow_hash_routing.py": (1, "legacy URL on purpose (AC6), then wait_router_started"),
+    "test_flow_studio_mcp_navigation.py": (
+        1,
+        "legacy URL on purpose (AC6), then wait_router_started",
+    ),
+    "test_flow_agent_tabs.py": (1, "legacy URL on purpose (AC6), then wait_router_started"),
+    "test_flow_admin_settings_nav.py": (
+        1,
+        "legacy URL on purpose (AC6), then wait_router_started",
+    ),
+}
+
+
+def find_raw_gotos(source: str) -> list[int]:
+    """Line numbers of ``<x>.goto(...)`` calls where ``<x>`` is not ``_nav``."""
+    out = []
+    for node in ast.walk(ast.parse(source)):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "goto"
+            and not (isinstance(node.func.value, ast.Name) and node.func.value.id == "_nav")
+        ):
+            out.append(node.lineno)
+    return sorted(out)
+
+
+def test_raw_goto_guard_self_test():
+    assert find_raw_gotos("def t(page, b):\n    page.goto(b)\n") == [2]
+    assert find_raw_gotos("def t(raw, b):\n    resp = raw.goto(b)\n") == [2]
+    assert find_raw_gotos("def t(page, b):\n    _nav.goto(page, b, 'chats')\n") == []
+    assert find_raw_gotos("def t(page, b):\n    _nav.goto_root(page, b)\n") == []
+    assert find_raw_gotos('def t(page, b):\n    """page.goto(b)"""\n    # page.goto(b)\n') == []
+
+
+def test_no_raw_goto_in_browser_tests():
+    found: dict[str, list[int]] = {}
+    for path in sorted(BROWSER_DIR.rglob("*.py")):
+        if path.name == "_nav.py":
+            continue
+        lines = find_raw_gotos(path.read_text())
+        if lines:
+            found[str(path.relative_to(BROWSER_DIR))] = lines
+    problems = []
+    for name, lines in found.items():
+        allowed = RAW_GOTO_ALLOWANCE.get(name, (0, ""))[0]
+        if len(lines) > allowed:
+            problems.append(
+                f"{name}: {len(lines)} raw .goto( call(s) at line(s) {lines}, allowed {allowed}. "
+                "Use _nav.goto(page, base, route), _nav.goto_root(page, base) or "
+                "_nav.goto_url(page, url): they wait for the router to start (squawk 0428)."
+            )
+        elif len(lines) < allowed:
+            problems.append(
+                f"{name}: {len(lines)} raw .goto( call(s), allowance is {allowed}; "
+                "lower it in RAW_GOTO_ALLOWANCE (it only shrinks)."
+            )
+    for name in RAW_GOTO_ALLOWANCE:
+        if name not in found:
+            problems.append(f"{name}: no raw .goto( call left; remove it from RAW_GOTO_ALLOWANCE.")
+    assert not problems, "\n".join(problems)
 
 
 # ── Retired-selector guard (M25 F3 L1, DD11; unconditional since L6) ─────

@@ -102,7 +102,7 @@ def _agent(base: str, **config) -> str:
 
 
 def _joined(page: Page, base: str, agent: str, text: str = "hello") -> None:
-    page.goto(base)
+    _nav.goto_root(page, base)
     _chats.start_chat(page, agent)
     _chats.send_first(page, text)
     expect(page.locator(SEND)).to_be_enabled(timeout=15000)
@@ -155,7 +155,7 @@ def test_the_working_label_and_its_static_dots(app_clean: str, page: Page) -> No
     reduced motion)."""
     page.emulate_media(reduced_motion="reduce")
     agent = _agent(app_clean, delay_ms=3000)
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "hi")
     working = _chats.working_turns(page)
@@ -187,7 +187,7 @@ def test_a_late_context_window_response_for_another_session_is_dropped(
             route.fulfill(status=404, content_type="application/json", body="{}")
 
     page.route("**/api/agents/*/context-window", handle)
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.open_chat(page, sid_a)
     page.wait_for_function("() => true")
     expect_wait = 0
@@ -217,7 +217,7 @@ def test_a_deleted_agents_chat_makes_no_context_window_request(app_clean: str, p
         "request", lambda req: requests.append(req.url) if "/context-window" in req.url else None
     )
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.open_chat(page, sid)
     expect(page.locator(".chat-health-banner")).to_contain_text("deleted", timeout=8000)
     page.wait_for_timeout(500)
@@ -258,7 +258,7 @@ def test_copy_reply_copies_the_stored_content_live_and_on_replay(
 ) -> None:
     agent = _agent(app_clean, stream_chunks=_CHUNKS, delay_ms=350)
     expected = "".join(_CHUNKS)
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "go")
     expect(_chats.working_turns(page)).to_have_count(1, timeout=8000)
@@ -306,7 +306,7 @@ def test_a_code_block_copy_announces_in_the_shared_node_outside_the_log(
     app_clean: str, page: Page
 ) -> None:
     agent = _agent(app_clean, stream_chunks=_CHUNKS, delay_ms=50)
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "go")
     expect(page.locator(SEND)).to_be_enabled(timeout=15000)
@@ -375,7 +375,7 @@ def test_thinking_work_group_precedes_its_reply_live_and_on_replay(
             "thinking": [{"type": "thinking", "thinking": "pondering", "signature": "s"}],
         },
     )
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "q")
     expect(_chats.messages(page, "assistant")).to_have_count(1, timeout=10000)
@@ -460,7 +460,7 @@ def test_each_iterations_thinking_sits_above_its_own_narration_on_replay(
     sid = seed_session(
         app_clean, agent, "Iterations", "2026-01-02T00:00:00Z", messages=encode_messages(msgs)
     )
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.open_chat(page, sid)
     expect(_chats.turn_groups(page)).to_have_count(1, timeout=10000)
     kinds = page.evaluate(_KINDS_JS)
@@ -473,7 +473,7 @@ def test_each_iterations_thinking_sits_above_its_own_narration_on_replay(
 
 def _slow_turn(page: Page, base: str) -> None:
     agent = _agent(base, stream_chunks=["alpha ", "beta ", "gamma-FINAL"], delay_ms=700)
-    page.goto(base)
+    _nav.goto_root(page, base)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "running")
     _wait_running(page)
@@ -581,7 +581,7 @@ def test_an_agent_error_is_a_danger_notice_with_technical_details(
     )
     assert r.status_code == 201, r.text
     agent = seed_mock_agent(app_clean, r.json()["id"], name="dead-agent", model="m")
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "hello")
     notice = page.locator(AGENT_ERROR)
@@ -622,7 +622,7 @@ def test_operator_only_is_a_chip_and_the_work_group_names_its_tool_calls(
     app_clean: str, page: Page
 ) -> None:
     _, sid = _seed_operator_session(app_clean)
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.open_chat(page, sid)
     chip = page.locator(".ui-message-operator-chip").first
     expect(chip).to_have_text("Operator only", timeout=10000)
@@ -737,7 +737,7 @@ def test_the_step_limit_notice_for_a_deleted_agent_is_plain_text(
         "2026-01-02T00:00:00Z",
         messages=[{"role": "user", "content": "hello"}],
     )
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.open_chat(page, sid)
     expect(_chats.messages(page, "user").first).to_be_visible(timeout=10000)
     expect(page.locator(INPUT)).to_be_disabled()
@@ -834,7 +834,7 @@ def test_a_blocked_chat_renders_no_continue_button(app_clean: str, page: Page) -
         "2026-01-02T00:00:00Z",
         messages=[{"role": "user", "content": "hello"}],
     )
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.open_chat(page, sid)
     expect(_chats.messages(page, "user").first).to_be_visible(timeout=10000)
     expect(page.locator(INPUT)).to_be_disabled()
@@ -856,7 +856,7 @@ def test_no_continue_button_when_a_message_is_queued(app_clean: str, page: Page)
     agent = seed_mock_agent(
         app_clean, provider_id, name=f"sl-{provider_suffix()}", max_iterations=2
     )
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
     _chats.start_chat(page, agent)
     _chats.send_first(page, "go")
     page.locator(INPUT).fill("held")

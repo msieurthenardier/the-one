@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import SeededApp, seed_session
 from playwright.sync_api import Page, expect
 
@@ -74,7 +74,7 @@ def test_a_joined_build_failed_chat_shows_the_reason_and_the_history(
     )
     script = _BuildFailedSocket()
     script.install(page)
-    page.goto(base)
+    _nav.goto_root(page, base)
     _chats.open_chat(page, sid)
 
     banner = page.locator(".chat-health-banner")
@@ -92,7 +92,7 @@ def test_a_start_that_lands_on_build_failed_returns_to_the_pending_chat(
     base, agent = app_with_agent.base_url, app_with_agent.agent_name
     script = _BuildFailedSocket(empty_history=True)
     script.install(page)
-    page.goto(base)
+    _nav.goto_root(page, base)
     _chats.start_chat(page, agent)
     page.locator('[data-testid="chat-input"]').fill("hello there")
     page.locator('[data-testid="chat-input"]').press("Enter")

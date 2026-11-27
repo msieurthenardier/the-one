@@ -37,7 +37,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from browser import _chats
+from browser import _chats, _nav
 from browser.seeders import seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
@@ -134,6 +134,7 @@ def test_chat_renders_peer_attribution(
 
     # Deep-link to the seeded session.
     page.goto(f"{base_url}#chat/sessions/{session_id}")  # legacy URL on purpose (AC6)
+    _nav.wait_router_started(page)
 
     # Wait for the chat chrome (deep-link path renders straight into chrome).
     _chats.expect_chat(page, agent_name)

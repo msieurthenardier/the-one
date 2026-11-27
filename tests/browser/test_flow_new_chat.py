@@ -52,8 +52,7 @@ def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
     The provider link goes to the create form of Library's Model providers group
     (``#library/providers/~new``, sortie 02, DD6); it was Settings › Providers.
     """
-    page.goto(app_clean)
-    _nav.wait_router_started(page)  # squawk 0428: a bare-origin goto races the boot under load
+    _nav.goto_root(page, app_clean)
     welcome = _chats.welcome(page)
     expect(welcome).to_be_visible(timeout=5000)
 
@@ -73,8 +72,7 @@ def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_welcome_provider_only_shows_studio_link(app_with_provider: SeededApp, page: Page) -> None:
     """Provider seeded, no agents → guidance only points to Agents."""
-    page.goto(app_with_provider.base_url)
-    _nav.wait_router_started(page)  # squawk 0428
+    _nav.goto_root(page, app_with_provider.base_url)
     welcome = _chats.welcome(page)
     expect(welcome).to_be_visible(timeout=5000)
 
@@ -95,8 +93,7 @@ def test_welcome_with_agent_shows_the_empty_state(app_with_agent: SeededApp, pag
     conversation with one of your agents." and New chat (the agent picker
     opens from it). No guidance, no header.
     """
-    page.goto(app_with_agent.base_url)
-    _nav.wait_router_started(page)  # squawk 0428
+    _nav.goto_root(page, app_with_agent.base_url)
     welcome = _chats.welcome(page)
     expect(welcome).to_be_visible(timeout=5000)
 
@@ -128,8 +125,7 @@ def test_empty_state_new_chat_opens_the_picker_and_starts_a_chat(
     pick, retired in leg 4b)."""
     seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="picker-agent")
 
-    page.goto(app_with_provider.base_url)
-    _nav.wait_router_started(page)  # squawk 0428
+    _nav.goto_root(page, app_with_provider.base_url)
     expect(_chats.welcome(page)).to_be_visible(timeout=5000)
 
     new_btn = _chats.empty_new_button(page)
@@ -175,7 +171,7 @@ def test_picker_pick_of_another_agent_starts_new_chat(
     seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="agent-a")
     seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="agent-b")
     frames = _chats.chat_frames(page, actions=("leave", "start_session"))
-    page.goto(app_with_provider.base_url)
+    _nav.goto_root(page, app_with_provider.base_url)
 
     _chats.start_chat(page, "agent-a")
     first = _chats.send_first(page, "to a")
@@ -214,7 +210,7 @@ def test_pick_a_different_agent_re_picks(app_with_provider: SeededApp, page: Pag
     seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="agent-a")
     seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="agent-b")
     frames = _chats.chat_frames(page, actions=("leave", "start_session", "join"))
-    page.goto(app_with_provider.base_url)
+    _nav.goto_root(page, app_with_provider.base_url)
     _chats.start_chat(page, "agent-a")
     seq = page.evaluate("history.state && history.state.seq")
 
@@ -252,7 +248,7 @@ def test_pick_a_different_agent_re_picks(app_with_provider: SeededApp, page: Pag
 @pytest.mark.browser
 def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page: Page) -> None:
     """Deleting the only session returns to the welcome canvas (no auto-create)."""
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
     sid = _chats.send_first(page, "hello")  # a start is pending; the send makes the session
 
@@ -291,7 +287,7 @@ def test_session_delete_confirm_lapse_is_visually_distinct(
     M24 leg recorded at this site. Nothing in this quiescent single-session
     test triggers one: the turn's reply (and its list refresh) lands before
     the arm."""
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
     sid = _chats.send_first(page, "hello")  # a start is pending; the send makes the session
     expect(_chats.messages(page, "assistant")).to_be_visible(timeout=10000)
@@ -318,7 +314,7 @@ def test_chats_list_title_and_today_group_render(app_with_agent: SeededApp, page
     its session) lives under a "Today" caption. M25 F4 L4a re-pinned
     ``test_chat_history_today_group_renders`` (the retired "Chat History"
     heading and bucket label) on the App.ui.listPane title and caption."""
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
 
     chats = page.locator('[data-testid="chats-list"]')
@@ -338,7 +334,7 @@ def test_chats_list_title_and_today_group_render(app_with_agent: SeededApp, page
 @pytest.mark.browser
 def test_message_attribution_labels_render(app_with_agent: SeededApp, page: Page) -> None:
     """Sending a message renders 'You' (right) + agent name (left) labels."""
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
 
     _chats.send_first(page, "hello there")
@@ -365,7 +361,7 @@ def test_telemetry_overlay_collapses_by_default(app_with_agent: SeededApp, page:
     M25 F4 L5 (reference spec 5.3, 5.4): the readout sits in the composer's
     telemetry row, shown only while a chat is joined, so this is pinned to a
     joined chat (it was read right after the start, in the pending chat)."""
-    page.goto(app_with_agent.base_url)
+    _nav.goto_root(page, app_with_agent.base_url)
     _chats.start_chat(page, app_with_agent.agent_name)
     overlay = _chats.telemetry(page)
     expect(overlay).to_be_hidden()  # pending: no telemetry
@@ -415,7 +411,7 @@ def test_thinking_indicator_appears_and_clears(app_clean: str, page: Page) -> No
     provider_id = r.json()["id"]
     seed_mock_agent(app_clean, provider_id, name="thinker")
 
-    page.goto(app_clean)
+    _nav.goto_root(page, app_clean)
 
     # Bootstrap into the chrome: a pending chat through the agent picker.
     _chats.start_chat(page, "thinker")

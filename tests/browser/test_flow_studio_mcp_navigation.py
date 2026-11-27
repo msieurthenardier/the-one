@@ -66,6 +66,7 @@ def test_mcp_row_opens_its_editor_beside_the_list(app_clean: str, page: Page) ->
 @pytest.mark.browser
 def test_studio_direct_load_mcp_sources(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#studio/mcp-sources")  # legacy URL on purpose (AC6)
+    _nav.wait_router_started(page)
     _nav.expect_route(page, "library", timeout=8000)
     expect(_lists.library_start(page)).to_be_visible(timeout=8000)
 

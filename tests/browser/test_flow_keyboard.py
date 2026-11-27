@@ -36,7 +36,7 @@ def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> 
     aria-current="page" (as the list and nav controls).
     """
     base_url = app_with_agent.base_url
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
 
     # Bootstrap a session via the welcome listbox (no auto-create after leg 05);
     # a start is pending until its first send (M25 F4 L3b).
@@ -67,7 +67,7 @@ def test_chats_list_shape(app_with_agent: SeededApp, page: Page) -> None:
     ``<nav class="session-list">`` of ``<button class="session-item">``s).
     """
     base_url = app_with_agent.base_url
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
 
     # A start is pending until its first send (M25 F4 L3b).
     _chats.start_chat(page, app_with_agent.agent_name)
@@ -134,7 +134,7 @@ def test_chat_row_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) 
     on the action: it arms the confirm in place.
     """
     base_url = app_with_agent.base_url
-    page.goto(base_url)
+    _nav.goto_root(page, base_url)
 
     # A start is pending until its first send (M25 F4 L3b).
     _chats.start_chat(page, app_with_agent.agent_name)

@@ -37,7 +37,7 @@ def _stage_two(page: Page) -> None:
 def _two_chats(app: SeededApp, page: Page) -> tuple[str, str]:
     a = seed_session(app.base_url, app.agent_name, "Chat A", "2026-10-01T10:00:00+00:00")
     b = seed_session(app.base_url, app.agent_name, "Chat B", "2026-10-01T09:00:00+00:00")
-    page.goto(app.base_url)
+    _nav.goto_root(page, app.base_url)
     _chats.open_chat(page, a)
     return a, b
 
@@ -84,7 +84,7 @@ def test_sending_clears_the_draft(app_with_agent: SeededApp, page: Page) -> None
 def test_pending_draft_survives_a_chat_and_agents(app_with_agent: SeededApp, page: Page) -> None:
     app = app_with_agent
     a = seed_session(app.base_url, app.agent_name, "Chat A", "2026-10-01T10:00:00+00:00")
-    page.goto(app.base_url)
+    _nav.goto_root(page, app.base_url)
     _chats.start_chat(page, app.agent_name)
     expect(page.locator(INPUT)).to_have_value("")
     page.locator(INPUT).fill("pending draft")
@@ -102,7 +102,7 @@ def test_text_typed_while_starting_survives_promotion(
 ) -> None:
     app = app_with_agent
     b = seed_session(app.base_url, app.agent_name, "Chat B", "2026-10-01T09:00:00+00:00")
-    page.goto(app.base_url)
+    _nav.goto_root(page, app.base_url)
     _chats.start_chat(page, app.agent_name)
     box = page.locator(INPUT)
     box.fill("first message")
@@ -166,7 +166,7 @@ def test_a_started_pending_chat_leaves_no_draft_behind(
 ) -> None:
     app = app_with_agent
     b = seed_session(app.base_url, app.agent_name, "Chat B", "2026-10-01T09:00:00+00:00")
-    page.goto(app.base_url)
+    _nav.goto_root(page, app.base_url)
     _chats.start_chat(page, app.agent_name)
     page.locator(INPUT).fill("stale words")
     _chats.open_chat(page, b)
@@ -181,7 +181,7 @@ def test_image_attached_in_a_second_pending_chat_after_a_promotion(
     app_with_agent: SeededApp, page: Page
 ) -> None:
     app = app_with_agent
-    page.goto(app.base_url)
+    _nav.goto_root(page, app.base_url)
     _chats.start_chat(page, app.agent_name)
     _chats.send_first(page, "go")
     _chats.start_chat(page, app.agent_name)
@@ -194,7 +194,7 @@ def test_a_late_read_from_a_dead_pending_chat_is_dropped(
 ) -> None:
     app = app_with_agent
     b = seed_session(app.base_url, app.agent_name, "Chat B", "2026-10-01T09:00:00+00:00")
-    page.goto(app.base_url)
+    _nav.goto_root(page, app.base_url)
     _chats.start_chat(page, app.agent_name)
     # Hold every file read until released, so the read completes after the instance changed.
     page.evaluate(

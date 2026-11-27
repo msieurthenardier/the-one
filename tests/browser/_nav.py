@@ -302,6 +302,22 @@ def goto(page: Page, base: str, route: str, *, boot: bool = True, **kw):
     return resp
 
 
+def goto_url(page: Page, url: str, *, boot: bool = True, boot_timeout: float = 15000, **kw):
+    """``page.goto(url)`` for a full app URL kept as written (root, or a raw hash on purpose),
+    then the same boot wait as ``goto`` (squawk 0428).  The URL is passed through untouched, so
+    ``goto_url(page, base)`` loads exactly what ``page.goto(base)`` did.  ``boot_timeout`` (ms)
+    bounds the boot wait only; it is not forwarded to ``page.goto``.  Returns the response."""
+    resp = page.goto(url, **kw)
+    if boot:
+        wait_router_started(page, boot_timeout)
+    return resp
+
+
+def goto_root(page: Page, base: str, *, boot: bool = True, boot_timeout: float = 15000, **kw):
+    """Open the app root at *base* (no route) and wait for the router to start."""
+    return goto_url(page, base, boot=boot, boot_timeout=boot_timeout, **kw)
+
+
 # In-page fetch tracker for ``goto_settled`` / ``wait_settled``.  Registered as
 # an init script so it is in place before the app's first fetch on every
 # navigation.  Idempotent per document.
