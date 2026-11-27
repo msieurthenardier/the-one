@@ -37,6 +37,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from tests._credential_helpers import auth_headers
+from tests.browser._app_ready import app_ready_timeout
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
 from the_one.config import settings
@@ -58,7 +59,11 @@ def _free_port() -> int:
         return sock.getsockname()[1]
 
 
-async def _wait_ready(base_url: str, timeout: float = 10.0) -> None:
+async def _wait_ready(base_url: str, timeout: float | None = None) -> None:
+    # Same knob as the browser fixtures (squawk 0438): the poll returns at the
+    # first 200, so a longer ceiling costs time only on a genuinely slow start.
+    if timeout is None:
+        timeout = app_ready_timeout()
     deadline = time.monotonic() + timeout
     async with httpx.AsyncClient() as client:
         while time.monotonic() < deadline:
