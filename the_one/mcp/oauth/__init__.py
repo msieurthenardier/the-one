@@ -12,6 +12,8 @@ the the-one-side adapter layer:
 
   - errors: MCPOAuthError hierarchy (this leg, L0)
   - storage: TokenStorage Protocol impl backed by MCPSourceRepository (L2)
+  - provider: ``TheOneOAuthClientProvider``, the SDK provider that seeds the
+    stored token's expiry on load (squawk 0444)
   - handlers: redirect_handler + callback_handler (L2)
   - _state: pending-flow registry (L2; ``start_periodic_sweep`` /
     ``stop_periodic_sweep`` exposed publicly so app.py's lifespan can

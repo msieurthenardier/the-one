@@ -44,13 +44,13 @@ from __future__ import annotations
 import asyncio
 
 import httpx2
-from mcp.client.auth import OAuthClientProvider
 from mcp.shared.auth import OAuthClientMetadata
 
 from the_one.config import settings
 from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
 from the_one.mcp.oauth.handlers import make_oauth_handlers
+from the_one.mcp.oauth.provider import TheOneOAuthClientProvider
 from the_one.mcp.oauth.storage import MCPSourceTokenStorage
 
 
@@ -125,7 +125,7 @@ def build_oauth_provider_for_source(
     )
 
     server_url = source.config.get("url", "")
-    return OAuthClientProvider(
+    return TheOneOAuthClientProvider(
         server_url=server_url,
         client_metadata=client_metadata,
         storage=storage,
