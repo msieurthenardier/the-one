@@ -55,12 +55,12 @@ def test_no_module_under_the_one_mcp_imports_httpx() -> None:
 def test_the_two_oauth_flow_drivers_in_api_use_httpx2() -> None:
     """The two OAuth flow drivers hand the SDK's provider (an ``httpx2.Auth``) to a
     client, so they must build an ``httpx2.AsyncClient``; ``api.py`` keeps ``httpx``
-    for its non-MCP uses. One driver is in ``api.py`` (the provider OAuth flow); the other
-    moved to ``mcp_connection_flow.py``, which reaches ``httpx2`` as ``_api.httpx2`` so a patch
-    on ``api.httpx2`` still applies."""
+    for its non-MCP uses. One driver is ``mcp_oauth_flow.py`` (the chat sign-in flow, moved out
+    of ``api.py`` in sortie 22); the other is ``mcp_connection_flow.py``, which reaches ``httpx2``
+    as ``_api.httpx2`` so a patch on ``api.httpx2`` still applies."""
     web = MCP_DIR.parent / "interfaces" / "web"
     auth_clients: list[str] = []
-    for name in ("api.py", "mcp_connection_flow.py"):
+    for name in ("mcp_oauth_flow.py", "mcp_connection_flow.py"):
         tree = ast.parse((web / name).read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if (

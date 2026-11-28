@@ -78,7 +78,7 @@ def chat_session_in_app(monkeypatch):
         web_app._sessions.pop("cs-callback-1", None)
 
 
-async def test_callback_success_resolves_and_broadcasts(
+async def test_callback_success_resolves_the_code_and_broadcasts_nothing(
     client: AsyncClient, chat_session_in_app
 ) -> None:
     sess, broadcasts = chat_session_in_app
@@ -95,20 +95,14 @@ async def test_callback_success_resolves_and_broadcasts(
     result = await fut
     # DD2: the future carries an AuthorizationCodeResult(code, state, iss).
     assert (result.code, result.state, result.iss) == ("code-1", "S-OK", None)
-
-    assert broadcasts == [
-        (
-            "cs-callback-1",
-            {
-                "type": "auth_resolved",
-                "source_id": "src-1",
-                "tool_call_id": "tc-1",
-            },
-        )
-    ]
+    # Sortie 22 (DD3): the sign-in flow reports and resumes after the token save; the
+    # callback only resolves the code. DD4: the detail line no longer claims the save.
+    assert "securely persisted" not in resp.text
+    assert "Return to the app to continue. This window will close automatically." in resp.text
+    assert broadcasts == []
 
 
-async def test_callback_error_fails_and_broadcasts(
+async def test_callback_error_fails_the_flow_and_broadcasts_nothing(
     client: AsyncClient, chat_session_in_app
 ) -> None:
     sess, broadcasts = chat_session_in_app
@@ -136,17 +130,8 @@ async def test_callback_error_fails_and_broadcasts(
     with pytest.raises(OAuthFlowError, match="user denied"):
         await fut
 
-    assert broadcasts == [
-        (
-            "cs-callback-1",
-            {
-                "type": "auth_failed",
-                "source_id": "src-2",
-                "error": "access_denied",
-                "description": "user denied <consent>",
-            },
-        )
-    ]
+    # The flow's exception path owns the one ``auth_failed`` (sortie 22).
+    assert broadcasts == []
 
 
 async def test_callback_unknown_or_missing_state_returns_401_no_broadcast(

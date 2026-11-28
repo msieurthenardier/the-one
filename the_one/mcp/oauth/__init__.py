@@ -24,15 +24,20 @@ the the-one-side adapter layer:
 See the_one/mcp/README.md (post-L5) for runtime invariants.
 """
 
+from the_one.mcp.oauth._log_filter import install_sign_in_refusal_filter
 from the_one.mcp.oauth._state import start_periodic_sweep, stop_periodic_sweep
-from the_one.mcp.oauth.errors import MCPAuthRequired
+from the_one.mcp.oauth.errors import MCPAuthRequired, SignInNotAvailable
 from the_one.mcp.oauth.handlers import make_oauth_handlers
 from the_one.mcp.oauth.provider_factory import build_oauth_provider_for_source
 from the_one.mcp.oauth.storage import MCPSourceTokenStorage
 
+# Sortie 22: the SDK logs an ERROR for our expected sign-in refusal; drop it.
+install_sign_in_refusal_filter()
+
 __all__: list[str] = [
     "MCPAuthRequired",
     "MCPSourceTokenStorage",
+    "SignInNotAvailable",
     "build_oauth_provider_for_source",
     "make_oauth_handlers",
     "start_periodic_sweep",

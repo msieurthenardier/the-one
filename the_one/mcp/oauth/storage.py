@@ -77,6 +77,10 @@ class MCPSourceTokenStorage(TokenStorage):
     def __init__(self, repo: MCPSourceRepository, source_id: str) -> None:
         self._repo = repo
         self._source_id = source_id
+        # Sortie 22: True once a ``set_tokens`` write has completed on THIS instance
+        # (set after ``repo.update`` returns, so a failed write does not count). The chat
+        # sign-in flow reads it to tell "tokens saved" from "request ended".
+        self.tokens_saved = False
 
     async def get_tokens(self) -> OAuthToken | None:
         """Load the persisted token, translating ``expires_at`` → ``expires_in``.
@@ -130,6 +134,7 @@ class MCPSourceTokenStorage(TokenStorage):
             del secrets["token_expires_at"]
         source.secrets = secrets
         await self._repo.update(source)
+        self.tokens_saved = True
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         """Load the persisted DCR client_info, if any.

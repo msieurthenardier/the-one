@@ -26,6 +26,8 @@ so the original surface is unchanged. ``OAuthASStub(**config)`` accepts:
     mismatch against the discovery issuer fails sign-in, DD12.2).
   - ``token_status`` - HTTP status of ``POST /token`` (``400`` answers
     ``invalid_grant``); ``refresh_status`` overrides it for refresh grants.
+  - ``token_delay`` - seconds ``POST /token`` sleeps before answering, for every
+    grant (code and refresh; sortie 22: proves nothing resumes before the save).
   - ``auth_required_methods`` - the set of JSON-RPC methods that need a bearer
     token (default: every method), so a test can make only ``tools/list`` 401
     and have the sign-in happen mid-operation (AC7c).
@@ -53,6 +55,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -232,6 +235,8 @@ class _OAuthASHandler(BaseHTTPRequestHandler):
             )
         if path == "/token":
             self.server.token_requests.append(body.get("grant_type"))
+            # Sortie 22: hold every grant's answer (the handler runs on its own thread).
+            time.sleep(cfg.get("token_delay", 0.0))
             status = cfg.get("token_status", 200)
             if body.get("grant_type") == "refresh_token":
                 status = cfg.get("refresh_status", status)

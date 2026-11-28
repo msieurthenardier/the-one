@@ -79,8 +79,8 @@ async def test_refresh_token_failure_recovers_into_a_fresh_sign_in(
     api_and_repo, monkeypatch
 ) -> None:
     client, repo = api_and_repo
-    # Keep the sign-in wait short: Phase A's provider (no consent future) parks in
-    # its callback handler until the client's initialize budget runs out.
+    # Phase A's provider is non-interactive (sortie 22): its redirect handler refuses at
+    # once, so this budget is only a backstop. Phase B (interactive) waits for consent.
     monkeypatch.setattr("the_one.mcp.MCP_DEFAULT_TIMEOUT_SECONDS", 1.5)
 
     with OAuthASStub(refresh_status=400) as stub:
