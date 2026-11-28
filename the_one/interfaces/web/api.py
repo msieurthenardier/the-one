@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 import aiosqlite
 import httpx
-import httpx2
+import httpx2  # noqa: F401  (``mcp_connection_flow`` reaches it as ``_api.httpx2``; tests patch it)
 from cryptography.fernet import Fernet
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -3413,30 +3413,23 @@ async def oauth_callback(
       2. On success, calls ``_state.resolve(state, code, state, iss)`` (``iss``
          is the optional RFC 9207 issuer query parameter) to
          hand the code back to the SDK's ``callback_handler`` waiting
-         inside the auth flow's yield boundary; broadcasts an
-         ``auth_resolved`` event to the originating chat session.
-      3. On error, calls ``_state.fail`` with an ``OAuthFlowError``;
-         broadcasts an ``auth_failed`` event.
+         inside the auth flow's yield boundary. It broadcasts nothing and
+         resumes nothing: ``mcp_oauth_flow`` does both once the tokens are saved.
+      3. On error, calls ``_state.fail`` with an ``OAuthFlowError``; the
+         flow reports the one ``auth_failed``.
       4. Returns an HTML body for the operator's browser tab —
          ``"Login successful"`` / ``"Login failed"`` / ``"Login expired"``
          per the verbatim-message contract.
 
-    Lazy imports of ``_sessions``, ``_send_to_session``, and
-    ``_state`` avoid the api.py ↔ app.py circular at module-load time.
-
     Cycle-2 NEW-H2 race: between our ``peek`` and ``resolve``, the
     periodic TTL sweep may pop the entry and fail the future with a
     timeout error. ``resolve`` returns False in that case and we
-    short-circuit to a "Login expired" response WITHOUT broadcasting
-    ``auth_resolved`` — the chat UI must not see a successful-login
-    event for a flow that actually failed.
+    short-circuit to a "Login expired" response.
     """
-    # Lazy imports — see docstring.
     import html as _html
 
     from mcp.client.auth.exceptions import OAuthFlowError
 
-    from the_one.interfaces.web.app import _send_to_session, _sessions
     from the_one.mcp.oauth import _state as oauth_state
 
     if state is None:
@@ -3447,17 +3440,8 @@ async def oauth_callback(
 
     if error is not None:
         oauth_state.fail(state, OAuthFlowError(error_description or error))
-        session = _sessions.get(entry.chat_session_id)
-        if session is not None:
-            await _send_to_session(
-                session,
-                {
-                    "type": "auth_failed",
-                    "source_id": entry.source_id,
-                    "error": error,
-                    "description": error_description,
-                },
-            )
+        # The sign-in flow reports the denial (one ``auth_failed``): ``_state.fail`` above
+        # raises it inside the SDK's callback handler.
         safe_desc = _html.escape(error_description or error)
         return HTMLResponse(
             _render_oauth_callback_page(
@@ -3496,34 +3480,8 @@ async def oauth_callback(
             ),
             status_code=200,
         )
-    session = _sessions.get(entry.chat_session_id)
-    if session is not None:
-        await _send_to_session(
-            session,
-            {
-                "type": "auth_resolved",
-                "source_id": entry.source_id,
-                "tool_call_id": entry.tool_call_id,
-            },
-        )
-        # F5 L3: schedule resume of the paused agent so the deferred
-        # tool calls can re-dispatch with the freshly-issued tokens.
-        # Guard with ``_deferred_tool_calls is not None`` (cycle-1 D13
-        # race protection): the in-memory pause may already be cleared
-        # by a previous resume that fired between the SDK's redirect
-        # and this callback.
-        from the_one.interfaces.web.app import (
-            _inflight_resume_tasks,
-            _resume_paused_session,
-        )
-
-        # ``session.agent`` is typed Agent but tests can construct
-        # Sessions with ``agent=None`` (degraded fixtures); guard so
-        # we don't AttributeError out of the success-path response.
-        if session.agent is not None and session.agent._deferred_tool_calls is not None:
-            resume_task = asyncio.create_task(_resume_paused_session(session))
-            _inflight_resume_tasks.add(resume_task)
-            resume_task.add_done_callback(_inflight_resume_tasks.discard)
+    # No ``auth_resolved`` and no resume here: the sign-in flow reports and resumes once the
+    # SDK has exchanged the code and saved the tokens (mcp_oauth_flow.py, sortie 22).
     # Verbatim-message contract per F5 §4 — the substring
     # "Login successful. You may close this tab." must appear
     # contiguously so the L2 stake test matches. The popup also
@@ -3536,9 +3494,7 @@ async def oauth_callback(
         _render_oauth_callback_page(
             status="success",
             heading="Login successful. You may close this tab.",
-            detail_html=(
-                "Tokens have been securely persisted. This window will close automatically."
-            ),
+            detail_html="Return to the app to continue. This window will close automatically.",
             auto_close=True,
             post_message={
                 "type": "mcp-oauth-result",
@@ -3569,19 +3525,17 @@ async def oauth_start(request: Request) -> dict[str, Any]:
         carrying the real ``consent_url``; the chat UI's modal handler picks
         it up and opens the consent window.
 
-    Returns 202 with ``{"status": "started"}``. The actual auth-flow result
-    (``auth_resolved`` / ``auth_failed``) reaches the chat UI via WebSocket.
+    Returns 202 with ``{"status": "started"}``. The flow (``mcp_oauth_flow``)
+    owns the outcome: after the new tokens are saved it broadcasts
+    ``auth_resolved`` and resumes the paused turn once; on failure it
+    broadcasts the only ``auth_failed``. Both reach the chat UI via WebSocket.
 
     Architectural debt (carried to F6, see flight log A17): the pool eviction
     is required because the F4 warm cache hands out pre-provider ``MCPClient``
     instances. A cleaner design (F6) attaches the provider lazily inside
     the agent's tool dispatch path so pool entries don't need busting.
     """
-    from the_one.interfaces.web.app import (
-        _inflight_resume_tasks,
-        _send_to_session,
-        _sessions,
-    )
+    from the_one.interfaces.web.mcp_oauth_flow import start_chat_sign_in
     from the_one.mcp._pool import _evict_all_for_source
     from the_one.mcp.oauth import build_oauth_provider_for_source
 
@@ -3620,56 +3574,16 @@ async def oauth_start(request: Request) -> dict[str, Any]:
     # with the now-populated dcr_credentials. See A17 in the flight log.
     await _evict_all_for_source(source_id)
 
-    server_url = source.config.get("url")
-
-    async def _drive_flow() -> None:
-        """Hit the source URL with the provider attached; SDK runs auth flow."""
-        try:
-            async with httpx2.AsyncClient(auth=provider, timeout=30.0) as client:
-                # The ``initialize`` JSON-RPC request returns 401 when no
-                # token is present; the provider's ``async_auth_flow``
-                # intercepts, runs PRM/OASM/DCR/auth, and the
-                # ``redirect_handler`` broadcasts ``auth_required`` with
-                # the real ``consent_url``.
-                # DD10: read the handshake offer at call time; the header makes
-                # the SDK's 401 handling include the RFC 8707 ``resource``.
-                from the_one import mcp as the_one_mcp
-
-                version = the_one_mcp._HANDSHAKE_OFFER_VERSION
-                await client.post(
-                    server_url,
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "initialize",
-                        "params": {
-                            "protocolVersion": version,
-                            "clientInfo": {"name": "the-one", "version": "0.1"},
-                            "capabilities": {},
-                        },
-                    },
-                    headers=_oauth_driver_headers(version),
-                )
-        except Exception as exc:
-            # Best-effort: broadcast auth_failed so the chat UI clears the
-            # modal / inline button. The SDK's own logging covers the
-            # detailed traceback; we just signal the user.
-            session = _sessions.get(chat_session_id)
-            if session is not None:
-                with contextlib.suppress(Exception):
-                    await _send_to_session(
-                        session,
-                        {
-                            "type": "auth_failed",
-                            "source_id": source_id,
-                            "error": "start_failed",
-                            "description": str(exc),
-                        },
-                    )
-
-    task = asyncio.create_task(_drive_flow())
-    _inflight_resume_tasks.add(task)
-    task.add_done_callback(_inflight_resume_tasks.discard)
+    # The flow owns its outcome (mcp_oauth_flow.py): ``auth_resolved`` / ``auth_failed`` and
+    # the paused turn's resume happen there, after the tokens are saved.
+    start_chat_sign_in(
+        provider,
+        server_url=source.config.get("url"),
+        chat_session_id=chat_session_id,
+        source_id=source_id,
+        tool_call_id=tool_call_id,
+        headers_for=_oauth_driver_headers,
+    )
     return {"status": "started", "source_id": source_id}
 
 

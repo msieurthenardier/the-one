@@ -198,14 +198,20 @@ async def _entry_worker(
     # agent builds register real tools" promise depends on this path.
     #
     # Synthetic csid ``f"agent_build:{source.id}"`` is unique per source
-    # so multi-tab broadcasts can't misroute (the F5-retired bug). The
-    # ``_sessions.get(synthetic_csid)`` lookup in handlers.py returns
-    # None, so the auth_required broadcast is a no-op — appropriate for
-    # the agent-build path where there's no chat UI to surface a modal.
-    # If the SDK invokes redirect_handler on stale tokens (refresh
-    # failed), the handler refuses at once for an agent-build csid (no
-    # code can ever arrive); ``MCPClient.connect`` translates that to
-    # MCPAuthRequired and graceful-skip kicks in (squawk 0422).
+    # so multi-tab broadcasts can't misroute (the F5-retired bug). With
+    # ``interactive=False`` (below) the csid is only a label: the provider
+    # never registers a flow or broadcasts.
+    #
+    # Sortie 22 DD1: EVERY pool connection is built with ``interactive=False``.
+    # The chat ignores a consent URL it did not start itself (sortie 04 DD2),
+    # so a pool connection that waits for a sign-in waits for nobody. If the
+    # SDK invokes redirect_handler (the stored refresh token failed, squawk
+    # 0444 tries it first), the handler refuses at once with
+    # ``SignInNotAvailable``; ``MCPClient`` translates that to MCPAuthRequired,
+    # so a chat tool call pauses, a routine ends "Needs a sign-in" and an
+    # agent build skips the source with no connect-timeout wait (squawks 0422
+    # and 0444). The operator signs in through ``/api/oauth/start`` (which
+    # builds its own interactive provider) or Library's Test connection.
     from the_one.agent._context import current_chat_session_id, current_tool_call_id
     from the_one.mcp.oauth import build_oauth_provider_for_source
     from the_one.mcp.oauth.handlers import agent_build_csid
@@ -246,6 +252,7 @@ async def _entry_worker(
                 csid,
                 source_id=source.id,
                 tool_call_id=tcid,
+                interactive=False,
             )
         client = MCPClient(source, auth_provider=auth_provider)
         await client.connect()

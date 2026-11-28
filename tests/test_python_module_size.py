@@ -27,8 +27,8 @@ REMEDY = "split the module, or raise its ALLOWANCE ceiling in this PR with a one
 
 # path relative to the_one/ -> ceiling (the line count when the guard landed).
 ALLOWANCE: dict[str, int] = {
-    # The route table; routes moved out in M37 F2 L1. Raised 5108 -> 5126 (Sortie 20, PR #392).
-    "interfaces/web/api.py": 5126,
+    # The route table; routes moved out in M37 F2 L1. 5126 -> 5040 (Sortie 22: sign-in flow moved).
+    "interfaces/web/api.py": 5040,
     # The app factory and its wiring. Raised 4139 -> 4171 (Sortie 20, PR #392: agent delete).
     "interfaces/web/app.py": 4171,
     # Every repository in one module. Raised 4121 -> 4170 (Sortie 20, PR #392: delete cascade).

@@ -12,20 +12,16 @@ captured broadcast sink.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from conftest import FakeLLM
-from cryptography.fernet import Fernet
-from httpx import ASGITransport, AsyncClient
 
-from tests._api_app import shared_app
-from tests._credential_helpers import auth_headers
-from tests._schema_template import connect_template_db
 from the_one.agent.core import Agent
-from the_one.encryption import Encryptor
 from the_one.interfaces.web import app as web_app
 from the_one.interfaces.web.app import (
     Session,
@@ -183,42 +179,43 @@ async def test_yielded_auth_required_tool_msg_broadcasts_auth_required_event_and
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-async def oauth_callback_client(tmp_path):
-    """FastAPI TestClient with isolated DB + Encryptor patch.
-
-    Mirrors ``tests/test_oauth_callback_route.py``.
-    """
-    db_path = tmp_path / "callback.db"
-    conn = await connect_template_db(db_path)
-    encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
-
-    with (
-        patch("the_one.interfaces.web.api.get_connection", return_value=conn),
-        patch("the_one.interfaces.web.api.get_encryptor", return_value=encryptor),
-    ):
-        test_app = shared_app()
-        transport = ASGITransport(app=test_app)
-        async with AsyncClient(
-            transport=transport, base_url="http://test", headers=auth_headers()
-        ) as c:
-            yield c
-
-    await conn.close()
+class _SavedStorage:
+    tokens_saved = True
 
 
-async def test_oauth_callback_resume_dispatches_resume_after_auth(
-    oauth_callback_client: AsyncClient, monkeypatch
-) -> None:
-    """A12: oauth_callback success path schedules _resume_paused_session.
+class _FlowProvider:
+    """A provider whose storage reports a completed save (no network)."""
+
+    def __init__(self) -> None:
+        async def redirect_handler(_url: str) -> None: ...
+
+        self.context = SimpleNamespace(storage=_SavedStorage(), redirect_handler=redirect_handler)
+
+
+class _OkClient:
+    def __init__(self, *_a: Any, **_k: Any) -> None: ...
+
+    async def __aenter__(self) -> _OkClient:
+        return self
+
+    async def __aexit__(self, *_a: Any) -> None:
+        return None
+
+    async def post(self, url: str, **_k: Any) -> Any:
+        return type("Resp", (), {"status_code": 200})()
+
+
+async def test_sign_in_flow_resolution_dispatches_resume_after_auth(monkeypatch) -> None:
+    """A12 (sortie 22: moved from the callback to the sign-in flow).
 
     Sets up a ``Session`` whose stub agent has
-    ``_deferred_tool_calls=[tc_X]``; triggers the route via TestClient;
-    asserts the resume task was scheduled and the resumed tool_msg
-    was broadcast.
+    ``_deferred_tool_calls=[tc_X]``; runs the chat sign-in flow to completion;
+    asserts the resume ran once and the resumed tool_msg was broadcast.
     """
+    from the_one.interfaces.web import mcp_oauth_flow
+
     # Capture broadcasts from BOTH _send_to_session paths (the
-    # auth_resolved one in oauth_callback, and the per-message ones
+    # auth_resolved one in the flow, and the per-message ones
     # inside _resume_paused_session via _broadcast_one).
     captured: list[tuple[str, dict[str, Any]]] = []
 
@@ -245,45 +242,19 @@ async def test_oauth_callback_resume_dispatches_resume_after_auth(
     )
     web_app._sessions["cs-A12"] = sess
 
-    # Spy on asyncio.create_task — the route should call it for the resume
-    import asyncio as _asyncio
-
-    real_create_task = _asyncio.create_task
-    create_task_calls: list[Any] = []
-
-    def spy_create_task(coro, *args, **kwargs):
-        task = real_create_task(coro, *args, **kwargs)
-        create_task_calls.append(task)
-        return task
-
     try:
-        # Register pending OAuth flow
-        fut = _state.register(
-            "S-A12",
-            source_id="src-x",
-            tool_call_id="tc_x",
-            chat_session_id="cs-A12",
-        )
-
-        with patch(
-            "the_one.interfaces.web.api.asyncio.create_task",
-            side_effect=spy_create_task,
-        ):
-            resp = await oauth_callback_client.get(
-                "/api/oauth/callback",
-                params={"state": "S-A12", "code": "code-A12"},
+        with patch("the_one.interfaces.web.mcp_oauth_flow.httpx2.AsyncClient", _OkClient):
+            mcp_oauth_flow.start_chat_sign_in(
+                _FlowProvider(),
+                server_url="https://x.example/mcp",
+                chat_session_id="cs-A12",
+                source_id="src-x",
+                tool_call_id="tc_x",
+                headers_for=lambda _v: {},
             )
-
-        assert resp.status_code == 200
-        assert "Login successful" in resp.text
-        assert fut.done()
-
-        # asyncio.create_task was called — for _resume_paused_session
-        assert len(create_task_calls) == 1
-
-        # Wait for the resume task to complete so its broadcasts are in
-        # ``captured`` before assertion.
-        await create_task_calls[0]
+            # The flow task, then the resume task it scheduled.
+            while mcp_oauth_flow._flows or mcp_oauth_flow._resuming:
+                await asyncio.sleep(0.01)
 
         # Verify auth_resolved + resumed tool_result + done were broadcast
         payloads = [p for sid, p in captured if sid == "cs-A12"]

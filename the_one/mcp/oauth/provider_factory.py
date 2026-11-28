@@ -23,7 +23,13 @@ Production callers (L5):
   - ``the_one.mcp._pool._entry_worker`` — invoked at pool spawn-time inside
     an async worker task. ``chat_session_id`` is read from the
     ``current_chat_session_id`` ContextVar (set by the agent dispatch
-    wrapper); falls back to a sentinel string when unset.
+    wrapper); falls back to a sentinel string when unset. Builds with
+    ``interactive=False`` (sortie 22): the chat ignores a pool-started
+    flow's consent URL, so a stale sign-in pauses the turn at once instead
+    of waiting out the connect timeout.
+  - ``the_one.interfaces.web.mcp_connection_flow`` — Test connection's
+    saved-tokens phase (Phase A) builds with ``interactive=False``; Phase B
+    (a fresh sign-in with a consent URL) keeps the default.
   - ``the_one.interfaces.web.api.oauth_start`` — invoked from the new
     ``/api/oauth/start`` route to drive the SDK flow synchronously and
     broadcast the second ``auth_required`` event (carrying the real
@@ -64,6 +70,7 @@ def build_oauth_provider_for_source(
     *,
     consent_url_future: asyncio.Future[str] | None = None,
     allow_dcr_bootstrap: bool = False,
+    interactive: bool = True,
 ) -> httpx2.Auth | None:
     """Construct the appropriate OAuthClientProvider for ``source``, or None.
 
@@ -90,6 +97,14 @@ def build_oauth_provider_for_source(
     ``consent_url_future`` is forwarded to ``make_oauth_handlers``; when
     supplied, the redirect_handler resolves it with the authorization_url.
     The F6.5 L3 Test endpoint uses this; production chat paths pass None.
+
+    ``interactive`` (sortie 22) says whether anyone can answer an interactive
+    sign-in through this connection. With ``False`` the redirect handler
+    refuses the interactive step at once with ``SignInNotAvailable`` (nothing
+    registered, nothing broadcast); the SDK still tries the stored refresh
+    token first. Every pool connection and Test connection's saved-tokens phase
+    pass ``False``; ``/api/oauth/start`` and Test connection's Phase B keep
+    the default ``True`` and wait for consent.
     """
     # F6 L3: when no chat session is bound to the current task, no
     # provider can be constructed — the redirect_handler would have
@@ -114,6 +129,7 @@ def build_oauth_provider_for_source(
         resource_metadata_url=resource_metadata_url,
         source_name=source.name,
         consent_url_future=consent_url_future,
+        interactive=interactive,
     )
     storage = MCPSourceTokenStorage(repo, source.id)
     client_metadata = OAuthClientMetadata(

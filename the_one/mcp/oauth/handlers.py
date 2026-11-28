@@ -44,6 +44,14 @@ regardless of the synthetic-prefix length. The redirect_handler's
 synthetic shapes, so the ``auth_required`` broadcast becomes a guarded
 no-op — appropriate, since neither path has a chat UI to surface a
 modal.
+
+Waiting keys on ``interactive``, not on csid shape (sortie 22). With
+``interactive=False`` (every pool connection and Test connection's
+saved-tokens phase) the redirect handler refuses at once with
+``errors.SignInNotAvailable`` (an ``OAuthFlowError``) before registering
+state, resolving ``consent_url_future`` or broadcasting; an ``agent_build:``
+csid raises the same class. ``/api/oauth/start`` and Test connection's
+Phase B keep the default ``interactive=True`` and wait for consent.
 """
 
 from __future__ import annotations
@@ -56,6 +64,7 @@ from mcp.client.auth.exceptions import OAuthFlowError
 from mcp.shared.auth import AuthorizationCodeResult
 
 from the_one.mcp.oauth import _state
+from the_one.mcp.oauth.errors import SignInNotAvailable
 
 AGENT_BUILD_CSID_PREFIX = "agent_build:"
 
@@ -77,6 +86,7 @@ def make_oauth_handlers(
     *,
     source_name: str | None = None,
     consent_url_future: asyncio.Future[str] | None = None,
+    interactive: bool = True,
 ) -> tuple[
     Callable[[str], Awaitable[None]],
     Callable[[], Awaitable[AuthorizationCodeResult]],
@@ -113,11 +123,15 @@ def make_oauth_handlers(
 
     async def redirect_handler(authorization_url: str) -> None:
         """SDK-provided callback. Parse state, register, broadcast."""
-        if is_agent_build_csid(chat_session_id):
-            # An agent build has no chat to sign in through, so no code can
-            # ever arrive: refuse at once instead of waiting out the connect
-            # timeout. ``MCPClient.connect`` translates this to MCPAuthRequired.
-            raise OAuthFlowError("Authorization is required and no chat is available to sign in")
+        if not interactive or is_agent_build_csid(chat_session_id):
+            # No one can answer the sign-in on this connection (a pool
+            # connection, Test connection's saved-tokens phase, an agent
+            # build), so no code can ever arrive: refuse at once instead of
+            # waiting out the connect timeout, before any state is registered
+            # or broadcast. ``MCPClient`` translates this to MCPAuthRequired.
+            raise SignInNotAvailable(
+                "Authorization is required and no one is available to sign in here"
+            )
         qs = parse_qs(urlsplit(authorization_url).query)
         states = qs.get("state", [])
         state = states[0] if states else None

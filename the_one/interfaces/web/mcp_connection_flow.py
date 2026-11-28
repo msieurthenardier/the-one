@@ -45,6 +45,31 @@ async def _connect_with_tokens(
     record_era: bool,
     cache_write: Literal["none", "shared", "shared_no_posture"] = "shared",
 ) -> dict[str, Any]:
+    """Run :func:`_connect_with_tokens_inner` on its OWN task (sortie 22).
+
+    A refused sign-in (``interactive=False``) fails the SDK's transport task group at
+    once; ``MCPClient`` then abandons the transport stack, which leaves the cancelled
+    anyio scope entered on the task that ran ``connect``. That task would receive a
+    ``CancelledError`` at its next ``await``. The pool avoids it by connecting on a
+    worker task that simply ends; this does the same, so the route's own task (which
+    goes on to clear tokens and run Phase B) is never left inside a cancelled scope.
+    Awaiting the task directly keeps cancellation flowing outer -> inner.
+    """
+    return await asyncio.ensure_future(
+        _connect_with_tokens_inner(
+            source, source_id, repo, record_era=record_era, cache_write=cache_write
+        )
+    )
+
+
+async def _connect_with_tokens_inner(
+    source: MCPSource,
+    source_id: str,
+    repo: MCPSourceRepository,
+    *,
+    record_era: bool,
+    cache_write: Literal["none", "shared", "shared_no_posture"] = "shared",
+) -> dict[str, Any]:
     """Phase A of the Library Test, shared with the per-agent test route (sortie 09 DD6).
 
     Tokens present: build the OAuth provider WITHOUT a consent future (this path
@@ -75,6 +100,7 @@ async def _connect_with_tokens(
         tool_call_id=None,
         resource_metadata_url=None,
         consent_url_future=None,  # Phase A doesn't kick a flow
+        interactive=False,  # a dead refresh token falls through to Phase B at once
     )
     async with MCPClient(
         source=source,

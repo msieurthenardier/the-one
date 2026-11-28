@@ -83,7 +83,7 @@ async def test_start_404_on_unknown_source(client_and_repo) -> None:
 
 async def test_start_schedules_drive_flow_and_evicts_pool(client_and_repo) -> None:
     """A3 — happy path: 202 + ``status=started``, the F4 pool entry for the
-    source is evicted, and the background _drive_flow task is scheduled.
+    source is evicted, and the background sign-in flow task (mcp_oauth_flow) is scheduled.
 
     We patch ``httpx.AsyncClient`` inside the endpoint so the real network
     request is captured rather than sent.
@@ -138,7 +138,7 @@ async def test_start_schedules_drive_flow_and_evicts_pool(client_and_repo) -> No
 
     # Use start/stop on the patcher rather than ``with`` so the patch
     # remains active while the background task runs (the route schedules
-    # _drive_flow on a Task that may execute after the response returns).
+    # the sign-in flow on a Task that may execute after the response returns).
     patcher = patch("the_one.interfaces.web.api.httpx2.AsyncClient", _StubAsyncClient)
     patcher.start()
     try:
@@ -184,7 +184,7 @@ async def test_start_schedules_drive_flow_and_evicts_pool(client_and_repo) -> No
 async def test_start_driver_reads_handshake_version_at_call_time(
     client_and_repo, monkeypatch
 ) -> None:
-    """DD10: ``_drive_flow`` reads ``_HANDSHAKE_OFFER_VERSION`` per call."""
+    """DD10: the sign-in flow reads ``_HANDSHAKE_OFFER_VERSION`` per call."""
     c, repo = client_and_repo
     src = await repo.get("src-start-1")
     src.secrets["dcr_credentials"] = {

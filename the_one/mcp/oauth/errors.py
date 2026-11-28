@@ -9,10 +9,13 @@ MCPAuthRequired is canonical at the_one.mcp.errors as of F6 L0; re-exported
 here for back-compat with F5 callers.
 """
 
+from mcp.client.auth.exceptions import OAuthFlowError
+
 from the_one.mcp.errors import MCPAuthRequired, MCPClientError  # noqa: F401
 
 __all__ = [
     "MCPAuthRequired",
+    "SignInNotAvailable",
     "MCPOAuthError",
     "MCPOAuthDiscoveryError",
     "MCPOAuthRegistrationError",
@@ -57,4 +60,17 @@ class MCPOAuthRefreshFailed(MCPOAuthError):  # noqa: N818  (mandated by F5 §11 
     expired refresh token). Triggers re-auth in the agent loop: the next tool
     call surfaces a fresh auth_required event so the operator can re-consent.
     Operator sees: 'OAuth token refresh failed: <reason>. Please re-authenticate.'
+    """
+
+
+class SignInNotAvailable(OAuthFlowError):  # noqa: N818  (names the condition; subclass of the SDK's OAuthFlowError)
+    """The interactive sign-in step was refused because no one can answer it here.
+
+    Raised by ``redirect_handler`` (before any state is registered or broadcast)
+    for a connection built with ``interactive=False`` (every pool connection and
+    Test connection's saved-tokens phase) and for an ``agent_build:`` csid. It
+    subclasses the SDK's ``OAuthFlowError`` so ``MCPClient``'s
+    ``except* (OAuthFlowError, OAuthTokenError)`` arms turn it into
+    ``MCPAuthRequired``. A logging filter (``the_one.mcp.oauth._log_filter``)
+    drops the SDK's own "OAuth flow error" record for exactly this class.
     """
