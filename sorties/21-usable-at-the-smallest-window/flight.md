@@ -178,7 +178,7 @@ Verified against the working tree at `e3140b24` (rows marked A re-checked by the
 - [x] Tests passing
 - [x] Documentation updated
 - [ ] Issue #225 closed with a link to the PR
-- [ ] Follow-up comment on PR #393 (see the flight log's post-landing actions)
+- [x] Follow-up comment on PR #393 (see the flight log's post-landing actions)
 
 ### Verification
 - Charter criteria 1–3: `tests/browser/test_flow_narrow_layout.py` at 624×321 (Chromium and WebKit for the core assertions), 480×321 and 360×640.

@@ -187,4 +187,4 @@ Planning started 2026-11-27.
 - **Correction.** The tidy batch recorded "editor contract file 112 passed (both engines)". The debrief gate did not reproduce that on 83bf4b7a; this run could not reproduce the failure either, so that record is neither confirmed nor refuted by this host, and the test's WebKit reliability rests on the hardened listener, not on a reproduced cause.
 
 ## Post-landing actions
-- [ ] Add a comment to the closed PR #393 explaining what sortie 21 built and why the work became a sortie rather than Mission 38 Flight 1 (operator request, 2026-11-27). Show the operator the text before posting.
+- [x] Add a comment to the closed PR #393 explaining what sortie 21 built and why the work became a sortie rather than Mission 38 Flight 1 (operator request, 2026-11-27). Text shown to the operator, posted after the debrief was pushed: https://github.com/msieurthenardier/the-one/pull/393#issuecomment-7232288821
