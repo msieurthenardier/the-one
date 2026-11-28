@@ -460,7 +460,9 @@ def test_narrow_menu_replaces_the_tablist(engine_page: Page) -> None:
     assert out["kids"] == ["ui-tabs-menu", "tablist", "tabpanels"]
     assert out["hidden"] is True and out["tlDisplay"] == "none"
     assert out["haspopup"] == "menu" and out["expanded"] == "false"
-    assert out["popLabel"] == "Settings" and out["popLb"] is False  # the group name, by default `label`
+    assert (
+        out["popLabel"] == "Settings" and out["popLb"] is False
+    )  # the group name, by default `label`
     assert out["chevron"] and out["full"]
     assert out["opener"] == [True, None]
     assert out["panelLabelledby"] == "tt-tab-a"
@@ -513,7 +515,9 @@ def test_narrow_menu_choose_by_keyboard_and_mouse_commits(engine_page: Page) -> 
 
 def test_narrow_menu_item_goes_through_the_veto(engine_page: Page) -> None:
     p = engine_page
-    _narrow_mount(p, "{onBeforeChange: (id, commit) => { window.__asked = id; window.__pending = commit; }}")
+    _narrow_mount(
+        p, "{onBeforeChange: (id, commit) => { window.__asked = id; window.__pending = commit; }}"
+    )
     p.get_by_test_id(TRIGGER).click()
     p.get_by_test_id("t-c-menu-item").click()
     # Vetoed: asked once, nothing changed (label, check, selection, onChange).
@@ -553,8 +557,15 @@ def test_narrow_menu_indicator_on_trigger_and_item(engine_page: Page) -> None:
         " {id: 'c', label: 'Tools', testid: 't-c', indicator: '2 notices'}]}",
     )
     # The item carries it from construction; the trigger shows the current tab's only.
-    expect(p.get_by_role("menuitemradio", name="Tools, 2 notices", include_hidden=True)).to_have_count(1)
-    assert p.evaluate("() => document.querySelector('[data-testid=tt-tabs-menu-btn]').hasAttribute('aria-label')") is False
+    expect(
+        p.get_by_role("menuitemradio", name="Tools, 2 notices", include_hidden=True)
+    ).to_have_count(1)
+    assert (
+        p.evaluate(
+            "() => document.querySelector('[data-testid=tt-tabs-menu-btn]').hasAttribute('aria-label')"
+        )
+        is False
+    )
     p.evaluate("window.__tabs.select('c')")
     expect(p.get_by_role("button", name="Tools, 2 notices", exact=True)).to_have_count(1)
     assert (
@@ -565,11 +576,15 @@ def test_narrow_menu_indicator_on_trigger_and_item(engine_page: Page) -> None:
     )
     p.evaluate("window.__tabs.setIndicator('c', '1 notice')")
     expect(p.get_by_role("button", name="Tools, 1 notice", exact=True)).to_have_count(1)
-    expect(p.get_by_role("menuitemradio", name="Tools, 1 notice", include_hidden=True)).to_have_count(1)
+    expect(
+        p.get_by_role("menuitemradio", name="Tools, 1 notice", include_hidden=True)
+    ).to_have_count(1)
     # An indicator on a tab that is not current shows on its item only; the dot stays aria-hidden.
     p.evaluate("window.__tabs.setIndicator('a', '3 notices')")
     expect(p.get_by_role("button", name="Tools, 1 notice", exact=True)).to_have_count(1)
-    expect(p.get_by_role("menuitemradio", name="General, 3 notices", include_hidden=True)).to_have_count(1)
+    expect(
+        p.get_by_role("menuitemradio", name="General, 3 notices", include_hidden=True)
+    ).to_have_count(1)
     p.evaluate("window.__tabs.setIndicator('c', null)")
     expect(p.get_by_role("button", name="Tools", exact=True)).to_have_count(1)
     assert (
@@ -653,4 +668,6 @@ def test_destroy_unsubscribes_the_narrow_listener_and_closes_the_menu(engine_pag
     expect(p.get_by_test_id(TRIGGER)).to_have_attribute("aria-expanded", "false")
     # A width change after destroy does not rebuild or switch anything.
     p.set_viewport_size({"width": 1000, "height": 800})
-    assert p.evaluate("() => [window.__tabs.tablist.hasAttribute('hidden'), document.querySelectorAll('.ui-tabs-menu').length]") == [True, 1]
+    assert p.evaluate(
+        "() => [window.__tabs.tablist.hasAttribute('hidden'), document.querySelectorAll('.ui-tabs-menu').length]"
+    ) == [True, 1]

@@ -1025,16 +1025,29 @@ def test_secondary_wide_renders_buttons_before_cancel_like_extra(engine_page: Pa
                   window.__shell.secondaryButtons[0].querySelectorAll('svg').length]"""
     )
     assert out[0] == ["x-chat", "x-export"] and out[1] == 0
-    assert "btn-outlined-primary" in out[2] and "x-chat-cls" in out[2] and out[3] == "Chat" and out[4] == 1
+    assert (
+        "btn-outlined-primary" in out[2]
+        and "x-chat-cls" in out[2]
+        and out[3] == "Chat"
+        and out[4] == 1
+    )
     p.get_by_test_id("x-chat").click()
     p.get_by_test_id("x-export").click()
     assert p.evaluate("() => window.__calls") == ["chat:x-chat", "export:x-export"]
 
 
-def test_secondary_narrow_is_one_more_actions_menu_before_cancel_and_save(engine_page: Page) -> None:
+def test_secondary_narrow_is_one_more_actions_menu_before_cancel_and_save(
+    engine_page: Page,
+) -> None:
     p = engine_page
     _mount_secondary(p, 600)
-    assert _cluster(p) == ["editor-unsaved", "ui-menu-wrap", "c-btn", "s-btn", "t-btn"]  # Test stays a button
+    assert _cluster(p) == [
+        "editor-unsaved",
+        "ui-menu-wrap",
+        "c-btn",
+        "s-btn",
+        "t-btn",
+    ]  # Test stays a button
     trigger = p.get_by_test_id("editor-more-btn")
     expect(trigger).to_have_accessible_name("More actions")
     expect(trigger).to_have_attribute("aria-haspopup", "menu")
@@ -1064,7 +1077,9 @@ def test_secondary_narrow_is_one_more_actions_menu_before_cancel_and_save(engine
     expect(trigger).to_be_focused()
 
 
-def test_secondary_narrow_item_follows_the_wide_buttons_hidden_and_disabled(engine_page: Page) -> None:
+def test_secondary_narrow_item_follows_the_wide_buttons_hidden_and_disabled(
+    engine_page: Page,
+) -> None:
     p = engine_page
     _mount_secondary(p, 600)
     p.evaluate("() => { window.__shell.secondaryButtons[1].disabled = true; }")
@@ -1078,7 +1093,9 @@ def test_secondary_narrow_item_follows_the_wide_buttons_hidden_and_disabled(engi
     # Every button hidden: no trigger at all.
     p.evaluate("() => { window.__shell.secondaryButtons[1].hidden = true; }")
     expect(p.get_by_test_id("editor-more-btn")).to_have_count(0)
-    p.evaluate("() => window.__shell.secondaryButtons.forEach((b) => { b.hidden = false; b.disabled = false; })")
+    p.evaluate(
+        "() => window.__shell.secondaryButtons.forEach((b) => { b.hidden = false; b.disabled = false; })"
+    )
     expect(p.get_by_test_id("editor-more-btn")).to_have_count(1)
 
 
@@ -1086,12 +1103,16 @@ def test_secondary_resize_switches_modes_and_keeps_focus(engine_page: Page) -> N
     p = engine_page
     _mount_secondary(p, 1000)
     p.get_by_test_id("x-export").focus()
-    p.set_viewport_size({"width": 600, "height": 700})  # the focused button goes: focus to the trigger
+    p.set_viewport_size(
+        {"width": 600, "height": 700}
+    )  # the focused button goes: focus to the trigger
     expect(p.get_by_test_id("editor-more-btn")).to_be_focused()
     assert _cluster(p) == ["editor-unsaved", "ui-menu-wrap", "c-btn", "s-btn", "t-btn"]
     p.get_by_test_id("editor-more-btn").click()
     p.keyboard.press("ArrowDown")  # focus the Export item, then widen
-    p.set_viewport_size({"width": 1000, "height": 700})  # the item goes: focus to its counterpart button
+    p.set_viewport_size(
+        {"width": 1000, "height": 700}
+    )  # the item goes: focus to its counterpart button
     expect(p.get_by_test_id("x-export")).to_be_focused()
     assert _cluster(p) == ["editor-unsaved", "x-chat", "x-export", "c-btn", "s-btn", "t-btn"]
     # Focus elsewhere is untouched by a mode switch.
@@ -1113,9 +1134,13 @@ def test_secondary_destroy_releases_the_media_subscription(engine_page: Page) ->
 def test_secondary_unsubscribes_when_the_header_leaves_the_document(engine_page: Page) -> None:
     p = engine_page
     _mount_secondary(p, 1000)
-    p.set_viewport_size({"width": 600, "height": 700})  # a change while attached: the shell is seen in the document
+    p.set_viewport_size(
+        {"width": 600, "height": 700}
+    )  # a change while attached: the shell is seen in the document
     expect(p.get_by_test_id("editor-more-btn")).to_have_count(1)
-    p.evaluate("() => { window.__host = window.__shell.el.parentNode; window.__shell.el.remove(); }")
+    p.evaluate(
+        "() => { window.__host = window.__shell.el.parentNode; window.__shell.el.remove(); }"
+    )
     # WebKit updates .matches before it dispatches the media `change` event, so wait on the event
     # itself: this listener registers after the shell's, so it fires after the shell's handler ran
     # (while the header is still detached).
@@ -1131,7 +1156,9 @@ def test_secondary_unsubscribes_when_the_header_leaves_the_document(engine_page:
     p.set_viewport_size({"width": 600, "height": 700})
     p.wait_for_function("() => window.__narrowCount >= 1")
     p.set_viewport_size({"width": 1000, "height": 700})
-    p.wait_for_function("() => window.__wideCount >= 2")  # the change event, after the shell's handler
+    p.wait_for_function(
+        "() => window.__wideCount >= 2"
+    )  # the change event, after the shell's handler
     # Still the narrow DOM: it no longer follows (the wipe-time change dropped it).
     assert _cluster(p)[1] == "ui-menu-wrap"
 
@@ -1139,7 +1166,12 @@ def test_secondary_unsubscribes_when_the_header_leaves_the_document(engine_page:
 def test_a_shell_without_secondary_has_no_menu_and_ignores_resize(engine_page: Page) -> None:
     p = engine_page
     p.set_viewport_size({"width": 600, "height": 700})
-    _mount(p, "{actions: {save: {}, extra: [Object.assign(document.createElement('button'), {id: 'chat-x', textContent: 'Chat'})]}}")
-    assert p.evaluate("() => Array.from(document.querySelector('.form-actions').children).map((k) => k.id || k.className.split(' ')[0])")[:2] == ["editor-unsaved", "chat-x"]
+    _mount(
+        p,
+        "{actions: {save: {}, extra: [Object.assign(document.createElement('button'), {id: 'chat-x', textContent: 'Chat'})]}}",
+    )
+    assert p.evaluate(
+        "() => Array.from(document.querySelector('.form-actions').children).map((k) => k.id || k.className.split(' ')[0])"
+    )[:2] == ["editor-unsaved", "chat-x"]
     expect(p.get_by_test_id("editor-more-btn")).to_have_count(0)
     assert p.evaluate("() => window.__shell.secondaryButtons.length") == 0

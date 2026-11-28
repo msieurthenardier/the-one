@@ -261,7 +261,8 @@ def _open(context: BrowserContext, r: Rich, route: str) -> Page:
         tab = route.rsplit("/", 1)[1]
         page.wait_for_function(
             """(t) => !!document.querySelector(
-              `[data-testid="tab-${t}"][aria-selected="true"], [data-testid="tab-${t}-menu-item"][aria-checked="true"]`)""",
+              `[data-testid="tab-${t}"][aria-selected="true"],
+               [data-testid="tab-${t}-menu-item"][aria-checked="true"]`)""",
             arg=tab,
             timeout=15000,
         )
@@ -363,7 +364,9 @@ def test_short_window_composer_is_one_centred_row(
 ) -> None:
     """HAT batch 2: in a short window the attach button, the input and Send share one
     vertically centred row inside the box, and the input is the widest of them."""
-    context = credentialed_context(engine_browser, rich.base, viewport={"width": width, "height": 321})
+    context = credentialed_context(
+        engine_browser, rich.base, viewport={"width": width, "height": 321}
+    )
     try:
         page = _open_chat(context, rich)
         if with_attachment:
@@ -506,7 +509,9 @@ _HEADER_JS = """() => {
       if (!e.getClientRects().length) return;
       out.names.push(e.getAttribute('data-testid') || e.className.split(' ')[0]);
       const r = e.getBoundingClientRect();
-      if (r.right > vw + 1 || r.left < -1) out.over.push((e.getAttribute('data-testid') || e.tagName) + ':' + Math.round(r.right));
+      if (r.right > vw + 1 || r.left < -1) {
+        out.over.push((e.getAttribute('data-testid') || e.tagName) + ':' + Math.round(r.right));
+      }
     });
   });
   return out;
@@ -515,7 +520,11 @@ _HEADER_JS = """() => {
 
 def test_editor_headers_and_tabs_menu_fit_at_624x321(engine_browser: Browser, rich: Rich) -> None:
     routes = {
-        f"agents/{_nav.seg(rich.agent)}/general": ["editor-more-btn", "save-agent-btn", "agent-tabs-menu-btn"],
+        f"agents/{_nav.seg(rich.agent)}/general": [
+            "editor-more-btn",
+            "save-agent-btn",
+            "agent-tabs-menu-btn",
+        ],
         f"library/providers/{_nav.seg(rich.provider)}": ["test-connection-btn"],
         f"library/mcp/{_nav.seg(rich.mcp)}": [],
     }

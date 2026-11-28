@@ -1,4 +1,6 @@
-"""An editor header's secondary actions sit in a "More actions" menu below 768px (sortie 21 HAT feature).
+"""An editor header's secondary actions sit in a "More actions" menu below 768px.
+
+(Sortie 21 HAT feature.)
 
 The agent editor's Chat is a button at 768px and wider and an item of the ``editor-more-btn`` menu
 below. Choosing it starts the same pending chat; with a dirty editor the leave guard's Stay returns
@@ -46,14 +48,16 @@ def test_chat_is_in_the_more_actions_menu_and_starts_a_chat(
     # Cancel and Save are visible buttons, nothing sticks out past the right edge.
     expect(page.locator('[data-testid="save-agent-btn"]')).to_be_visible()
     box = page.evaluate(
-        "() => [document.querySelector('[data-testid=save-agent-btn]').getBoundingClientRect().right, innerWidth,"
+        "() => [document.querySelector('[data-testid=save-agent-btn]')"
+        ".getBoundingClientRect().right, innerWidth,"
         " document.documentElement.scrollWidth - document.documentElement.clientWidth]"
     )
     assert box[0] <= box[1] and box[2] <= 0, box
     # Record what chatWith is handed: the opener must be the visible control (the trigger).
     page.evaluate(
         """() => { const orig = App.chat.chatWith; window.__openers = [];
-          App.chat.chatWith = function (n, o) { window.__openers.push(o && o.opener && o.opener.dataset.testid);
+          App.chat.chatWith = function (n, o) {
+            window.__openers.push(o && o.opener && o.opener.dataset.testid);
             return orig.apply(this, arguments); }; }"""
     )
     page.locator(MORE).click()

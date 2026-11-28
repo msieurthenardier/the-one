@@ -42,9 +42,12 @@ def test_agent_tabs_are_a_menu_button_that_routes(app_with_agent: SeededApp, pag
     expect(page.get_by_role("tab")).to_have_count(0)
     expect(page.get_by_role("tabpanel", name="Tools")).to_have_count(1)
     _no_sideways_scroll(page)
-    assert page.evaluate(
-        "() => document.querySelector('#agent-tab-panel-tools').getAttribute('aria-labelledby')"
-    ) == "agent-tab-tools"
+    assert (
+        page.evaluate(
+            "() => document.querySelector('#agent-tab-panel-tools').getAttribute('aria-labelledby')"
+        )
+        == "agent-tab-tools"
+    )
     # The popup lists every tab, the current one checked; choose "Rules and notes".
     btn.click()
     expect(page.get_by_role("menu", name="Agent settings")).to_be_visible()
@@ -112,9 +115,7 @@ def test_tools_tab_indicator_shows_on_the_button_and_the_item(
     expect(page.get_by_role("button", name="Tools, 2 notices", exact=True)).to_have_count(1)
     expect(btn.locator(".ui-tab-indicator-dot")).to_have_count(1)
     btn.click()
-    expect(
-        page.get_by_role("menuitemradio", name="Tools, 2 notices", exact=True)
-    ).to_have_count(1)
+    expect(page.get_by_role("menuitemradio", name="Tools, 2 notices", exact=True)).to_have_count(1)
 
 
 def test_builtin_tools_categories_are_a_menu_button(app_clean: str, page: Page) -> None:

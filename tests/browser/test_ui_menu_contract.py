@@ -164,7 +164,11 @@ def test_checked_items_are_menuitemradio_and_popup_label_names_the_popup(
           };
         }"""
     )
-    assert out["roles"] == ["menuitemradio/true/-1", "menuitemradio/false/-1", "menuitemradio/false/-1"]
+    assert out["roles"] == [
+        "menuitemradio/true/-1",
+        "menuitemradio/false/-1",
+        "menuitemradio/false/-1",
+    ]
     assert out["label"] == "Pick one" and out["lb"] is False
     assert out["plain"] == ["menuitem/false"] * 4 and out["plainLb"] is True
     expect(p.get_by_role("button", name="Current")).to_have_count(1)
@@ -174,7 +178,9 @@ def test_set_item_checked_and_trigger_label(engine_page: Page) -> None:
     p = engine_page
     _mount(p)
     p.evaluate(RADIO_JS)
-    p.evaluate("() => { window.__r.setItemChecked(0, false); window.__r.setItemChecked(2, true); window.__r.setTriggerLabel('Three'); }")
+    p.evaluate(
+        "() => { window.__r.setItemChecked(0, false); window.__r.setItemChecked(2, true); window.__r.setTriggerLabel('Three'); }"
+    )
     assert p.evaluate(
         "() => Array.from(window.__r.popup.children).map((i) => i.getAttribute('aria-checked'))"
     ) == ["false", "false", "true"]
