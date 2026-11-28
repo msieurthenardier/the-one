@@ -459,6 +459,7 @@
       ctx.socket.close();
       ctx.holdQueue.destroy();
       ctx.transcript.clearLog();
+      if (typeof ctx.transcript.destroy === 'function') ctx.transcript.destroy();
       var nodes = [welcomeEl, chromeEl, copyLiveEl, chatsList && chatsList.el];
       for (var n = 0; n < nodes.length; n++) {
         if (nodes[n] && nodes[n].parentNode) nodes[n].parentNode.removeChild(nodes[n]);

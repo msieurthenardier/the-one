@@ -7,6 +7,8 @@ The drawer is a small GleepGlorp chat that sits beside the page you are on, so y
 - Choose the violet **Ask GleepGlorp** button in the bottom corner, or press Ctrl K and pick **Ask GleepGlorp**.
 - Choose **Close** in the drawer's header, or press Esc, to put it away. The drawer is always closed when the app loads.
 
+In a small window, narrower than 768 pixels, the drawer fills the whole area beside the left edge instead of sitting beside the page; the page behind it is switched off until you choose **Close** or press Esc. A form it fills in stays open under it, and choosing any other page puts the drawer away.
+
 The drawer is on Agents, Library and Settings. It isn't on [Chats](#chats), where you talk to GleepGlorp in the main chat instead, and it is hidden while GleepGlorp is turned off in [Settings › GleepGlorp](#settings/gleepglorp). If GleepGlorp needs a model, the drawer shows what is missing and a link to fix it.
 
 ## One conversation across pages

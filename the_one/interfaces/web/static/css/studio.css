@@ -397,7 +397,7 @@
   .area-studio .self-config-routine-history { gap: 0; }
   .area-studio .self-config-routine-history-row {
     display: grid;
-    grid-template-columns: 7rem 4.5rem minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 7rem) minmax(0, 4.5rem) minmax(0, 1fr) auto;
     align-items: baseline;
     column-gap: var(--space-3);
     padding: var(--space-2) 0;
@@ -514,7 +514,7 @@
     gap: 8px;
     flex-wrap: wrap;
   }
-  .area-studio .history-entry-change pre { flex: 1; min-width: 160px; margin: 0; }
+  .area-studio .history-entry-change pre { flex: 1; min-width: min(160px, 100%); margin: 0; }
   .area-studio .history-entry-arrow {
     color: var(--fg-muted);
     padding-top: 10px;
@@ -545,7 +545,7 @@
   }
   .area-studio .self-configuration-restore-node .restore-node-value {
     flex: 1;
-    min-width: 160px;
+    min-width: min(160px, 100%);
     margin: 0;
   }
   .area-studio .self-configuration-restore-node .revision-restore-btn {
@@ -1223,7 +1223,7 @@
 }
 .area-studio .routine-recent-run {
   display: grid;
-  grid-template-columns: 9rem 5.5rem minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 9rem) minmax(0, 5.5rem) minmax(0, 1fr) auto;
   align-items: baseline;
   column-gap: var(--space-3);
   padding: var(--space-2) 0;

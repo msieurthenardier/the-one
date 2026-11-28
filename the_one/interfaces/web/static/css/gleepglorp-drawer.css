@@ -6,6 +6,8 @@
   /* --drawer-w stays 320px for the Chats drawer; this drawer is 360px. The areas layer follows
      components, so this id rule wins over .ui-drawer's width. */
   #gleepglorp-drawer { width: 360px; }
+  /* Below 768px the drawer fills the pane right of the rail (App.ui.drawer 'fill'). */
+  #gleepglorp-drawer[data-mode="fill"] { width: auto; }
 
   /* The drawer's body is a column: the context line, the setup block, then the chat slot (Leg 3).
      The slot scrolls, not the drawer body, so the header and context line stay put. */
@@ -138,4 +140,12 @@
   .app-shell-row.gg-corner-on .area-studio .studio-editor,
   .app-shell-row.gg-corner-on .area-studio .studio-section-content,
   .app-shell-row.gg-corner-on .area-admin .admin-content { padding-bottom: 72px; }
+
+  /* Below 768px the list column fills the pane (one pane at a time, sortie 21 DD1), so its
+     last row can sit under the button; beside a main pane (768px and wider) the column is at
+     the left and cannot. The reservation sits on the element that scrolls: the list body, or the Settings nav. */
+  @media (max-width: 767.98px) {
+    .app-shell-row.gg-corner-on #app-sidebar .ui-list-pane-body,
+    .app-shell-row.gg-corner-on #app-sidebar .admin-settings-nav { padding-bottom: 72px; }
+  }
 }

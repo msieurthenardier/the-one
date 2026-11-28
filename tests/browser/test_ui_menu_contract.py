@@ -95,7 +95,9 @@ def test_menu_api_and_markup(engine_page: Page) -> None:
           };
         }"""
     )
-    assert out["keys"] == "close,destroy,el,isOpen,open,popup,setItemDisabled,trigger"
+    assert out["keys"] == (
+        "close,destroy,el,isOpen,open,popup,setItemChecked,setItemDisabled,setTriggerLabel,trigger"
+    )
     assert out["wrap"] == "ui-menu-wrap" and out["wrapPos"] == "relative"
     assert out["popRole"] == "menu" and out["popHidden"] is True and out["popParent"] is True
     assert out["idOk"] and out["controls"] and out["labelledby"]
@@ -124,6 +126,124 @@ def test_menu_icon_only_trigger_labels_popup_by_aria_label(engine_page: Page) ->
     )
     assert out == {"label": "More actions", "lb": False, "cls": "ui-menu ui-menu-align-end"}
     assert_controls_labelled_and_described(p, "#harness-root")
+
+
+# ── checkable items, popupLabel, setTriggerLabel (sortie 21 HAT feature) ────
+
+RADIO_JS = """() => {
+  window.__sel = [];
+  const c = App.ui.menu({
+    trigger: {label: 'Current', testid: 'r-trigger'}, popupLabel: 'Pick one', testid: 'r-popup',
+    items: [
+      {label: 'One', checked: true, testid: 'r-one', onSelect: (i) => window.__sel.push(i.label)},
+      {label: 'Two', checked: false, testid: 'r-two', onSelect: (i) => window.__sel.push(i.label)},
+      {label: 'Three', checked: false, testid: 'r-three', onSelect: (i) => window.__sel.push(i.label)},
+    ],
+  });
+  window.__r = c;
+  document.getElementById('harness-root').appendChild(c.el);
+  return true;
+}"""
+
+
+def test_checked_items_are_menuitemradio_and_popup_label_names_the_popup(
+    engine_page: Page,
+) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate(RADIO_JS)
+    out = p.evaluate(
+        """() => {
+          const c = window.__r, items = Array.from(c.popup.children);
+          return {
+            roles: items.map((i) => i.getAttribute('role') + '/' + i.getAttribute('aria-checked') + '/' + i.getAttribute('tabindex')),
+            label: c.popup.getAttribute('aria-label'), lb: c.popup.hasAttribute('aria-labelledby'),
+            // a plain menu on the same page is unchanged
+            plain: Array.from(window.__m.popup.children).map((i) => i.getAttribute('role') + '/' + i.hasAttribute('aria-checked')),
+            plainLb: window.__m.popup.hasAttribute('aria-labelledby'),
+          };
+        }"""
+    )
+    assert out["roles"] == [
+        "menuitemradio/true/-1",
+        "menuitemradio/false/-1",
+        "menuitemradio/false/-1",
+    ]
+    assert out["label"] == "Pick one" and out["lb"] is False
+    assert out["plain"] == ["menuitem/false"] * 4 and out["plainLb"] is True
+    expect(p.get_by_role("button", name="Current")).to_have_count(1)
+
+
+def test_set_item_checked_and_trigger_label(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate(RADIO_JS)
+    p.evaluate(
+        "() => { window.__r.setItemChecked(0, false); window.__r.setItemChecked(2, true); window.__r.setTriggerLabel('Three'); }"
+    )
+    assert p.evaluate(
+        "() => Array.from(window.__r.popup.children).map((i) => i.getAttribute('aria-checked'))"
+    ) == ["false", "false", "true"]
+    expect(p.get_by_test_id("r-trigger")).to_have_text("Three")
+    # A plain item and an unknown index are refused.
+    assert "not a checkable" in _throws(p, "window.__m.setItemChecked(0, true)")
+    assert "no item at index" in _throws(p, "window.__r.setItemChecked(9, true)")
+
+
+def test_checked_menu_keyboard_escape_and_choose(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate(RADIO_JS)
+    p.get_by_test_id("r-trigger").focus()
+    p.keyboard.press("ArrowDown")  # opens, focus on the first radio item
+    assert _active(p) == "r-one"
+    p.keyboard.press("ArrowDown")
+    assert _active(p) == "r-two"
+    p.keyboard.press("End")
+    assert _active(p) == "r-three"
+    p.keyboard.press("ArrowDown")  # wraps
+    assert _active(p) == "r-one"
+    # Roving tabindex keeps every radio item out of the tab order.
+    assert p.evaluate(
+        "() => Array.from(window.__r.popup.children).map((i) => i.getAttribute('tabindex'))"
+    ) == ["-1", "-1", "-1"]
+    p.keyboard.press("Escape")
+    assert p.evaluate("() => window.__r.isOpen()") is False
+    assert _active(p) == "r-trigger"
+    p.keyboard.press("Enter")
+    p.keyboard.press("ArrowDown")
+    p.keyboard.press("Enter")  # chooses Two: closes, focus back, onSelect runs
+    assert p.evaluate("() => [window.__r.isOpen(), window.__sel]") == [False, ["Two"]]
+    assert _active(p) == "r-trigger"
+
+
+def test_opening_focuses_the_checked_item_and_a_plain_menu_the_first(engine_page: Page) -> None:
+    p = engine_page
+    _mount(p)
+    p.evaluate(RADIO_JS)
+    p.evaluate("() => window.__r.setItemChecked(0, false)")
+    p.evaluate("() => window.__r.setItemChecked(1, true)")
+    p.get_by_test_id("r-trigger").focus()
+    p.keyboard.press("ArrowDown")  # opens on the checked item, not the first
+    assert _active(p) == "r-two"
+    p.keyboard.press("Escape")
+    p.get_by_test_id("r-trigger").click()  # mouse open: same
+    assert _active(p) == "r-two"
+    p.keyboard.press("Escape")
+    p.get_by_test_id("r-trigger").focus()
+    p.keyboard.press("ArrowUp")  # ArrowUp still opens on the last item
+    assert _active(p) == "r-three"
+    p.keyboard.press("Escape")
+    # A checked item that is disabled is skipped: the first enabled item takes focus.
+    p.evaluate("() => window.__r.setItemDisabled(1, true)")
+    p.get_by_test_id("r-trigger").focus()
+    p.keyboard.press("ArrowDown")
+    assert _active(p) == "r-one"
+    p.keyboard.press("Escape")
+    # A plain menu (no checked item) opens on its first enabled item.
+    p.get_by_test_id("m-trigger").focus()
+    p.keyboard.press("ArrowDown")
+    assert _active(p) == "m-rename"
 
 
 def test_menu_option_validation(engine_page: Page) -> None:

@@ -190,6 +190,19 @@ def test_scheme_switch(monkeypatch):
     assert _nav.route_from_hash("#library/mcp/~new") == "library/mcp/~new"
 
 
+def test_bare_href_is_the_literal_bare_destination_hash(monkeypatch):
+    monkeypatch.setattr(_nav, "SCHEME", "new")
+    assert _nav.bare_href("settings") == "#settings"
+    assert _nav.bare_href("chats") == "#chats"
+    # Unlike canonical(), a bare settings hash is not folded to the root page.
+    assert _nav.canonical("settings") == "settings/appearance"
+    assert _nav.bare_href("settings") != _nav.href("settings/appearance")
+    monkeypatch.setattr(_nav, "SCHEME", "legacy")
+    assert _nav.bare_href("settings") == "#admin"
+    with pytest.raises(ValueError):
+        _nav.bare_href("nowhere")
+
+
 def test_goto_builds_absolute_url_and_passes_kwargs():
     calls = []
 

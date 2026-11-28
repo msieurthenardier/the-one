@@ -44,6 +44,7 @@ LANES = (
     "contracts-widget",
     "contracts-widget-lifecycle",
     "contracts-controls",
+    "layout",
     "shared",
 )
 
@@ -295,7 +296,7 @@ def test_list_with_unknown_lane_exits_2_naming_every_lane() -> None:
     assert proc.returncode == 2
     lanes = (
         "chats|chats-transcript|chats-widgets|gleepglorp-chat|gleepglorp-fill|gleepglorp-kinds|agents|agent-tabs|agent-routines|library|knowledge|mcp|mcp-connection|routing|"
-        "settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|shared"
+        "settings|settings-tools|providers|contracts-overlay|contracts-chat|contracts-widget|contracts-widget-lifecycle|contracts-controls|layout|shared"
     )
     assert lanes in proc.stderr
     assert proc.stdout == ""

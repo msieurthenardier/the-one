@@ -142,6 +142,7 @@ caught — but it cannot see where the attribute is emitted.
 | `self-config-routines-waiting-summary` | studio | that expander's `<summary>` ("Waiting for approval" plus the count chip) (M33 F4 L06) |
 | `time-tool-note` | studio | The agent Tools tab's note on the `current_time` tool row: always available, even with a limited tool list (M28 F1 L3) |
 | `cancel-agent-btn` | studio | |
+| `editor-more-btn` | studio | The editor header's "More actions" menu trigger (`App.ui.editorShell` `actions.secondary`, sortie 21 HAT feature): below 768px it replaces the secondary header buttons (the agent editor's Chat); its items are `{secondary testid}-menu-item` (`agent-chat-btn-menu-item`), `role="menuitem"` |
 | `cancel-mcp-source-btn` | studio | |
 | `cancel-provider-btn` | admin | |
 | `cancel-tool-btn` | admin | |
@@ -180,6 +181,7 @@ caught — but it cannot see where the attribute is emitted.
 | `chat-drawer-rules` | chat | the drawer Rules group's bulleted `<ul>` of enabled rules (M27 F1 L2) |
 | `chat-drawer-rules-off` | chat | the Rules group's "{n} off" line, present only when some rules are disabled (M27 F1 L2) |
 | `chat-drawer-settings-link` | chat | The drawer footer's **Open agent settings** (`App.ui.button` secondary, the `settings` gear): `go(#agents/{name})`, then `App.studio.clearAgentFilter()` on a commit; its footer is hidden for a deleted or a loading agent (M25 F4 L6); for GleepGlorp (M36 F1 L04) the label is "Open GleepGlorp settings" and it goes to `#settings/gleepglorp` |
+| `chat-drawer-close` | chat | The agent panel header's Close button (sortie 21 L2; `App.ui.button` ghost, icon-only `x`, `aria-label="Close agent panel"`, `aria-keyshortcuts="Escape"`): shown only below 768px, while the panel fills the pane (CSS on the drawer's `data-mode="fill"`); it closes the panel and focus returns to the chat-header toggle |
 | `chat-drawer-toggle` | chat | The chat header's drawer toggle at its end (`btn-ghost btn-icon`, the `panel-right` icon, `aria-label="Show this chat's agent"`, `aria-pressed` = open, `aria-controls="chat-drawer"`); hidden while idle (M25 F4 L6) |
 | `chat-drawer-uses` | chat | The drawer's "What it can use" (A13): an `h3`, then `.chat-drawer-group[data-group=rules|knowledge|mcp|secrets|tools|self-configuration]` (Rules first, Secrets between MCP servers and Built-in tools in sortie 10, M27 F1 L2), each an `h4` over a list, "None", "Loading…" or "Couldn't load" (M25 F4 L6) |
 | `chat-discarded` | chat | The muted "Queued message discarded." line after "Stopped." when the Stop discarded a held message; never stored (M31 F6 L05c, B9) |
@@ -791,6 +793,7 @@ too-large or cut-off source.
 | `kb-folder-skip-counts` | studio | Knowledge detail view folder panel body — the last completed walk's persisted `skipped_dirs`/`skipped_entries`, as " · Skipped 2 folders, 1 file" after the Last checked text, naming only non-zero counts; absent until a walk has completed and when both counts are zero (DD-7, Flight 7 Leg 2; wording since the M31 F3 HAT) |
 | `kb-folder-status-error` | studio | Knowledge detail view folder panel body — the folder's own walk `error`, when set (M24 F06 L01) |
 | `kb-folder-watch-error` | studio | Knowledge detail view folder panel body — `watch_error`, when set (M24 F06 L01) |
+| `-tabs-menu-btn` | admin, studio | `{idPrefix}-tabs-menu-btn` from `App.ui.tabs` below 768px: the menu button that replaces the tablist and names the current tab (`agent-tabs-menu-btn` on the agent editor, `tools-tabs-menu-btn` on Built-in tools; sortie 21 HAT feature). Its menu items are `{tab testid}-menu-item` (`tab-general-menu-item`, `tab-tools-menu-item`, ...), `role="menuitemradio"` |
 | `kb-item-chunks-btn` | studio | Knowledge detail view item row overflow menu — "View chunks" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
 | `kb-item-source-btn` | studio | Knowledge detail view item row overflow menu — "View source" menuitem, same `_btn` indirection (M24 F06 L01; moved behind the overflow menu in L5-D4) |
 

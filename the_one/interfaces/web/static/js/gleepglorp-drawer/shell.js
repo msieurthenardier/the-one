@@ -25,6 +25,7 @@
   window.App = window.App || {};
 
   var PUSH_QUERY = '(min-width: 1280px)';
+  var NARROW_QUERY = '(max-width: 767.98px)';
   var LIBRARY_COLLECTIONS = ['providers', 'knowledge-bases', 'mcp-sources', 'connectors', 'secrets'];
   var TAB_LABELS = {
     general: 'General',
@@ -88,6 +89,7 @@
     var onChats = false;
     var userOpen = false;
     var contextText = '';
+    var mode = 'push'; // push | overlay | fill (applyMode)
 
     // ── The header: robot tile, title, (Leg 3: actions), labelled Close ─────
     var tile = el('span', { className: 'gg-drawer-tile' }, [App.ui.util.icon('bot')]);
@@ -140,7 +142,8 @@
       body: body,
       testid: 'gg-drawer',
       // Show the button first, so the drawer's own focus return finds it visible.
-      beforeClose: function () { if (canShow()) button.setHidden(false); },
+      // The cover is cleared first (focus must not return into an inert pane).
+      beforeClose: function () { syncCover(false); if (canShow()) button.setHidden(false); },
       onOpenChange: function (open) {
         userOpen = open;
         apply();
@@ -179,9 +182,25 @@
     function rescueFocus() {
       var active = document.activeElement;
       if (active && slot.contains(active)) {
+        // Below 768px the visible pane (the list or the detail) owns the fallback: <main> may be
+        // the hidden pane there, so never fall through to it; shellPane's own focus check
+        // (checkFocus on the next commit) handles a pane that could not take focus now.
+        if (App.shellPane && App.shellPane.visiblePane()) {
+          App.shellPane.focusVisible();
+          return;
+        }
         var main = document.getElementById('main-content');
         if (main) main.focus();
       }
+    }
+
+    // The shell cover: `inert` on both panes while the drawer is shown in fill mode.
+    function syncCover(shown) {
+      if (!App.shellPane) return;
+      App.shellPane.setCovered('gleepglorp', !!shown && mode === 'fill', {
+        el: slot,
+        close: function () { api.close(); }
+      });
     }
 
     function renderSetup() {
@@ -196,6 +215,8 @@
       var show = canShow();
       var drawerShown = show && userOpen;
       var buttonShown = show && !userOpen;
+      // Before any focus move: `inert` is set or cleared first.
+      syncCover(drawerShown);
       if (!drawerShown && !slot.hidden) rescueFocus();
       slot.hidden = !drawerShown;
       button.setHidden(!buttonShown);
@@ -253,10 +274,25 @@
     };
 
     // ── Width: push at 1280px and wider, overlay below ──────────────────────
+    // Below 768px: fill (the whole pane right of the rail; sortie 21 L2).
     var mq = typeof window.matchMedia === 'function' ? window.matchMedia(PUSH_QUERY) : null;
-    function applyMode() { drawer.setMode(mq && !mq.matches ? 'overlay' : 'push'); }
-    applyMode();
-    if (mq) mq.addEventListener('change', applyMode);
+    var mqNarrow = typeof window.matchMedia === 'function' ? window.matchMedia(NARROW_QUERY) : null;
+    function modeFor() {
+      if (mqNarrow && mqNarrow.matches) return 'fill';
+      return mq && !mq.matches ? 'overlay' : 'push';
+    }
+    function applyMode() {
+      var prev = mode;
+      mode = modeFor();
+      drawer.setMode(mode);
+      // A drawer open in a wide window does not suddenly cover the pane: entering fill closes it
+      // (through the drawer, so focus inside returns to the corner button).
+      if (mode === 'fill' && prev !== 'fill' && userOpen) api.close();
+      else apply();
+    }
+    mode = modeFor();
+    drawer.setMode(mode);
+    [mq, mqNarrow].forEach(function (q) { if (q) q.addEventListener('change', applyMode); });
 
     row.appendChild(button.el);
 

@@ -23,6 +23,20 @@
   // BEFORE App.ui.rail() and passed as its `footer`; onCommit never touches
   // it. Its click opens the palette (App.jumpTo, jump-to.js) with the control
   // as the opener; App.jumpTo is looked up at click time.
+  //
+  // Settings is the one exception (sortie 21 L1, DD3): its href is the bare
+  // `#settings` when Settings is current, or when its last route is the root
+  // page (Appearance), so a small window's rail click lands on the nav (the
+  // bare input is a bare intent) and not on a page. The route after the click
+  // is still the root page.
+  function railRoute(destId, currentId) {
+    if (destId === 'settings' &&
+        (currentId === 'settings' || App.router.lastRoute('settings') === App.router.root('settings'))) {
+      return 'settings';
+    }
+    return destId === currentId ? App.router.root(destId) : App.router.lastRoute(destId);
+  }
+
   function mountRail() {
     var host = document.getElementById('app-rail');
     var dests = App.router.destinations;
@@ -32,7 +46,7 @@
         id: dests[i].id,
         label: dests[i].label,
         icon: dests[i].iconKey,
-        href: '#' + App.router.lastRoute(dests[i].id),
+        href: '#' + railRoute(dests[i].id, null),
         testid: 'rail-' + dests[i].id
       });
     }
@@ -58,8 +72,7 @@
     App.router.onCommit(function (destId) {
       rail.setCurrent(destId);
       for (var k = 0; k < dests.length; k++) {
-        var route = dests[k].id === destId ? App.router.root(destId) : App.router.lastRoute(dests[k].id);
-        rail.setHref(dests[k].id, '#' + route);
+        rail.setHref(dests[k].id, '#' + railRoute(dests[k].id, destId));
       }
     });
   }

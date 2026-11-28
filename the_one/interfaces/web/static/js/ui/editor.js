@@ -64,6 +64,16 @@
   //     test {label 'Test', testid, onClick, className}: secondary, default size
   //       (same as Cancel and Save), with the play icon; no shrinking class.
   //     extra: nodes placed before Cancel.
+  //     secondary (sortie 21 HAT feature): [{label, icon, testid, className,
+  //       onClick({opener})}]. At 768px and wider each is an App.ui.button right after
+  //       the extra nodes, before Cancel (the controller's secondaryButtons). Below 768px
+  //       (App.ui.util.narrow) one App.ui.menu trigger (icon "more", aria-label "More
+  //       actions", testid editor-more-btn, align end) takes that place; its items are the
+  //       secondary actions (testid `<testid>-menu-item`), a hidden or disabled wide
+  //       button hides or disables its item. onClick gets the visible control as opener
+  //       (the button, or the menu trigger). The mode switches on the media change and
+  //       keeps focus; destroy() releases the media subscription (also released on the
+  //       first change after the header leaves the document). Test stays a button.
   //   div.form-actions holds span.editor-unsaved[role=status] first. The error
   //   (span.editor-error.ui-editor-error-row) is the header's last child, a
   //   full-width row under the title and the cluster (M31 F5 L05, A1); it
@@ -156,13 +166,108 @@
     if (actions.extra) {
       for (i = 0; i < actions.extra.length; i++) cluster.appendChild(actions.extra[i]);
     }
+    // secondary (sortie 21 HAT feature): the header's secondary actions. At 768px and wider
+    // each is a button in the place `extra` nodes take (before Cancel); below 768px
+    // (App.ui.util.narrow) one "More actions" menu replaces them, in the same place.
+    var secondary = actions.secondary || [];
+    var secondaryButtons = [];
+    var secondaryMenu = null;     // the App.ui.menu while narrow
+    var secondaryMenuSpecs = [];  // spec index of each menu item
+    var narrowMode = false;
+    var unsubscribeNarrow = null;
+    var observer = null;
+    var wasConnected = false;
+    var destroyed = false;
+    secondary.forEach(function (spec) {
+      var btn = App.ui.button({
+        variant: 'secondary',
+        icon: spec.icon,
+        label: spec.label,
+        className: spec.className,
+        testid: spec.testid,
+        onClick: function () {
+          if (typeof spec.onClick === 'function') spec.onClick({ opener: btn });
+        }
+      });
+      secondaryButtons.push(btn);
+    });
     var cancelButton = null;
+    var cancelAt = null; // the child the secondary controls go in front of
+    function insertSecondary(node) {
+      cluster.insertBefore(node, cancelAt);
+    }
+    function buildNarrowMenu() {
+      var items = [];
+      secondaryMenuSpecs = [];
+      secondary.forEach(function (spec, k) {
+        if (secondaryButtons[k].hidden) return;
+        var mi = {
+          label: spec.label,
+          icon: spec.icon,
+          disabled: secondaryButtons[k].disabled,
+          onSelect: function () {
+            if (typeof spec.onClick === 'function') spec.onClick({ opener: secondaryMenu.trigger });
+          }
+        };
+        if (spec.testid) mi.testid = spec.testid + '-menu-item';
+        items.push(mi);
+        secondaryMenuSpecs.push(k);
+      });
+      if (!items.length) return;
+      secondaryMenu = App.ui.menu({
+        trigger: { variant: 'secondary', iconOnly: true, icon: 'more', ariaLabel: 'More actions' },
+        popupLabel: 'More actions',
+        align: 'end',
+        items: items
+      });
+      secondaryMenu.trigger.setAttribute('data-testid', 'editor-more-btn');
+    }
+    // Draws the secondary controls for the current mode (wide buttons or the menu),
+    // keeping focus: a focused control that goes away hands it to its counterpart.
+    function renderSecondary() {
+      var active = document.activeElement;
+      var wasOnButton = secondaryButtons.indexOf(active) !== -1;
+      var menuSpec = null; // spec index the focus was on in the menu (-1 for the trigger)
+      if (secondaryMenu && secondaryMenu.el.contains(active)) {
+        var nodes = secondaryMenu.popup.querySelectorAll('[role="menuitem"]');
+        var at = Array.prototype.indexOf.call(nodes, active);
+        menuSpec = at === -1 ? -1 : secondaryMenuSpecs[at];
+      }
+      var k;
+      for (k = 0; k < secondaryButtons.length; k++) {
+        if (secondaryButtons[k].parentNode) secondaryButtons[k].parentNode.removeChild(secondaryButtons[k]);
+      }
+      if (secondaryMenu) {
+        secondaryMenu.destroy();
+        if (secondaryMenu.el.parentNode) secondaryMenu.el.parentNode.removeChild(secondaryMenu.el);
+        secondaryMenu = null;
+      }
+      if (narrowMode) {
+        buildNarrowMenu();
+        if (secondaryMenu) insertSecondary(secondaryMenu.el);
+        if ((wasOnButton || menuSpec !== null) && secondaryMenu) secondaryMenu.trigger.focus();
+      } else {
+        for (k = 0; k < secondaryButtons.length; k++) insertSecondary(secondaryButtons[k]);
+        if (menuSpec !== null) {
+          var target = menuSpec >= 0 ? secondaryButtons[menuSpec] : null;
+          if (!target || target.hidden) {
+            target = secondaryButtons.filter(function (b) { return !b.hidden; })[0];
+          }
+          if (target) target.focus();
+        }
+      }
+    }
     if (actions.cancel) {
       cancelButton = actionButton(actions.cancel, 'secondary', 'cancel-btn', 'Cancel');
       cluster.appendChild(cancelButton);
     }
     var saveButton = actionButton(actions.save, 'primary', 'save-btn', 'Save');
     cluster.appendChild(saveButton);
+    cancelAt = cancelButton || saveButton;
+    if (secondary.length) {
+      narrowMode = util.narrow.matches();
+      renderSecondary();
+    }
     var testButton = null;
     if (actions.test) {
       testButton = App.ui.button({
@@ -227,8 +332,40 @@
     }
     apply();
 
+    function destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      if (unsubscribeNarrow) unsubscribeNarrow();
+      if (observer) observer.disconnect();
+      if (secondaryMenu) secondaryMenu.destroy();
+    }
+    if (secondary.length) {
+      unsubscribeNarrow = util.narrow.subscribe(function (isNarrow) {
+        // A header wiped from the document without destroy() lets go on the next change.
+        if (header.isConnected) wasConnected = true;
+        else if (wasConnected) {
+          destroy();
+          return;
+        }
+        if (isNarrow === narrowMode) return;
+        narrowMode = isNarrow;
+        renderSecondary();
+      });
+      // The narrow menu follows a wide button's hidden and disabled state.
+      if (typeof MutationObserver === 'function') {
+        observer = new MutationObserver(function () {
+          if (narrowMode) renderSecondary();
+        });
+        secondaryButtons.forEach(function (b) {
+          observer.observe(b, { attributes: true, attributeFilter: ['hidden', 'disabled'] });
+        });
+      }
+    }
+
     return {
       el: header,
+      secondaryButtons: secondaryButtons,
+      destroy: destroy,
       titleEl: titleEl,
       errorEl: errorEl,
       cancelButton: cancelButton,

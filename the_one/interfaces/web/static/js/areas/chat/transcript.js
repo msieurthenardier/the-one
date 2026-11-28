@@ -48,9 +48,27 @@
     // cannot be re-measured, because the content already grew. The flag is true after content was
     // inserted while pinned and false once the reader scrolls away from the bottom.
     var pinnedFlag = true;
-    messagesEl.addEventListener('scroll', function () { pinnedFlag = isPinned(); });
+    // A hidden box (a narrow window showing the list pane) has no height and may report a reset
+    // scroll position: that is not the reader leaving the bottom, so it never clears the flag.
+    messagesEl.addEventListener('scroll', function () {
+      if (!messagesEl.clientHeight) return;
+      pinnedFlag = isPinned();
+    });
     function onChartLayout() {
       if (pinnedFlag) messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+    // Sortie 21 L1: a pinned transcript stays pinned when its box reappears or resizes (the chat
+    // pane shown after the list, a composer height change). Disconnected by destroy(), never by
+    // clearLog (which runs on every conversation change).
+    var resizeObserver = null;
+    if (typeof ResizeObserver === 'function') {
+      resizeObserver = new ResizeObserver(function () {
+        if (messagesEl.clientHeight) onChartLayout();
+      });
+      resizeObserver.observe(messagesEl);
+    }
+    function destroy() {
+      if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
     }
     // The one shared role=status node the "Copy reply" confirmations announce in (it lives
     // outside the role=log message list, so the confirmation is not read as a new message).
@@ -459,6 +477,7 @@
       addUserEvent: addUserEvent,
       scrollToBottomIfPinned: scrollToBottomIfPinned,
       clearLog: clearLog,
+      destroy: destroy,
       renderHistory: renderHistory,
       renderMarkdown: renderMarkdown,
       showModelLoading: showModelLoading,

@@ -283,6 +283,19 @@ def href(route: str) -> str:
     return hash_for(route)
 
 
+def bare_href(dest: str) -> str:
+    """The literal bare-destination hash for *dest* (``#settings``, never folded).
+
+    ``href("settings/appearance")`` is the root page's own route; the rail's Settings link is
+    the bare ``#settings`` when Settings is current or its last route is the root page, so a
+    narrow window's click lands on the nav (sortie 21 L1). ``canonical`` folds bare ``settings``
+    to ``settings/appearance`` for route comparisons; this does not.
+    """
+    if dest not in DESTINATIONS:
+        raise ValueError(f"unknown destination {dest!r} (want one of {DESTINATIONS})")
+    return hash_for(dest)
+
+
 # ── Page operations ───────────────────────────────────────────────────────
 
 

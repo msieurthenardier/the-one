@@ -2,6 +2,8 @@
 
 The app has four main pages, listed down the left edge: Chats, Agents, Library and Settings.
 
+In a small window, narrower than 768 pixels, the app shows one pane at a time: the page's list (or, in Settings, its menu of pages) or the item you opened. Choose an item to see it. To get back to the list or menu, choose the page's icon on the left again; this works for Settings too. In such a small window the agent's panel in a chat (the button at the right end of the chat's header) fills the whole area beside the left edge and the buttons behind it are switched off until you put it away: choose the **Close** button (an X) in the panel's header or press Esc. It starts closed each time you load the app, and choosing another page also puts it away. Window size does not change what you can do, only what is on screen at once.
+
 ## Chats
 
 [Chats](#chats) is where you talk to an agent. The list on the left holds your conversations, newest first, grouped by how recent they are. Choose **New chat** to pick who you want to talk to. The picker lists GleepGlorp under "Built in", then your recently used agents, then all your agents. You can search it by name, model or description.

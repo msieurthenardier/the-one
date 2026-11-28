@@ -100,6 +100,7 @@
 
   var STORAGE_KEY = 'chat-drawer-open';
   var PUSH_QUERY = '(min-width: 1280px)';
+  var NARROW_QUERY = '(max-width: 767.98px)'; // below 768px the panel fills the pane (sortie 21 L2)
   var STORES = ['agents', 'providers', 'knowledge-bases', 'mcp-sources', 'secrets', 'sessions'];
 
   function el(tag, attrs, children) {
@@ -146,7 +147,11 @@
   function create(opts) {
     opts = opts || {};
     var slot = opts.slot;
+    // `open.fill` (below 768px) is session-only: never read from or written to storage, false on
+    // every load and on every entry into fill.
     var state = { mode: 'push', open: readOpen() };
+    state.open.fill = false;
+    var focusOnOpen = false; // one-shot: the toggle opened the panel in fill; apply() consumes it
     var active = false;
     var view = null;
     var applying = false;
@@ -190,16 +195,48 @@
       footer: settingsBtn,
       reserveHeaderEnd: true, // room for the header's drawer toggle over the overlay
       testid: 'chat-drawer',
+      beforeClose: function () {
+        // Before the factory returns focus to the toggle: clear `inert` and show the toggle.
+        syncCover(false);
+      },
       onOpenChange: function (open) {
         // apply() opens and closes for visibility; only a change from inside
-        // the drawer (Escape) is the user's, and persists.
+        // the drawer (Escape) is the user's, and persists (never in fill: session-only).
         if (applying) return;
         state.open[state.mode] = open;
-        writeOpen(state.open);
-        toggle.setAttribute('aria-pressed', open ? 'true' : 'false');
+        if (state.mode !== 'fill') writeOpen(state.open);
+        syncCover(open);
       }
     });
     var footerEl = settingsBtn.parentNode; // the factory's .ui-drawer-footer
+
+    // The Close button (below 768px only; CSS shows it on data-mode="fill").
+    var closeBtn = App.ui.button({
+      variant: 'ghost',
+      icon: 'x',
+      iconOnly: true,
+      ariaLabel: 'Close agent panel',
+      className: 'chat-drawer-close',
+      testid: 'chat-drawer-close',
+      onClick: function () { drawer.close(); }
+    });
+    closeBtn.setAttribute('aria-keyshortcuts', 'Escape');
+    // The factory's header wrapper, reached through the heading node it placed there (never by
+    // position in the <aside>).
+    var headerEl = head.parentNode;
+    if (headerEl) headerEl.appendChild(closeBtn);
+
+    // One sync point for the shell cover (inert), the toggle's visibility and aria-pressed.
+    function syncCover(shown) {
+      var cover = !!shown && state.mode === 'fill';
+      if (App.shellPane) App.shellPane.setCovered('chat-drawer', cover, { el: drawer.el, close: closeFromShell });
+      toggle.hidden = !view || cover;
+      toggle.setAttribute('aria-pressed', shown ? 'true' : 'false');
+    }
+    function closeFromShell() {
+      state.open.fill = false;
+      apply();
+    }
 
     var toggle = App.ui.button({
       variant: 'ghost',
@@ -210,7 +247,8 @@
       testid: 'chat-drawer-toggle',
       onClick: function () {
         state.open[state.mode] = !state.open[state.mode];
-        writeOpen(state.open);
+        if (state.mode === 'fill') focusOnOpen = state.open.fill;
+        else writeOpen(state.open);
         apply();
       }
     });
@@ -598,29 +636,48 @@
 
     // Visibility: the one place the drawer opens, closes and changes mode.
     function apply() {
+      var focusIn = focusOnOpen;
+      focusOnOpen = false;
       drawer.setMode(state.mode);
+      // Without a chat or while inactive the fill state does not survive (session-only).
+      if (state.mode === 'fill' && (!active || !view)) state.open.fill = false;
       var want = active && !!view && !!state.open[state.mode];
       var was = drawer.isOpen();
+      // The cover is set (and the toggle hidden) before the drawer opens and cleared before it
+      // closes, so focus never moves while the panes are inert.
+      syncCover(want);
       applying = true;
-      if (want) drawer.open(toggle);
+      if (want) drawer.open(toggle, { focus: focusIn });
       else drawer.close();
       applying = false;
+      // Idempotent; once the drawer is shown it moves focus off <body> or an inert pane.
+      if (want) syncCover(true);
+      else if (was && App.shellPane.visiblePane() && (!document.activeElement || document.activeElement === document.body)) {
+        App.shellPane.focusVisible(); // the toggle is hidden (no chat): focus the visible pane
+      }
       if (want && !was) openGen += 1;
-      toggle.hidden = !view;
-      toggle.setAttribute('aria-pressed', want ? 'true' : 'false');
       if ((want && !was) || renderKey() !== lastKey) render();
     }
 
     var mql = typeof window.matchMedia === 'function' ? window.matchMedia(PUSH_QUERY) : null;
-    function onMedia(e) {
-      state.mode = e.matches ? 'push' : 'overlay';
+    var mqlNarrow = typeof window.matchMedia === 'function' ? window.matchMedia(NARROW_QUERY) : null;
+    function modeFor() {
+      if (mqlNarrow && mqlNarrow.matches) return 'fill';
+      return mql && !mql.matches ? 'overlay' : 'push';
+    }
+    function onMedia() {
+      var prev = state.mode;
+      state.mode = modeFor();
+      // Entering fill always starts closed (a resize from wide never opens the panel).
+      if (state.mode === 'fill' && prev !== 'fill') state.open.fill = false;
       apply();
     }
-    if (mql) {
-      state.mode = mql.matches ? 'push' : 'overlay';
-      if (typeof mql.addEventListener === 'function') mql.addEventListener('change', onMedia);
-      else if (typeof mql.addListener === 'function') mql.addListener(onMedia);
-    }
+    state.mode = modeFor();
+    [mql, mqlNarrow].forEach(function (q) {
+      if (!q) return;
+      if (typeof q.addEventListener === 'function') q.addEventListener('change', onMedia);
+      else if (typeof q.addListener === 'function') q.addListener(onMedia);
+    });
 
     var unsubs = [];
     function subscribeStore(name) {
@@ -636,10 +693,12 @@
       document.removeEventListener(App.approvals.CONFIG_CHANGED, onConfigChanged);
       for (var i = 0; i < unsubs.length; i++) unsubs[i]();
       unsubs = [];
-      if (mql) {
-        if (typeof mql.removeEventListener === 'function') mql.removeEventListener('change', onMedia);
-        else if (typeof mql.removeListener === 'function') mql.removeListener(onMedia);
-      }
+      [mql, mqlNarrow].forEach(function (q) {
+        if (!q) return;
+        if (typeof q.removeEventListener === 'function') q.removeEventListener('change', onMedia);
+        else if (typeof q.removeListener === 'function') q.removeListener(onMedia);
+      });
+      App.shellPane.setCovered('chat-drawer', false);
       drawer.destroy();
       if (toggle.parentNode) toggle.parentNode.removeChild(toggle);
     }

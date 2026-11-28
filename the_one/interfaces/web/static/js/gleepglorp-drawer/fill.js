@@ -81,7 +81,7 @@
       var nav;
       try {
         f.beforeNavigate(view);
-        nav =Promise.resolve(App.router.go(App.router.href(f.routeFor(view)), { opener: composerInput() }))
+        nav =Promise.resolve(App.router.go(App.router.href(f.routeFor(view)), { opener: composerInput(), keepCovered: true }))
           .then(function (went) {
             if (!went) return 'stay';
             return Promise.resolve(f.whenSettled(key)).then(function (ok) {

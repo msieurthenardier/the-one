@@ -194,3 +194,70 @@ def test_main_refuses_a_bad_combo_before_any_gtk(
     )
     assert code == 2
     assert "unknown modifier" in capsys.readouterr().err
+
+
+# ── --window-size (sortie 21 leg 3, DD9) ─────────────────────────────────────
+
+
+def test_window_size_defaults_to_the_old_hard_coded_size() -> None:
+    args = probe.parse_args(["--url", "http://127.0.0.1:8486/", "--data-dir", "/x"])
+    assert args.window_size == "1280x900"
+    assert probe.parse_window_size(args.window_size) == (1280, 900)
+
+
+@pytest.mark.parametrize(
+    ("text", "want"),
+    [
+        ("640x360", (640, 360)),
+        ("624x321", (624, 321)),
+        (" 200x200 ", (200, 200)),
+        ("8000x8000", (8000, 8000)),
+    ],
+)
+def test_window_size_parses(text: str, want: tuple[int, int]) -> None:
+    assert probe.parse_window_size(text) == want
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "640",
+        "640x",
+        "x360",
+        "640X360",
+        "640 360",
+        "0x0",
+        "-1x360",
+        "640x-3",
+        "6.5x360",
+        "199x300",
+        "300x199",
+        "8001x300",
+        "300x8001",
+        "99999x300",
+        "640x360x1",
+        "abc",
+    ],
+)
+def test_window_size_rejects_a_bad_size(text: str) -> None:
+    with pytest.raises(probe.ProbeError, match="--window-size"):
+        probe.parse_window_size(text)
+
+
+def test_main_refuses_a_bad_window_size_before_any_gtk(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(probe, "default_data_dir", lambda: tmp_path / "default")
+    code = probe.main(
+        [
+            "--url",
+            "http://127.0.0.1:8486/",
+            "--data-dir",
+            str(tmp_path / "scratch"),
+            "--window-size",
+            "640by360",
+        ]
+    )
+    assert code == 2
+    assert "--window-size" in capsys.readouterr().err

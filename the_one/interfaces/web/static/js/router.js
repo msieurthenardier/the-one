@@ -36,7 +36,7 @@
 // agent name's leading `~` as `%7E`, so a raw `~new` there only means create.
 //
 // Two URL primitives (DD4):
-//   go(route, {replace, bypassGuard, opener}) -> Promise<boolean>   user INTENT: runs the
+//   go(route, {replace, bypassGuard, opener, keepCovered}) -> Promise<boolean>   user INTENT: runs the
 //       leave guard, writes the URL (push or replace), hydrates the target.
 //       true = navigated, false = the user stayed.
 //   sync(areaId, sub, {name})   area-internal canonicalisation: always
@@ -315,11 +315,12 @@
       if (segs[1] === RESERVED_NEW) {
         return segs.length > 2
           ? mk('chats/' + RESERVED_NEW + '/' + segs[2], dest, 'new/' + segs[2], redirected || segs.length > 3)
-          : mk('chats', dest, null, true);
+          : markBare(mk('chats', dest, null, true));
       }
       route = segs.length > 1 ? 'chats/' + segs[1] : 'chats';
-      return mk(route, dest, segs.length > 1 ? 'sessions/' + segs[1] : null,
+      var chatsTarget = mk(route, dest, segs.length > 1 ? 'sessions/' + segs[1] : null,
         redirected || segs.length > 2);
+      return segs.length === 1 && !redirected ? markBare(chatsTarget) : chatsTarget;
     }
     if (head === 'agents') {
       if (segs[1] === RESERVED_NEW) {
@@ -335,12 +336,16 @@
         redirected = true;
       }
       route = segs.join('/');
-      return mk(route, dest, route, redirected);
+      var agentsTarget = mk(route, dest, route, redirected);
+      return segs.length === 1 && !redirected ? markBare(agentsTarget) : agentsTarget;
     }
     if (head === 'library') {
       // Library's own route (the start page), and the bare-section aliases
       // that fold to it (no id, no `~new`; any Library row in SECTIONS).
-      if (segs.length === 1) return mk('library', dest, 'library', redirected);
+      if (segs.length === 1) {
+        var libraryTarget = mk('library', dest, 'library', redirected);
+        return redirected ? libraryTarget : markBare(libraryTarget);
+      }
       if (segs.length === 2) {
         for (var li = 0; li < SECTIONS.length; li++) {
           if (SECTIONS[li].dest === 'library' && SECTIONS[li].route === segs[1]) {
@@ -359,7 +364,7 @@
     if (segs.length === 1) {
       var rootTarget = resolve(dest.root);
       rootTarget.redirected = true;
-      return rootTarget;
+      return markBare(rootTarget);
     }
     var row = null;
     for (var i = 0; i < SECTIONS.length; i++) {
@@ -372,6 +377,13 @@
       subParts.push(k === 0 && row.create && rest[k] === RESERVED_NEW ? 'new' : rest[k]);
     }
     return mk(segs.join('/'), dest, subParts.join('/'), redirected);
+  }
+
+  // `bare` marks a target whose INPUT was the bare destination (pane intent, see
+  // commit). Internal: the public resolve() wrapper never copies it.
+  function markBare(target) {
+    target.bare = true;
+    return target;
   }
 
   function mk(route, dest, sub, redirected) {
@@ -394,7 +406,10 @@
   var current = null;         // {route, destination, area, sub}
   var lastRoutes = {};        // destination -> last route visited
   var curSeq = 0;             // seq of the history entry the router is on
-  var deciding = null;        // {target, arrived, replace, waiters[]}
+  var deciding = null;        // {target, arrived, replace, opener, keepCovered, waiters[]}
+  // The decision applyDecision last committed (boot's commit bypasses applyDecision): read by
+  // onCommit subscribers through lastDecision().
+  var lastDecisionRec = { opener: null, arrived: true, keepCovered: false };
   var lastPopHash = null;     // the hash a popstate last handled (hashchange de-dupe)
 
   function seqOf(state) {
@@ -467,6 +482,41 @@
     var hooks = routeHooks.slice();
     for (var i = 0; i < hooks.length; i++) {
       try { hooks[i](describeCurrent()); } catch (err) { /* a subscriber must never break a commit */ }
+    }
+  }
+
+  // ── Pane intent (sortie 21 L1) ──────────────────────────────────────────
+  // Below 768px the shell shows one pane at a time (js/shell-pane.js). Which one
+  // is the operator's intent, kept here: `null` before the first commit, then
+  // 'list' or 'detail'. An intent go() to a bare destination input sets the
+  // sticky list flag, which survives the syncs an area makes after it (a join
+  // reply, a delete's auto-join) until the next commit or arrival. Arrivals
+  // and boot ignore bareness and use the settled route. `reverting` marks the
+  // router's own Stay revert (history.go), so its same-route popstate leaves
+  // the intent alone.
+  var paneIntent = null;
+  var listSticky = false;
+  var reverting = false;
+  var paneHooks = [];
+
+  function onPaneIntentChange(fn) {
+    paneHooks.push(fn);
+    return function unsubscribe() {
+      var idx = paneHooks.indexOf(fn);
+      if (idx !== -1) paneHooks.splice(idx, 1);
+    };
+  }
+
+  function isListRoute(route) {
+    return route === 'chats' || route === 'agents' || route === 'library';
+  }
+
+  function setPaneIntent(value) {
+    if (value === paneIntent) return;
+    paneIntent = value;
+    var hooks = paneHooks.slice();
+    for (var i = 0; i < hooks.length; i++) {
+      try { hooks[i](value); } catch (err) { /* a subscriber must never break a commit or a sync */ }
     }
   }
 
@@ -655,8 +705,12 @@
     // 4. current + lastRoute BEFORE hydrate, so syncs fired while hydrating
     //    are kept (the destination rule sees the new destination).
     inCommit = true;
+    reverting = false;
+    listSticky = !fresh && !!target.bare;
     try {
       current = { route: target.route, destination: target.destination, area: target.area, sub: target.sub };
+      // Provisional pane intent, so the area hydrates into a shown or hidden pane.
+      setPaneIntent(listSticky || isListRoute(target.route) ? 'list' : 'detail');
       lastRoutes[target.destination] = target.route;
       // 5. shell bits
       applyShell(target.destination);
@@ -679,6 +733,7 @@
     }
     // 9. route-change subscribers, once per commit: a sync made while this commit runs
     //    (hydrate, step 8) does not notify on its own, so the settled route is announced once.
+    setPaneIntent(listSticky || isListRoute(current.route) ? 'list' : 'detail');
     notifyRouteChange();
   }
 
@@ -732,6 +787,7 @@
       var replace = d.replace || !current || sameRoute(t.route, current.route);
       writeUrl(t.route, replace);
     }
+    lastDecisionRec = { opener: d.opener || null, arrived: !!d.arrived, keepCovered: !!d.keepCovered };
     commit(t, !!d.arrived);
   }
 
@@ -746,14 +802,16 @@
     } else if (live === curSeq) {
       history.replaceState({ seq: curSeq }, '', '#' + current.route);
     } else {
+      reverting = true; // its same-route popstate must leave the pane intent alone
       history.go(-(live - curSeq));
     }
   }
 
   function beginDecision(target, opts, arrived) {
+    reverting = false;
     deciding = {
       target: target, arrived: !!arrived, replace: !!(opts && opts.replace),
-      opener: (opts && opts.opener) || null, waiters: []
+      opener: (opts && opts.opener) || null, keepCovered: !!(opts && opts.keepCovered), waiters: []
     };
     return deciding;
   }
@@ -770,11 +828,15 @@
         deciding.target = target;
         deciding.replace = !!opts.replace;
         if (opts.opener) deciding.opener = opts.opener;
+        deciding.keepCovered = !!opts.keepCovered; // latest wins (never only set)
         deciding.waiters.push(resolvePromise);
         return;
       }
       if (opts.bypassGuard) {
-        applyDecision({ target: target, arrived: false, replace: !!opts.replace, waiters: [] });
+        applyDecision({
+          target: target, arrived: false, replace: !!opts.replace,
+          keepCovered: !!opts.keepCovered, waiters: []
+        });
         resolvePromise(true);
         return;
       }
@@ -823,7 +885,11 @@
       var elementOnly = resolve(location.hash).kind === 'element' && sameRoute(oldRoute, parsed.route);
       if (!elementOnly) writeUrl(parsed.route, true);
     }
-    if (!inCommit) notifyRouteChange();
+    if (!inCommit) {
+      if (isListRoute(parsed.route)) listSticky = true;
+      setPaneIntent(listSticky ? 'list' : 'detail');
+      notifyRouteChange();
+    }
     return true;
   }
 
@@ -849,12 +915,19 @@
     if (!deciding && current && sameRoute(r.route, current.route)) {
       // Our own Stay revert, or a return from an element-id fragment: no-op.
       if (seqOf(history.state) == null) rewriteInPlace(current.route);
+      if (reverting) {
+        reverting = false; // the Stay revert: the pane is as it was
+      } else {
+        listSticky = false;
+        setPaneIntent(isListRoute(current.route) ? 'list' : 'detail');
+      }
       return;
     }
     if (deciding) {
       // More traversals while a decision is pending: the latest target wins.
       deciding.target = r;
       deciding.arrived = true;
+      deciding.keepCovered = false; // a traversal always closes a covering drawer
       return;
     }
     beginDecision(r, null, true);
@@ -913,7 +986,13 @@
       return current ? { route: current.route, destination: current.destination, area: current.area, sub: current.sub } : null;
     },
     onCommit: onCommit,
+    // The applied decision {opener, arrived, keepCovered}, for onCommit subscribers (sortie 21 L2).
+    lastDecision: function () {
+      return { opener: lastDecisionRec.opener, arrived: lastDecisionRec.arrived, keepCovered: lastDecisionRec.keepCovered };
+    },
     onRouteChange: onRouteChange,
+    paneIntent: function () { return paneIntent; },
+    onPaneIntentChange: onPaneIntentChange,
     describeCurrent: describeCurrent,
     lastRoute: function (destId) { return lastRoutes[destId] || rootOf(destId); },
     isDeciding: function () { return !!deciding; }

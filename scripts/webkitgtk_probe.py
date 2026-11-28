@@ -205,8 +205,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "can a sandboxed widget frame reach the shell's bridge?); repeatable"
         ),
     )
+    ap.add_argument(
+        "--window-size",
+        default=DEFAULT_WINDOW_SIZE,
+        metavar="WxH",
+        help=(
+            "the window's default size in pixels (default 1280x900). It is the OUTER window\n"
+            "size: the viewport (innerWidth x innerHeight) can differ with the window\n"
+            "manager's decoration or the GDK scale, so read both from the page"
+        ),
+    )
     ap.add_argument("--timeout", type=int, default=60, help="hard timeout, seconds (default 60)")
     return ap.parse_args(argv)
+
+
+DEFAULT_WINDOW_SIZE = "1280x900"
+_WINDOW_SIZE = re.compile(r"^([1-9][0-9]{0,4})x([1-9][0-9]{0,4})$")
+WINDOW_SIZE_LIMITS = (200, 8000)
+
+
+def parse_window_size(text: str) -> tuple[int, int]:
+    """``--window-size`` as (width, height): ``WxH`` in whole pixels, each 200 to 8000."""
+    match = _WINDOW_SIZE.match(text.strip())
+    if not match:
+        raise ProbeError(f"--window-size {text!r}: expected WxH in whole pixels, e.g. 640x360")
+    width, height = int(match.group(1)), int(match.group(2))
+    low, high = WINDOW_SIZE_LIMITS
+    if not (low <= width <= high and low <= height <= high):
+        raise ProbeError(f"--window-size {text!r}: each side must be {low} to {high} pixels")
+    return width, height
 
 
 _HANDLER_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
@@ -270,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         setup_scripts = load_setup_scripts(args.setup_script)
         combos = [parse_key_combo(c) for c in args.press_keys]
         handler_names = validate_handler_names(args.register_message_handler)
+        window_size = parse_window_size(args.window_size)
         parts = urlsplit(args.url)
         origin = f"{parts.scheme}://{parts.netloc}"
         handoff_url = mint_handoff_url(origin, args.data_dir)
@@ -298,6 +326,7 @@ def main(argv: list[str] | None = None) -> int:
         ),
         "env": env,
         "theme": args.theme,
+        "window_size": f"{window_size[0]}x{window_size[1]}",
         "url": args.url,
         "root_selector": args.root_selector,
         "results": None,
@@ -341,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     view = WebKit2.WebView(web_context=context, user_content_manager=content)
     view.get_settings().set_hardware_acceleration_policy(WebKit2.HardwareAccelerationPolicy.NEVER)
     window = Gtk.Window(title="webkitgtk-probe")
-    window.set_default_size(1280, 900)
+    window.set_default_size(*window_size)
     window.add(view)
     window.show_all()
 

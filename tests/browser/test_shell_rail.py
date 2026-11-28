@@ -461,7 +461,7 @@ def test_rail_hrefs_follow_the_router_and_restore_the_last_item(
         "chats": _nav.href("chats"),
         "agents": _nav.href("agents"),
         "library": _nav.href("library"),
-        "settings": _nav.href("settings/appearance"),
+        "settings": _nav.bare_href("settings"),
     }
     expect(_rail(page, "chats")).to_have_attribute("aria-current", "page")
     # Open an agent: Agents is current, so its link points at its root.
@@ -477,7 +477,7 @@ def test_rail_hrefs_follow_the_router_and_restore_the_last_item(
     expect(_rail(page, "settings")).to_have_attribute("aria-current", "page")
     expect(_rail(page, "agents")).not_to_have_attribute("aria-current", "page")
     assert _rail(page, "agents").get_attribute("href") == _nav.href(f"agents/{agent}/general")
-    assert _rail(page, "settings").get_attribute("href") == _nav.href("settings/appearance")
+    assert _rail(page, "settings").get_attribute("href") == _nav.bare_href("settings")
     # Click Agents on the rail: the agent is restored (not the Agents root).
     _rail(page, "agents").click()
     _nav.expect_route(page, f"agents/{agent}/general")
@@ -493,7 +493,7 @@ def test_clicking_the_current_destination_resets_to_its_root(
 ) -> None:
     base = app_with_agent.base_url
     _boot(page, base, "settings/tools")
-    assert _rail(page, "settings").get_attribute("href") == _nav.href("settings/appearance")
+    assert _rail(page, "settings").get_attribute("href") == _nav.bare_href("settings")
     _rail(page, "settings").click()
     _nav.expect_route(page, "settings/appearance")
 
@@ -507,7 +507,11 @@ def test_rail_links_are_real_fragment_links_that_pass_modifier_clicks_through(
     # fragment hrefs a middle-click can open (the interceptor ignores modifiers).
     assert _rail(page, "library").get_attribute("href") == _nav.href("library")
     for dest in DESTS:
-        assert (_rail(page, dest).get_attribute("href") or "").startswith(_nav.href(dest))
+        href = _rail(page, dest).get_attribute("href") or ""
+        if dest == "settings":
+            assert href == _nav.bare_href(dest), href
+        else:
+            assert href.startswith(_nav.href(dest)), href
     info = page.evaluate(
         """() => {
           const out = [];

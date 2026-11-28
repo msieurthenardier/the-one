@@ -63,12 +63,16 @@
      base-layer rule cannot beat) keeps a hidden drawer out of the row. */
   /* The router stamps the destination on the aside (applyShell). Chats,
      Agents and Library host a list column (--list-w, 300px), Settings its nav
-     (--settings-nav-w): fixed widths at every supported width, down to the
-     1024px minimum (M25 F3 DD1; the detail pane gives up the width: 1024 -
-     72 - 300 = 652px). Chats joined them in M25 F4 L4a (DD5); before that it
+     (--settings-nav-w): fixed widths, side by side with the detail pane at
+     768px and wider (768 - 72 - 300 = 396px, above the 360px main floor).
+     Chats joined them in M25 F4 L4a (DD5); before that it
      took a 240px --sidebar-w that narrowed to 200px under 1280px, retired
-     with it. Below 1024px is unsupported (body keeps overflow: hidden, so
-     there is no horizontal scroll). (1,1,0) ties #app-sidebar[hidden], so
+     with it. Below 768px the shell shows ONE pane at a time (sortie 21 L1):
+     the router's pane intent is stamped on the row as data-pane
+     ("list" | "detail", js/shell-pane.js) and the rules after this comment
+     hide the other pane; 1024px is no longer the supported minimum (the
+     640px window minimum is). body keeps overflow: hidden, so there is no
+     horizontal scroll. (1,1,0) ties #app-sidebar[hidden], so
      these rules must never set display, so [hidden] still wins. A list
      column and the Settings nav set their own top padding (sections 3 and
      8.1), so the aside's 10px is zeroed where they are the column (Agents,
@@ -81,6 +85,21 @@
   #app-sidebar[data-destination="agents"],
   #app-sidebar[data-destination="library"],
   #app-sidebar[data-destination="settings"] { padding-top: 0; }
+  /* One pane below 768px (classic max-width form: the range syntax needs
+     WebKitGTK 2.40+; 767.98px closes the fractional gap). (1,2,0) beats the
+     (1,1,0) width rules above. Only the hidden pane sets display; the shown
+     one sets flex/width only, so [hidden] (a destination with no sidebar)
+     still wins. The list pane fills the area right of the rail:
+     flex 1 1 0 + min-width 0, so content can never push the row wider. */
+  @media (max-width: 767.98px) {
+    .app-shell-row[data-pane="detail"] > #app-sidebar,
+    .app-shell-row[data-pane="list"] > #main-content { display: none; }
+    .app-shell-row[data-pane="list"] > #app-sidebar {
+      flex: 1 1 0;
+      min-width: 0;
+      width: auto;
+    }
+  }
   .sidebar-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
   .sidebar-panel.active { display: flex; }
 

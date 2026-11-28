@@ -24,6 +24,11 @@
      overflow-y: auto here closes the nested-scrollbar bug surfaced on
      System (and previously on Design Language). */
   .area-admin .admin-form { flex: 1; padding: 0 32px 40px; max-width: 880px; }
+  /* Below 768px the 32px insets step down to 16px (sortie 21 DD7); the same for the tool list
+     and the open item further down. */
+  @media (max-width: 767.98px) {
+    .area-admin .admin-form { padding: 0 16px 40px; }
+  }
   .area-admin .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
 
   /* === System Panel (Appearance + Encryption + Base Prompt) === */
@@ -90,6 +95,10 @@
   /* The item's own 4px top padding plus the editor header's 12px give the header 16px of room
      under the hairline (no rule on the library header's class). */
   .area-admin .settings-item:not(:empty) { margin: 24px 32px 0; max-width: 816px; border-top: 1px solid var(--border); padding-top: 4px; padding-bottom: 40px; }
+  @media (max-width: 767.98px) {
+    .area-admin .settings-list { padding: 0 16px; }
+    .area-admin .settings-item:not(:empty) { margin: 24px 16px 0; }
+  }
   /* === Tools editor: Test connection (M31 F4 L07d) ===
      The input is a standard App.ui.field and the button sits on the input's line
      (the field is flush, so the input's bottom edge is the row's bottom, and the button

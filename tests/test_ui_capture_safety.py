@@ -207,6 +207,16 @@ def test_fixture_servers_record_the_pid_before_the_port_is_known(tmp_path: Path)
     assert servers.procs == {}
 
 
+def test_the_smallest_window_sizes_are_known_and_not_default() -> None:
+    """640x360 and 624x321 (sortie 21 DD9) are capturable; the default widths stay 1280,1024."""
+    assert cap.SIZES[640] == {"width": 640, "height": 360}
+    assert cap.SIZES[624] == {"width": 624, "height": 321}
+    assert cap.SIZES[1280] == {"width": 1280, "height": 900}
+    assert cap.SIZES[1024] == {"width": 1024, "height": 768}
+    assert cap.parse_args([]).widths == "1280,1024"
+    assert cap.parse_args(["--widths", "624,640"]).widths == "624,640"
+
+
 def test_widths_for_intersects_the_surface_with_the_request() -> None:
     both = cap.Surface("a", "#a", "x", "d")
     only_wide = cap.Surface("b", "#b", "x", "d", widths=(1280,))

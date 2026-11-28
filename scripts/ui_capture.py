@@ -76,7 +76,12 @@ VIEWPORT = {"width": 1280, "height": 900}  # the first of SIZES (kept for the ma
 SIZES: dict[int, dict[str, int]] = {
     1280: {"width": 1280, "height": 900},
     1024: {"width": 1024, "height": 768},
+    # The desktop minimum window and the 640px a half-screen gets at 1280 (sortie 21 DD9). The
+    # default --widths stays 1280,1024; ask for these with --widths 624,640.
+    640: {"width": 640, "height": 360},
+    624: {"width": 624, "height": 321},
 }
+DEFAULT_WIDTHS = (1280, 1024)
 # The scratch server's own system zone (tzlocal reads TZ), pinned so system mode is
 # the same on every host. The browser zone is pinned per surface (Surface.tz).
 SERVER_TZ = "America/Chicago"
@@ -3370,7 +3375,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--force", action="store_true", help="allow a non-empty --out")
     p.add_argument(
         "--widths",
-        default=",".join(str(w) for w in SIZES),
+        default=",".join(str(w) for w in DEFAULT_WIDTHS),
         help="comma-separated viewport widths to capture (default: %(default)s)",
     )
     p.add_argument(

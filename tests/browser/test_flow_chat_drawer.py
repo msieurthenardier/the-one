@@ -686,7 +686,9 @@ def test_the_drawer_subscribes_to_five_stores_and_releases_them_on_destroy(
     stores = ["agents", "knowledge-bases", "mcp-sources", "providers", "secrets", "sessions"]
     assert sorted(out["during"]) == stores and set(out["during"].values()) == {1}, out
     assert set(out["after"].values()) == {0}, out
-    assert (out["duringListeners"], out["afterListeners"]) == (1, 0), out
+    # Two matchMedia listeners while alive: the push/overlay query and, since sortie 21 leg 2,
+    # the narrow (fill) query. Both are released on destroy.
+    assert (out["duringListeners"], out["afterListeners"]) == (2, 0), out
     assert out["kids"] == 0 and out["hidden"] is True, out
 
 
