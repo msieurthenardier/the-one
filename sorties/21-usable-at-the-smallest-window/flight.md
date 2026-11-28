@@ -1,6 +1,6 @@
 # Sortie: Usable at the smallest window
 
-**Status**: landed
+**Status**: completed
 
 ## Charter
 

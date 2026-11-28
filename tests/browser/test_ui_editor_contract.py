@@ -1120,17 +1120,18 @@ def test_secondary_unsubscribes_when_the_header_leaves_the_document(engine_page:
     # itself: this listener registers after the shell's, so it fires after the shell's handler ran
     # (while the header is still detached).
     p.evaluate(
-        "() => { window.__wideSeen = false; const mq = window.matchMedia('(max-width: 767.98px)');"
-        " mq.addEventListener('change', () => { if (!mq.matches) window.__wideSeen = true; }); }"
+        "() => { window.__wideCount = 0; window.__narrowCount = 0;"
+        " window.__mq = window.matchMedia('(max-width: 767.98px)');"  # strong ref: no GC of the list
+        " window.__mq.addEventListener('change', () => {"
+        " if (window.__mq.matches) window.__narrowCount++; else window.__wideCount++; }); }"
     )
     p.set_viewport_size({"width": 1000, "height": 700})  # the change after the wipe lets go
-    p.wait_for_function("() => window.__wideSeen === true")
+    p.wait_for_function("() => window.__wideCount >= 1")
     p.evaluate("() => window.__host.appendChild(window.__shell.el)")
     p.set_viewport_size({"width": 600, "height": 700})
-    p.wait_for_function("() => window.matchMedia('(max-width: 767.98px)').matches")
-    p.evaluate("() => { window.__wideSeen = false; }")
+    p.wait_for_function("() => window.__narrowCount >= 1")
     p.set_viewport_size({"width": 1000, "height": 700})
-    p.wait_for_function("() => window.__wideSeen === true")  # the change event, after the shell's handler
+    p.wait_for_function("() => window.__wideCount >= 2")  # the change event, after the shell's handler
     # Still the narrow DOM: it no longer follows (the wipe-time change dropped it).
     assert _cluster(p)[1] == "ui-menu-wrap"
 
